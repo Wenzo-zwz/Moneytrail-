@@ -87,6 +87,8 @@ async function capturedBearer(client: SupabaseClient, userId: string, signal?: A
   return session.access_token;
 }
 
+export { capturedBearer as captureAccountBearer };
+
 export async function fetchCloudLedger(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<CloudSnapshot> {
   const token = await capturedBearer(client, userId, signal);
   let result;

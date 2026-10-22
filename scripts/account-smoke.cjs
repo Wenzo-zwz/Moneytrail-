@@ -73,6 +73,8 @@ function mockBackend() {
         return respond(user(id));
       }
       if (!id || !ledgers.has(id)) return respond({ code: "42501", message: "Not authenticated" }, 403);
+      if (url.pathname === "/rest/v1/rpc/moneytrail_is_admin") return respond(false);
+      if (url.pathname === "/rest/v1/rpc/moneytrail_admin_overview") return respond({ code: "42501", message: "Administrator access required" }, 403);
       if (url.pathname === "/rest/v1/moneytrail_ledgers") {
         assert.equal(request.method(), "GET");
         assert.equal(url.searchParams.get("user_id"), `eq.${id}`, "SDK query must select its own user");

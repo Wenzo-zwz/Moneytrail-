@@ -4,6 +4,7 @@ import { registerSW } from "virtual:pwa-register";
 import AccountApp from "./AccountApp";
 import "./styles.css";
 import "./auth.css";
+import "./admin.css";
 
 if (import.meta.env.PROD) registerSW({ immediate: true });
 

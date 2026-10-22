@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { ArrowDownToLine, Cloud, LogOut, RefreshCw, ShieldCheck, UserRound, X } from "lucide-react";
 import App from "./App";
@@ -8,6 +8,42 @@ import { createCloudStore, type CloudStore, type CloudStoreState } from "./lib/c
 import { planLegacyMigration } from "./lib/accountMigration";
 import { clearAccountCache } from "./lib/accountCache";
 import { clearStoredData, exportBackup, loadData, readStoredRaw } from "./lib/storage";
+import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/adminClient";
+
+const AdminPanel = lazy(() => import("./components/AdminPanel"));
+type AccountView = "ledger" | "admin";
+type AdminAccessState = { key: string; status: "loading" | "allowed" | "denied" | "unavailable" | "error"; message?: string };
+
+function readAccountView(): AccountView {
+  return new URLSearchParams(location.search).get("view") === "admin" ? "admin" : "ledger";
+}
+
+function useAdminAccess(client: SupabaseClient, session: Session, view: AccountView) {
+  const [attempt, setAttempt] = useState(0);
+  const [access, setAccess] = useState<AdminAccessState>({ key: "", status: "loading" });
+  const retry = useCallback(() => setAttempt(value => value + 1), []);
+  // The identity-bound key is kept only in memory and is never rendered or persisted.
+  const key = `${session.user.id}|${session.access_token}|${view}|${attempt}`;
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    const timeout = setTimeout(() => {
+      controller.abort();
+      if (active) setAccess({ key, status: "error", message: "管理员权限核验超时，请检查网络后重试。" });
+    }, 20_000);
+    void fetchAdminAccess(client, session.user.id, controller.signal).then(allowed => {
+      if (active && !controller.signal.aborted) setAccess({ key, status: allowed ? "allowed" : "denied" });
+    }).catch(error => {
+      if (!active || controller.signal.aborted) return;
+      setAccess({ key, status: error instanceof AdminAccessError ? "denied" : error instanceof AdminSetupError ? "unavailable" : "error", message: error instanceof Error ? error.message : "暂时无法确认管理员权限，请重试。" });
+    }).finally(() => clearTimeout(timeout));
+    return () => { active = false; clearTimeout(timeout); controller.abort(); };
+  }, [client, session.user.id, key]);
+  useEffect(() => {
+    window.addEventListener("focus", retry);
+    return () => window.removeEventListener("focus", retry);
+  }, [retry]);
+  return { ...(access.key === key ? access : { key, status: "loading" as const }), retry };
+}
 
 function download(text: string, filename: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
@@ -52,6 +88,19 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [recovery, setRecovery] = useState(false);
+  const [view, setView] = useState<AccountView>(readAccountView);
+  useEffect(() => {
+    const sync = () => setView(readAccountView());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  function navigate(next: AccountView) {
+    const url = new URL(location.href);
+    if (next === "admin") url.searchParams.set("view", "admin");
+    else url.searchParams.delete("view");
+    history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    setView(next);
+  }
   useEffect(() => {
     let active = true; let events = 0;
     // Keep this callback synchronous: calling another auth method here can deadlock the SDK.
@@ -76,10 +125,10 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
   if (error) return <main className="account-empty"><ShieldCheck /><h1>暂时无法读取账号</h1><p role="alert">{error}</p><button className="button secondary" onClick={() => location.reload()}>重新连接</button></main>;
   if (recovery) return <AuthForm key="recovery" client={client} initialMode="recovery" onRecoveryComplete={() => setRecovery(false)} />;
   if (!session) return <AuthForm key="login" client={client} legacyPresent={hasLegacyBook()} />;
-  return <CloudConnection key={session.user.id} client={client} projectUrl={projectUrl} session={session} />;
+  return <CloudConnection key={session.user.id} client={client} projectUrl={projectUrl} session={session} view={view} onView={navigate} />;
 }
 
-function CloudConnection({ client, projectUrl, session }: { client: SupabaseClient; projectUrl: string; session: Session }) {
+function CloudConnection({ client, projectUrl, session, view, onView }: { client: SupabaseClient; projectUrl: string; session: Session; view: AccountView; onView: (view: AccountView) => void }) {
   const [store, setStore] = useState<CloudStore | null>(null);
   useEffect(() => {
     // Each effect owns its store, including React StrictMode's setup/cleanup replay.
@@ -88,11 +137,12 @@ function CloudConnection({ client, projectUrl, session }: { client: SupabaseClie
     return () => next.dispose();
   }, [client, projectUrl, session.user.id]);
   if (!store) return <main className="account-loading"><RefreshCw className="auth-spinning" /><p>正在准备账户账本。</p></main>;
-  return <CloudLedger key={session.user.id} client={client} projectUrl={projectUrl} session={session} store={store} />;
+  return <CloudLedger key={session.user.id} client={client} projectUrl={projectUrl} session={session} store={store} view={view} onView={onView} />;
 }
 
-function CloudLedger({ client, projectUrl, session, store }: { client: SupabaseClient; projectUrl: string; session: Session; store: CloudStore }) {
+function CloudLedger({ client, projectUrl, session, store, view, onView }: { client: SupabaseClient; projectUrl: string; session: Session; store: CloudStore; view: AccountView; onView: (view: AccountView) => void }) {
   const state = useSyncExternalStore(store.subscribeState, store.getState);
+  const adminAccess = useAdminAccess(client, session, view);
   const dialog = useRef<HTMLDialogElement>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -102,6 +152,7 @@ function CloudLedger({ client, projectUrl, session, store }: { client: SupabaseC
   const [migrated, setMigrated] = useState(false);
   const [bookEpoch, setBookEpoch] = useState(0);
   const accountName = session.user.email || "当前账户";
+  useEffect(() => { if (view === "admin") { dialog.current?.close(); setNotice(""); } }, [view]);
 
   function backupAccount() {
     try {
@@ -181,8 +232,22 @@ function CloudLedger({ client, projectUrl, session, store }: { client: SupabaseC
 
   const controls = <button className="button secondary small account-control" onClick={() => dialog.current?.showModal()} aria-label="我的账户"><UserRound size={16} /><span>我的账户</span><SyncBadge state={state} /></button>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
+  const ledger = state.ready || state.recoveryError
+    ? <App key={bookEpoch} store={store} cloudMode accountControls={controls} accountPanel={panel} />
+    : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>;
   return <>
-    {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : state.ready || state.recoveryError ? <App key={bookEpoch} store={store} cloudMode accountControls={controls} accountPanel={panel} /> : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>}
+    {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>
+      <div hidden={view === "admin"}>{ledger}</div>
+      {view === "admin" && notice && <div className="account-panel" role="alert">{notice}</div>}
+      {view === "admin" && (adminAccess.status === "allowed"
+        ? <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开管理后台</h1></main>}><AdminPanel client={client} user={session.user} onBack={() => onView("ledger")} onSignOut={() => void signOut()} /></Suspense>
+        : <main className="account-empty" aria-busy={adminAccess.status === "loading"}>
+          {adminAccess.status === "loading" ? <RefreshCw className="auth-spinning" /> : <ShieldCheck />}
+          <h1>{adminAccess.status === "loading" ? "正在核验管理员权限" : adminAccess.status === "denied" ? "仅限管理员访问" : adminAccess.status === "unavailable" ? "管理后台尚未启用" : "暂时无法连接管理后台"}</h1>
+          {adminAccess.status !== "loading" && <p role="alert">{adminAccess.status === "denied" ? "当前账号没有后台权限，请返回个人账本。" : adminAccess.message}</p>}
+          <div className="account-actions"><button className="button secondary" onClick={() => onView("ledger")}>返回我的账本</button>{adminAccess.status !== "loading" && <button className="button secondary" onClick={adminAccess.retry}>重新核验权限</button>}<button className="button ghost" disabled={busy} onClick={() => void signOut()}>退出登录</button></div>
+        </main>)}
+    </>}
     {!leaving && <dialog className="account-dialog" ref={dialog} aria-labelledby="account-dialog-title">
       <div className="account-dialog-header"><h2 id="account-dialog-title">我的账户</h2><button className="icon-button" aria-label="关闭账户窗口" onClick={() => dialog.current?.close()}><X size={18} /></button></div>
       <div className="account-dialog-body">
@@ -193,6 +258,7 @@ function CloudLedger({ client, projectUrl, session, store }: { client: SupabaseC
         {legacy.present && <section className="migration-card"><h3>迁移原来的本机账本</h3>{legacy.error ? <p>旧本机账本暂时无法读取。原始数据保留，请下载备份后核对。</p> : <p>此浏览器保留着 {legacy.data.transactions.length} 笔旧记录。它们尚未因登录而自动上传。目标账户：{accountName}。</p>}<p>先下载完整备份，再确认合并。已有账户账目会保留；相近交易请自行核对。</p><div className="account-actions"><button className="button secondary" onClick={backupLegacy}>备份旧本机账本</button><button className="button primary" disabled={busy || !legacyBackup || Boolean(legacy.error) || !state.ready || Boolean(state.recoveryError) || state.phase === "conflict" || migrated} onClick={migrateLegacy}>{migrated ? "已合并，原副本保留" : "确认迁移至此账户"}</button>{migrated && <button className="button ghost" disabled={state.phase !== "saved" || busy} onClick={removeLegacy}>移除旧本机副本</button>}</div></section>}
         {notice && <p role="status" className="auth-feedback">{notice}</p>}
         <hr className="account-divider" /><p>账目按账户保存到云端；此设备的离线副本和导出备份仍是明文。共用设备使用后请退出。</p>
+        {adminAccess.status === "allowed" && <div className="account-actions"><button className="button secondary" onClick={() => { dialog.current?.close(); onView("admin"); }}><ShieldCheck size={16} />管理员后台</button></div>}
         <button className="button secondary" disabled={busy} onClick={() => void signOut()}><LogOut size={16} />退出登录并清除本机副本</button>
       </div>
     </dialog>}
