@@ -473,11 +473,13 @@ export default function App({
   cloudMode = false,
   accountControls,
   accountPanel,
+  onSmsAutomation,
 }: {
   store?: LedgerStore;
   cloudMode?: boolean;
   accountControls?: ReactNode;
   accountPanel?: ReactNode;
+  onSmsAutomation?: () => void;
 }) {
   const { loadData, saveData, restoreData, readStoredRaw } = store;
   const [initial] = useState(() => loadData());
@@ -741,6 +743,7 @@ export default function App({
       return;
     }
     prepareDrafts([result.draft], result.warnings);
+    if (result.requiresReview) setPreviews(current => current.map(item => ({ ...item, selected: false, warnings: [...item.warnings, "请先判断实际用途，再选择是否作为支出保存。"] })));
   }
   async function readCsv(file?: File) {
     if (!file) return;
@@ -1492,6 +1495,7 @@ export default function App({
                           <p className="help-text">
                             每次识别一条。自动提取金额和时间；短信没有的商户信息，需要你补充。
                           </p>
+                          {onSmsAutomation && <button className="button secondary small" onClick={onSmsAutomation}><Smartphone size={16} />设置短信自动记账</button>}
                         </div>
                         <div className="form-actions">
                           <button
@@ -1587,7 +1591,7 @@ export default function App({
                       </div>
                     </div>
                     <p className="help-text">
-                      当前支持粘贴短信，尚未接入后台自动记账。
+                      {onSmsAutomation ? "在短信自动记账中连接 iPhone 快捷指令。群收款每次待确认，确认后才计入账本。" : "当前支持粘贴短信。登录云端账户后可连接 iPhone 快捷指令。"}
                     </p>
                   </aside>
                 </div>
@@ -1771,8 +1775,9 @@ export default function App({
                     {cloudMode ? "首次联网登录并读取账本后可离线记账，联网后同步。账单文件在本机解析，经你确认保存的记录会同步至当前账户。" : "首次联网加载后，生产版本支持离线记账。数据保存在本机，导入的账单不会上传到服务器。"}
                   </p>
                   <div className="notice warning">
-                    当前版本支持粘贴短信与账单导入。短信自动采集还需要配置快捷指令并进行真机验证，尚未实现后台自动入账。
+                    {onSmsAutomation ? "短信自动接收需要在 iPhone 快捷指令中配置一次。仅明确识别的工行消费可自动入账，群收款和不明确的记录每次待确认。" : "当前支持粘贴短信与账单导入。登录云端账户后可配置 iPhone 快捷指令接收短信。"}
                   </div>
+                  {onSmsAutomation && <button className="button secondary" onClick={onSmsAutomation}><Smartphone size={17} />短信自动记账</button>}
                 </section>
                 <section className="setting-card">
                   <div className="setting-heading">

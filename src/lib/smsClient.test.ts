@@ -1,0 +1,174 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, revokeSmsToken, rotateSmsToken, setSmsMode,
+  type SmsConfig, type SmsDraft, type SmsInbox,
+} from "./smsClient";
+
+const project = "https://sms-test.supabase.co";
+const alice = "11111111-1111-4111-8111-111111111111";
+const bob = "22222222-2222-4222-8222-222222222222";
+const inboxId = "33333333-3333-4333-8333-333333333333";
+const at = "2026-10-22T11:27:00.123456+00:00";
+const capability = `mt_sms_${"a".repeat(64)}`;
+const session = (id = alice, token = "token-A") => ({ user: { id }, access_token: token, refresh_token: "refresh", token_type: "bearer", expires_in: 3600 }) as Session;
+const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+const config = (): SmsConfig => ({ enabled: true, mode: "auto", created_at: at, last_received_at: at, pending_count: 1 });
+const draft = (): SmsDraft => ({ kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" });
+const inbox = (): SmsInbox => ({ items: [{ id: inboxId, received_at: at, status: "pending", raw_text: "尾号xxxx卡支出30.90元。【工商银行】", draft: draft(), warnings: ["群收款需要确认用途。"], reason: null, transaction_id: null }], total: 1, page: 1, page_size: 20 });
+let client: SupabaseClient;
+let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
+beforeEach(() => {
+  fetchMock = vi.fn<typeof fetch>();
+  client = createClient(project, "sb_publishable_sms_test", {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, global: { fetch: fetchMock },
+  });
+  vi.spyOn(client.auth, "getSession").mockResolvedValue({ data: { session: session() }, error: null });
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe("account-bound SMS automation transport", () => {
+  it("sends only capability settings to their named RPCs, without an owner or stored SMS token", async () => {
+    fetchMock.mockResolvedValueOnce(response(config()))
+      .mockResolvedValueOnce(response({ token: capability, config: config() }))
+      .mockResolvedValueOnce(response({ ...config(), mode: "review" }))
+      .mockResolvedValueOnce(response({ ...config(), enabled: false }));
+    expect(await fetchSmsConfig(client, alice)).toEqual(config());
+    expect(await rotateSmsToken(client, alice, "auto")).toEqual({ token: capability, config: config() });
+    expect((await setSmsMode(client, alice, "review")).mode).toBe("review");
+    expect((await revokeSmsToken(client, alice)).enabled).toBe(false);
+    expect(fetchMock.mock.calls.map(([url, init]) => ({ path: new URL(String(url)).pathname, body: JSON.parse(String(init?.body)), method: init?.method }))).toEqual([
+      { path: "/rest/v1/rpc/moneytrail_sms_config", body: {}, method: "POST" },
+      { path: "/rest/v1/rpc/moneytrail_sms_rotate", body: { p_mode: "auto" }, method: "POST" },
+      { path: "/rest/v1/rpc/moneytrail_sms_set_mode", body: { p_mode: "review" }, method: "POST" },
+      { path: "/rest/v1/rpc/moneytrail_sms_revoke", body: {}, method: "POST" },
+    ]);
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(String(url)).not.toContain(capability);
+      expect(String(init?.body)).not.toContain(capability);
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token-A");
+    }
+  });
+
+  it("captures the original account bearer before a later SDK session switch", async () => {
+    vi.mocked(client.auth.getSession).mockResolvedValueOnce({ data: { session: session() }, error: null })
+      .mockResolvedValue({ data: { session: session(bob, "token-B") }, error: null });
+    fetchMock.mockImplementation(async (_url, init) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token-A");
+      return response({ token: capability, config: config() });
+    });
+    expect((await rotateSmsToken(client, alice, "auto")).token).toBe(capability);
+  });
+
+  it.each([null, session(bob)])("rejects missing or changed accounts before a write", async (current) => {
+    vi.mocked(client.auth.getSession).mockResolvedValue(current
+      ? { data: { session: current }, error: null }
+      : { data: { session: null }, error: null });
+    await expect(rotateSmsToken(client, alice, "auto")).rejects.toThrow("账号已发生变化");
+    await expect(confirmSms(client, alice, inboxId, draft())).rejects.toThrow("账号已发生变化");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches a bounded inbox and confirms only the edited draft and message ID", async () => {
+    fetchMock.mockResolvedValueOnce(response(inbox()))
+      .mockResolvedValueOnce(response({ status: "recorded", transaction_id: `sms-${inboxId}` }))
+      .mockResolvedValueOnce(response({ status: "dismissed" }));
+    expect(await fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).toEqual(inbox());
+    const edited = { ...draft(), kind: "transfer" as const, note: "纯转账" };
+    expect(await confirmSms(client, alice, inboxId, edited)).toEqual({ status: "recorded", transaction_id: `sms-${inboxId}` });
+    expect(await dismissSms(client, alice, inboxId)).toEqual({ status: "dismissed" });
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { p_page: 1, p_page_size: 20 }, { p_id: inboxId, p_draft: edited }, { p_id: inboxId },
+    ]);
+  });
+
+  it("keeps processed entries free of original text and validates their fixed transaction identity", async () => {
+    const data = inbox();
+    Object.assign(data.items[0], { status: "recorded", raw_text: null, transaction_id: `sms-${inboxId}` });
+    fetchMock.mockResolvedValue(response(data));
+    expect((await fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).items[0].raw_text).toBe(null);
+    data.items[0].raw_text = "account balance must not survive processing";
+    fetchMock.mockResolvedValue(response(data));
+    await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).rejects.toThrow("格式不正确");
+  });
+
+  it.each(["PGRST202", "42883", "42P01", "PGRST205"])("explains missing setup %s without exposing backend diagnostics", async (code) => {
+    fetchMock.mockResolvedValue(response({ code, message: "PRIVATE DIAGNOSTIC" }, 404));
+    const task = fetchSmsConfig(client, alice);
+    await expect(task).rejects.toBeInstanceOf(SmsSetupError);
+    await expect(task).rejects.not.toThrow("PRIVATE DIAGNOSTIC");
+  });
+
+  it("maps account and network errors without leaking original exceptions", async () => {
+    fetchMock.mockResolvedValueOnce(response({ code: "42501", message: "PRIVATE" }, 403));
+    await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).rejects.toThrow("邮箱已验证");
+    fetchMock.mockResolvedValueOnce(response({ code: "28000", message: "PRIVATE" }, 400));
+    await expect(revokeSmsToken(client, alice)).rejects.toThrow("登录状态已过期");
+    fetchMock.mockRejectedValueOnce(new Error("private network credentials"));
+    const task = fetchSmsConfig(client, alice);
+    await expect(task).rejects.toThrow("检查网络");
+    await expect(task).rejects.not.toThrow("credentials");
+  });
+
+  it("rejects invalid inputs before session access or network calls", async () => {
+    await expect(fetchSmsInbox(client, alice, { page: 0, pageSize: 20 })).rejects.toThrow("页码无效");
+    await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 51 })).rejects.toThrow("页码无效");
+    await expect(setSmsMode(client, alice, "unexpected" as "auto")).rejects.toThrow("有效的短信记账方式");
+    await expect(dismissSms(client, alice, "forged")).rejects.toThrow("编号无效");
+    await expect(confirmSms(client, alice, inboxId, { ...draft(), amountCents: 1.1 })).rejects.toThrow("有效的短信金额");
+    await expect(confirmSms(client, alice, inboxId, { ...draft(), date: "2026-02-30T12:00" })).rejects.toThrow("有效的短信金额");
+    await expect(confirmSms(client, alice, inboxId, Object.assign(draft(), { sourceRef: "target another transaction" }))).rejects.toThrow("有效的短信金额");
+    expect(client.auth.getSession).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    (value: SmsConfig) => { value.pending_count = 201; },
+    (value: SmsConfig) => { value.enabled = "true" as unknown as boolean; },
+    (value: SmsConfig) => { value.created_at = null; },
+    (value: SmsConfig) => { value.last_received_at = "2026-02-30T12:00:00Z"; },
+    (value: SmsConfig) => { Object.assign(value, { token: capability }); },
+  ])("rejects malformed or secret-expanded configuration", async (alter) => {
+    const value = config(); alter(value); fetchMock.mockResolvedValue(response(value));
+    await expect(fetchSmsConfig(client, alice)).rejects.toThrow("格式不正确");
+  });
+
+  it.each([
+    (value: SmsInbox) => { value.items[0].draft!.amountCents = -1; },
+    (value: SmsInbox) => { value.items[0].draft!.source = "manual" as "sms"; },
+    (value: SmsInbox) => { value.items[0].draft!.category = "other"; },
+    (value: SmsInbox) => { value.items[0].warnings = ["x".repeat(501)]; },
+    (value: SmsInbox) => { value.items[0].raw_text = "x".repeat(2001); },
+    (value: SmsInbox) => { value.items[0].transaction_id = `sms-${bob}`; },
+    (value: SmsInbox) => { value.page = 2; },
+    (value: SmsInbox) => { value.page_size = 50; },
+    (value: SmsInbox) => { value.total = 0; },
+    (value: SmsInbox) => { value.items.push(value.items[0]); value.total = 2; },
+    (value: SmsInbox) => { Object.assign(value.items[0], { user_id: bob }); },
+  ])("rejects invalid, overbroad, or inconsistent inbox responses", async (alter) => {
+    const value = inbox(); alter(value); fetchMock.mockResolvedValue(response(value));
+    await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).rejects.toThrow("格式不正确");
+  });
+
+  it("refuses an invalid capability and acknowledgements for a different record", async () => {
+    fetchMock.mockResolvedValueOnce(response({ token: "mt_sms_short", config: config() }))
+      .mockResolvedValueOnce(response({ status: "recorded", transaction_id: `sms-${bob}` }))
+      .mockResolvedValueOnce(response({ status: "recorded" }));
+    await expect(rotateSmsToken(client, alice, "auto")).rejects.toThrow("格式不正确");
+    await expect(confirmSms(client, alice, inboxId, draft())).rejects.toThrow("格式不正确");
+    await expect(dismissSms(client, alice, inboxId)).rejects.toThrow("格式不正确");
+  });
+
+  it("stops requests before capture and discards responses arriving after cancellation", async () => {
+    const before = new AbortController(); before.abort();
+    await expect(fetchSmsConfig(client, alice, before.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(client.auth.getSession).not.toHaveBeenCalled();
+    const capture = new AbortController();
+    vi.mocked(client.auth.getSession).mockImplementationOnce(async () => { capture.abort(); return { data: { session: session() }, error: null }; });
+    await expect(rotateSmsToken(client, alice, "auto", capture.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const late = new AbortController();
+    fetchMock.mockImplementation(async () => { late.abort(); return response(inbox()); });
+    await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 }, late.signal)).rejects.toMatchObject({ name: "AbortError" });
+  });
+});

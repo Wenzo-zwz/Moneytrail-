@@ -11,11 +11,13 @@ import { clearStoredData, exportBackup, loadData, readStoredRaw } from "./lib/st
 import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/adminClient";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
-type AccountView = "ledger" | "admin";
+const SmsAutomationPanel = lazy(() => import("./components/SmsAutomationPanel"));
+type AccountView = "ledger" | "admin" | "sms";
 type AdminAccessState = { key: string; status: "loading" | "allowed" | "denied" | "unavailable" | "error"; message?: string };
 
 function readAccountView(): AccountView {
-  return new URLSearchParams(location.search).get("view") === "admin" ? "admin" : "ledger";
+  const view = new URLSearchParams(location.search).get("view");
+  return view === "admin" || view === "sms" ? view : "ledger";
 }
 
 function useAdminAccess(client: SupabaseClient, session: Session, view: AccountView) {
@@ -96,7 +98,7 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
   }, []);
   function navigate(next: AccountView) {
     const url = new URL(location.href);
-    if (next === "admin") url.searchParams.set("view", "admin");
+    if (next !== "ledger") url.searchParams.set("view", next);
     else url.searchParams.delete("view");
     history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
     setView(next);
@@ -152,7 +154,7 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const [migrated, setMigrated] = useState(false);
   const [bookEpoch, setBookEpoch] = useState(0);
   const accountName = session.user.email || "当前账户";
-  useEffect(() => { if (view === "admin") { dialog.current?.close(); setNotice(""); } }, [view]);
+  useEffect(() => { if (view !== "ledger") { dialog.current?.close(); setNotice(""); } }, [view]);
 
   function backupAccount() {
     try {
@@ -233,11 +235,12 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const controls = <button className="button secondary small account-control" onClick={() => dialog.current?.showModal()} aria-label="我的账户"><UserRound size={16} /><span>我的账户</span><SyncBadge state={state} /></button>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
   const ledger = state.ready || state.recoveryError
-    ? <App key={bookEpoch} store={store} cloudMode accountControls={controls} accountPanel={panel} />
+    ? <App key={bookEpoch} store={store} cloudMode accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
     : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>;
   return <>
     {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>
-      <div hidden={view === "admin"}>{ledger}</div>
+      <div hidden={view !== "ledger"}>{ledger}</div>
+      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} onBack={() => onView("ledger")} /></Suspense>}
       {view === "admin" && notice && <div className="account-panel" role="alert">{notice}</div>}
       {view === "admin" && (adminAccess.status === "allowed"
         ? <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开管理后台</h1></main>}><AdminPanel client={client} user={session.user} onBack={() => onView("ledger")} onSignOut={() => void signOut()} /></Suspense>
@@ -258,6 +261,7 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
         {legacy.present && <section className="migration-card"><h3>迁移原来的本机账本</h3>{legacy.error ? <p>旧本机账本暂时无法读取。原始数据保留，请下载备份后核对。</p> : <p>此浏览器保留着 {legacy.data.transactions.length} 笔旧记录。它们尚未因登录而自动上传。目标账户：{accountName}。</p>}<p>先下载完整备份，再确认合并。已有账户账目会保留；相近交易请自行核对。</p><div className="account-actions"><button className="button secondary" onClick={backupLegacy}>备份旧本机账本</button><button className="button primary" disabled={busy || !legacyBackup || Boolean(legacy.error) || !state.ready || Boolean(state.recoveryError) || state.phase === "conflict" || migrated} onClick={migrateLegacy}>{migrated ? "已合并，原副本保留" : "确认迁移至此账户"}</button>{migrated && <button className="button ghost" disabled={state.phase !== "saved" || busy} onClick={removeLegacy}>移除旧本机副本</button>}</div></section>}
         {notice && <p role="status" className="auth-feedback">{notice}</p>}
         <hr className="account-divider" /><p>账目按账户保存到云端；此设备的离线副本和导出备份仍是明文。共用设备使用后请退出。</p>
+        <div className="account-actions"><button className="button secondary" onClick={() => { dialog.current?.close(); onView("sms"); }}>短信自动记账</button></div>
         {adminAccess.status === "allowed" && <div className="account-actions"><button className="button secondary" onClick={() => { dialog.current?.close(); onView("admin"); }}><ShieldCheck size={16} />管理员后台</button></div>}
         <button className="button secondary" disabled={busy} onClick={() => void signOut()}><LogOut size={16} />退出登录并清除本机副本</button>
       </div>

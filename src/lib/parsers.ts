@@ -11,6 +11,7 @@ export interface SmsParseResult {
   draft: DraftTransaction | null;
   warnings: string[];
   error?: string;
+  requiresReview?: boolean;
 }
 
 export interface CsvParseResult {
@@ -82,7 +83,7 @@ function extractAmount(text: string): number | null {
   candidates.sort((a, b) => a.score - b.score);
   // Multiple plausible amounts cannot be safely resolved automatically.
   const best = candidates[0];
-  if (candidates.some((candidate) => candidate.cents !== best.cents))
+  if (candidates.length > 1)
     return null;
   return best.cents;
 }
@@ -175,9 +176,9 @@ function extractMerchant(text: string): string | null {
   if (atMerchant && !/^\d{1,4}[年/月.-]/.test(atMerchant[1]))
     return atMerchant[1].trim();
   const bracketed = text.match(
-    /(?:消费|支付|付款|扣款)[（(]([^）)\n]{1,80})[）)]/,
+    /(?:消费|支出|支付|付款|扣款)[（(]([^）)\n]{1,80})[）)]/,
   );
-  return bracketed?.[1].trim() ?? null;
+  return bracketed?.[1].trim().replace(/^转账(?=(?:财付通|微信(?:支付)?)[-—－]?群收款)/, "") ?? null;
 }
 
 /** Parse a single bank message into an editable draft. No data is saved here. */
@@ -197,7 +198,7 @@ export function parseSms(
     };
   if (!Number.isFinite(referenceDate.getTime()))
     return { draft: null, warnings, error: "参考日期无效，请手动录入日期。" };
-  if (/验证码|动态口令|一次性密码/.test(text))
+  if (/验证码|校验码|动态码|口令|密码|OTP|verification|one[ -]?time/i.test(text))
     return { draft: null, warnings, error: "验证码短信不属于账目，请勿导入。" };
   if (foreignCurrency.test(text))
     return {
@@ -211,7 +212,9 @@ export function parseSms(
       warnings,
       error: "短信含有负数金额，请手动确认交易类型和金额。",
     };
-  const kind = detectKind(text);
+  const groupCollection = /群收款/.test(text);
+  const uncertainOutcome = /失败|撤销|取消|冲正|未成功/.test(text);
+  const kind = groupCollection ? "expense" : detectKind(text);
   if (!kind)
     return {
       draft: null,
@@ -244,6 +247,8 @@ export function parseSms(
     warnings.push(
       "已识别为转账、充值、提现或还款，不计入消费；请确认实际用途。",
     );
+  if (groupCollection) warnings.push("群收款每次待确认：可能是 AA 消费，也可能是转账。请核对用途；纯转账请选择“转账”。");
+  if (uncertainOutcome) warnings.push("短信包含失败、撤销或冲正信息，请先核对是否实际发生扣款。");
   if (kind === "refund")
     warnings.push("退款按到账月份抵减支出，可在确认时关联原消费。");
   return {
@@ -257,6 +262,7 @@ export function parseSms(
       note: "",
     },
     warnings,
+    requiresReview: groupCollection || uncertainOutcome,
   };
 }
 

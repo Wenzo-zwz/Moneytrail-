@@ -14,7 +14,8 @@
     "test:e2e": "node scripts/smoke.cjs",
     "test:accounts": "node scripts/account-smoke.cjs",
     "test:admin": "node scripts/admin-smoke.cjs",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:sms": "node scripts/sms-smoke.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",

@@ -5,6 +5,17 @@ import { validateTransaction } from "./ledger";
 const reference = new Date(2026, 9, 22, 9, 30);
 
 describe("bank SMS parsing", () => {
+  it("keeps an ICBC group collection pending and extracts its detail instead of the balance", () => {
+    const result = parseSms("尾号xxxx卡10月22日19:27支出(转账财付通-群收款)30.90元，余额8xxxx元。【工商银行】", new Date(2026, 9, 22, 20));
+    expect(result.draft).toMatchObject({ amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", source: "sms", note: "" });
+    expect(result.requiresReview).toBe(true);
+    expect(result.warnings.join("")).toContain("每次待确认");
+  });
+  it.each(["消费群收款", "支付-财付通-群收款", "支付失败", "支付撤销"])("requires review for ambiguous ICBC description: %s", detail => {
+    const result = parseSms(`尾号xxxx卡10月22日19:27支出(${detail})30.90元，余额8000元。【工商银行】`, new Date(2026, 9, 22, 20));
+    expect(result.draft?.amountCents).toBe(3090);
+    expect(result.requiresReview).toBe(true);
+  });
   it("extracts spending rather than balance and keeps missing merchant visible", () => {
     const result = parseSms(
       "【招商银行】您尾号1234的卡10月21日18:32消费人民币58.30元，余额12,345.67元。",
@@ -92,6 +103,7 @@ describe("bank SMS parsing", () => {
     "您消费人民币-20元。",
     "您2026年2月30日12:30消费人民币20元。",
     "您消费人民币20元，另消费人民币30元。",
+    "您消费人民币20元，另消费人民币20元。",
   ])("rejects unsafe or ambiguous message: %s", (text) => {
     const result = parseSms(text, reference);
     expect(result.draft).toBeNull();

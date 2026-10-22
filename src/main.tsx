@@ -5,6 +5,7 @@ import AccountApp from "./AccountApp";
 import "./styles.css";
 import "./auth.css";
 import "./admin.css";
+import "./sms.css";
 
 if (import.meta.env.PROD) registerSW({ immediate: true });
 
