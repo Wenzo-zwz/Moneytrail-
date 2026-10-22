@@ -73,7 +73,9 @@ VITE_SUPABASE_URL=
 VITE_SUPABASE_PUBLISHABLE_KEY=
 ```
 
-GitHub Pages 的构建不能读取你电脑上的 `.env.local`。在仓库的 **Settings → Secrets and variables → Actions → Variables** 中添加同名 Repository variables。部署工作流已把它们传入构建环境，并设置 `MONEYTRAIL_REQUIRE_CLOUD=1`：配置缺失或无效时拒绝发布账号版。这两个值是前端公开配置，不需要作为管理凭据使用。
+GitHub Pages 的构建不能读取你电脑上的 `.env.local`。本项目的部署工作流已配置项目所有者提供的公开 Project URL 和 Publishable key，无需另外填写 GitHub Variables。若要改用其他项目，可在仓库的 **Settings → Secrets and variables → Actions → Variables** 中添加同名 Repository variables 覆盖这两项配置。更换 URL 时需要同时提供该项目的 Publishable key 或 anon public key，不会沿用本项目的默认 key。
+
+工作流设置 `MONEYTRAIL_REQUIRE_CLOUD=1`：配置无效时拒绝发布账号版。这两个值是前端公开配置，不是管理凭据。构建通过仅验证配置格式与程序生成，不能证明数据库已初始化或真实账号隔离已经验证。
 
 更新配置后需要重新构建和发布；修改 Dashboard 或 Repository variables 本身不会改写已经上线的 JavaScript。仓库子路径继续由 `MONEYTRAIL_BASE_PATH=/Moneytrail-/` 处理。
 
