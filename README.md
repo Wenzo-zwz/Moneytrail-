@@ -4,7 +4,9 @@
 
 界面采用石墨黑、碳纤维编织纹理与铂金色数字，手机导航、表单、弹窗和主屏幕图标使用同一套深色设计。
 
-这是使用本机存储的首版，没有后端、登录或云同步，也不需要银行卡账号、支付平台密码和 API 密钥。首次打开为空账本，不会把演示消费混入真实记录。
+当前分支新增独立账号与云端同步：邮箱注册、登录、密码重置、按账号隔离的账本，以及经确认后迁移旧本机账目。需要先配置自己的 Supabase 项目；未配置时保留本机模式，不会伪装成已登录的账户。首次打开为空账本，不会把演示消费混入真实记录。
+
+接入步骤、数据库迁移和发布前的真实账号验证见 [独立账号部署说明](docs/cloud-accounts.md)。当前线上地址为 <https://wenzo-zwz.github.io/Moneytrail-/>；本分支尚未替换线上本机版。
 
 ## 开发与验证
 
@@ -26,7 +28,7 @@ npm run build
 npm run preview -- --host 0.0.0.0
 ```
 
-生产预览使用端口 `4173`。技术栈为 React 19、TypeScript 5.9、Vite 8、Vitest，PWA 由 `vite-plugin-pwa` 生成。必需的 `npm test` 覆盖金额、短信/CSV 解析、统计和本地备份等业务规则；运行结果以当次输出为准。
+生产预览使用端口 `4173`。技术栈为 React 19、TypeScript 5.9、Vite 8、Vitest，PWA 由 `vite-plugin-pwa` 生成。`npm test` 覆盖金额、解析、备份、账户缓存、同步冲突和真实 PostgreSQL 权限规则；PGlite 的身份夹具不能验证托管 Supabase 的 JWT 验签或邮件服务。
 
 浏览器冒烟测试需要 Chromium，可验证录入、导入、恢复、移动布局和离线流程：
 
@@ -37,6 +39,8 @@ npm run build && npm run test:e2e
 ```
 
 本云环境已有系统 Chromium，可使用 `MONEYTRAIL_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e`；默认使用 Playwright 配套浏览器。测试自行启动并清理端口 `4183` 的生产预览，不需要提前启动服务。浏览器测试受机器的浏览器能力限制，不替代必需的单元测试。
+
+本机模式的冒烟测试需使用未注入 Supabase 配置的构建。账号界面的测试使用真实 SDK 和拦截的服务夹具，命令为 `npm run test:accounts`；它验证浏览器流程，不表示已经接通真实云端服务。
 
 ## 首版流程
 
@@ -68,9 +72,9 @@ npm run build && npm run test:e2e
 
 ### 使用 GitHub Pages
 
-GitHub Free 的公开仓库可使用 GitHub Pages；私有仓库需要支持 Pages 的付费套餐。公开源代码不意味着上传用户账目，账目仍保存在设备本地。
+GitHub Free 的公开仓库可使用 GitHub Pages；私有仓库需要支持 Pages 的付费套餐。GitHub 托管程序文件；本机模式的账目留在设备，账号模式的账目发送到配置的 Supabase 项目，不写入 Git 仓库。
 
-仓库已准备 `.github/workflows/deploy-pages.yml`。将代码推送到 `main` 后，在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**，再运行 **Deploy Moneytrail to GitHub Pages** 工作流。成功后，以 Pages 设置或工作流给出的 HTTPS 地址为准，用 iPhone Safari 打开并添加到主屏幕。目前准备配置不代表已经推送或上线。
+仓库使用 `.github/workflows/deploy-pages.yml`；Pages 的 Source 选择 **GitHub Actions**。本分支的账号版工作流要求有效公开连接配置，缺失时阻止构建发布，避免把本机版误当成账号版。请先依照部署说明完成数据库、邮箱验证和两个真实测试账户的隔离检查，再合并到 `main`。
 
 GitHub 项目站点使用仓库名子路径。工作流通过 `MONEYTRAIL_BASE_PATH` 同时设置资源、PWA 启动范围与离线回退。可在本地验证本仓库的部署路径：
 
@@ -89,10 +93,12 @@ MONEYTRAIL_BASE_PATH=/Moneytrail-/ MONEYTRAIL_CHROMIUM_PATH=/usr/bin/chromium np
 
 ## 本地数据与恢复
 
-账目保存在当前设备、浏览器和站点对应的 `localStorage`，不会由本应用自动上传服务器。浏览器清理、隐私浏览、存储限制、切换域名或更换设备都可能影响数据；Safari 与主屏幕应用之间也不要假定账本会自动共享。定期导出 JSON，换设备或入口时用备份迁移。
+本机模式的账目保存在当前设备、浏览器和站点对应的 `localStorage`，不上传服务器。账号模式使用按项目、用户分开的离线副本，确认的记录会同步至该账户的云端账本；退出时移除该账户的本机副本。旧本机账本需要单独备份和确认迁移，不会因登录而上传。
+
+浏览器清理、隐私浏览、存储限制、切换域名或更换设备都可能影响未同步数据；Safari 与主屏幕应用之间也不要假定离线副本会共享。账号模式换设备前应确认“已同步”，并定期导出 JSON 备份。
 
 备份文件包含消费明细，应自行妥善保存。读取到损坏的本地数据时，应用会保留原始内容并阻止直接覆盖；优先下载原始数据，再选择恢复或重置。保存失败不能视为修改已经生效。应用会尽力检测其他标签页造成的账本变化，并拒绝旧状态覆盖；本地存储不提供跨标签页数据库事务，建议集中在一个页面编辑。
 
 ## 后续范围
 
-短信快捷指令自动采集、周报、订阅识别、多币种和云同步属于后续功能。当前阶段先验证日常录入、账单补全、分类、统计与备份是否能支持连续使用和月底对账。
+短信快捷指令自动采集、周报、订阅识别和多币种属于后续功能。云端账号实现需完成真实 Supabase 项目接入和验证后上线；日常录入、账单补全、分类、统计与备份仍需持续检验。

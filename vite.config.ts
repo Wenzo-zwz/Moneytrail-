@@ -1,6 +1,7 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { getCloudConfigError } from "./src/lib/cloudConfig.ts";
 
 // Project sites on GitHub Pages live below /<repository>/; normal hosting uses /.
 const base = process.env.MONEYTRAIL_BASE_PATH || "/";
@@ -8,7 +9,13 @@ if (!/^\/(?:[A-Za-z0-9._-]+\/)*$/.test(base)) {
   throw new Error("MONEYTRAIL_BASE_PATH must be a path starting and ending with /.");
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const environment = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  if (environment.MONEYTRAIL_REQUIRE_CLOUD === "1") {
+    const error = getCloudConfigError(environment);
+    if (error) throw new Error(`Account deployment blocked: ${error}`);
+  }
+  return {
   base,
   plugins: [
     react(),
@@ -55,4 +62,5 @@ export default defineConfig({
   ],
   server: { host: "0.0.0.0", port: 5173, strictPort: true },
   preview: { host: "0.0.0.0", port: 4173, strictPort: true },
+  };
 });

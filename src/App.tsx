@@ -56,12 +56,10 @@ import {
   exportBackup,
   exportCsv,
   importBackup,
-  loadData,
-  readStoredRaw,
-  restoreData,
-  saveData,
   type AppData,
 } from "./lib/storage";
+import type { LedgerStore } from "./lib/cloudStore";
+import { localLedgerStore } from "./lib/ledgerStore";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
 type Preview = {
@@ -470,8 +468,19 @@ function Empty({
   );
 }
 
-export default function App() {
-  const [initial] = useState(loadData);
+export default function App({
+  store = localLedgerStore,
+  cloudMode = false,
+  accountControls,
+  accountPanel,
+}: {
+  store?: LedgerStore;
+  cloudMode?: boolean;
+  accountControls?: ReactNode;
+  accountPanel?: ReactNode;
+}) {
+  const { loadData, saveData, restoreData, readStoredRaw } = store;
+  const [initial] = useState(() => loadData());
   const [data, setData] = useState<AppData>(initial.data);
   const [recoveryError, setRecoveryError] = useState(initial.error ?? "");
   const [page, setPage] = useState<Page>("overview");
@@ -522,16 +531,14 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
-    function sync(e: StorageEvent) {
-      if (e.key !== "moneytrail:v1" && e.key !== null) return;
+    function sync() {
       const loaded = loadData();
       setData(loaded.data);
       setRecoveryError(loaded.error ?? "");
-      setNotice("账目已与此设备的另一个页面同步，请检查正在编辑的内容。");
+      setNotice(cloudMode ? "账目已从云端或另一页面更新，请检查正在编辑的内容。" : "账目已与此设备的另一个页面同步，请检查正在编辑的内容。");
     }
-    window.addEventListener("storage", sync);
-    return () => window.removeEventListener("storage", sync);
-  }, []);
+    return store.subscribe(sync);
+  }, [store, cloudMode]);
   useEffect(() => {
     if (hashProcessed.current) return;
     hashProcessed.current = true;
@@ -843,7 +850,7 @@ export default function App() {
       const rawBeforeRestore = readStoredRaw();
       if (
         !window.confirm(
-          `备份包含 ${restored.transactions.length} 笔记录。恢复将替换当前 ${data.transactions.length} 笔记录、预算及核对状态。建议先导出当前备份，确定继续吗？`,
+          `备份包含 ${restored.transactions.length} 笔记录。恢复将替换当前 ${data.transactions.length} 笔记录、预算及核对状态${cloudMode ? "，并同步至当前账户的其他设备" : ""}。建议先导出当前备份，确定继续吗？`,
         )
       )
         return;
@@ -871,7 +878,7 @@ export default function App() {
       const rawBeforeClear = readStoredRaw();
       if (
         !window.confirm(
-          "清空当前设备的全部账目、预算和核对状态？请先导出备份。此操作无法直接撤销。",
+          cloudMode ? "清空当前账户的全部账目、预算和核对状态？联网后会同步至其他设备。请先导出备份，此操作无法直接撤销。" : "清空当前设备的全部账目、预算和核对状态？请先导出备份。此操作无法直接撤销。",
         )
       )
         return;
@@ -884,7 +891,7 @@ export default function App() {
       setRecoveryError("");
       setPreviews([]);
       setSmsText("");
-      setToast("当前设备的数据已清空");
+      setToast(cloudMode ? "当前账户账本已清空，等待同步" : "当前设备的数据已清空");
     } catch (error) {
       setNotice(messageOf(error));
     }
@@ -964,11 +971,11 @@ export default function App() {
         </nav>
         <div className="sidebar-foot">
           <ShieldCheck size={20} />
-          <strong>你的账，只属于你</strong>
+          <strong>{cloudMode ? "独立账户 · 独立账本" : "你的账，只属于你"}</strong>
           <p>
-            数据保存在当前设备。
+            {cloudMode ? "账目按当前账户同步。" : "数据保存在当前设备。"}
             <br />
-            记得定期导出备份。
+            {cloudMode ? "离线修改联网后同步。" : "记得定期导出备份。"}
           </p>
           <span>一点点，花得更明白。</span>
         </div>
@@ -988,6 +995,7 @@ export default function App() {
             </h1>
           </div>
           <div className="header-actions">
+            {accountControls}
             {(page === "overview" || page === "transactions") && (
               <div className="month-picker">
                 <button
@@ -1695,6 +1703,7 @@ export default function App() {
             )}
             {page === "settings" && (
               <div className="page settings-grid">
+                {accountPanel}
                 <section className="setting-card">
                   <div className="setting-heading">
                     <Wallet size={23} />
@@ -1722,10 +1731,10 @@ export default function App() {
                   </div>
                   <p>
                     已保存 <strong>{data.transactions.length}</strong>{" "}
-                    笔记录，仅限当前设备与浏览器。
+                    笔记录，{cloudMode ? "按当前账户同步至云端。" : "仅限当前设备与浏览器。"}
                   </p>
                   <p className="help-text">
-                    换设备、清理浏览器数据前请先备份。主屏幕应用与浏览器也可能使用独立存储，可通过备份转移。
+                    {cloudMode ? "请确认显示“已同步”后再换设备。完整备份仍建议定期导出；恢复备份会替换当前账户账本并同步至其他设备。" : "换设备、清理浏览器数据前请先备份。主屏幕应用与浏览器也可能使用独立存储，可通过备份转移。"}
                   </p>
                   <div className="form-actions">
                     <button
@@ -1759,7 +1768,7 @@ export default function App() {
                     打开已部署的网站，点“分享”，再选择“添加到主屏幕”。
                   </p>
                   <p className="help-text">
-                    首次联网加载后，生产版本支持离线记账。数据保存在本机，导入的账单不会上传到服务器。
+                    {cloudMode ? "首次联网登录并读取账本后可离线记账，联网后同步。账单文件在本机解析，经你确认保存的记录会同步至当前账户。" : "首次联网加载后，生产版本支持离线记账。数据保存在本机，导入的账单不会上传到服务器。"}
                   </p>
                   <div className="notice warning">
                     当前版本支持粘贴短信与账单导入。短信自动采集还需要配置快捷指令并进行真机验证，尚未实现后台自动入账。
@@ -1810,10 +1819,10 @@ export default function App() {
                     <h2>重新开始</h2>
                   </div>
                   <p className="help-text">
-                    清空仅影响当前设备。建议先导出完整备份，已删除的数据无法直接撤销。
+                    {cloudMode ? "清空会同步至当前账户的其他设备。建议先导出完整备份，已删除的数据无法直接撤销。" : "清空仅影响当前设备。建议先导出完整备份，已删除的数据无法直接撤销。"}
                   </p>
                   <button className="button danger" onClick={clearAll}>
-                    清空本机数据
+                    {cloudMode ? "清空账户账本" : "清空本机数据"}
                   </button>
                 </section>
               </div>
