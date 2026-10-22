@@ -178,7 +178,7 @@ async function ownerWorkflow(browser) {
   try {
     await login(page); await page.locator(".hero-amount").waitFor();
     assert.equal(backend.requests.filter((request) => request.path.includes("moneytrail_sms_")).length, 0, "personal ledger must not fetch sensitive SMS inbox before it is opened");
-    await openSms(page);
+    await page.locator(".page-header").getByRole("button", { name: "短信自动记账", exact: true }).click();
     await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
     await page.getByText("财付通-群收款", { exact: true }).first().waitFor();
     assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1, "a pending group collection is not part of spending until confirmed");
@@ -265,6 +265,28 @@ async function ownerWorkflow(browser) {
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
   } finally { await context.close(); }
 }
+async function entryWorkflow(browser) {
+  for (const width of [393, 320]) {
+    const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { width, sms: false });
+    try {
+      await login(page); await page.locator(".hero-amount").waitFor();
+      await noOverflow(page, `${width}px overview with SMS entry`);
+      await page.getByRole("button", { name: "设置", exact: true }).click();
+      const firstCard = page.locator(".settings-grid > section").first();
+      await firstCard.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
+      const entry = firstCard.getByRole("button", { name: "打开短信自动记账", exact: true });
+      const bounds = await entry.boundingBox();
+      assert(bounds && bounds.y >= 0 && bounds.y + bounds.height < 750, "SMS setup entry should be visible at the top without scrolling");
+      await noOverflow(page, `${width}px settings with first SMS card`);
+      if (width === 393) await page.screenshot({ path: path.join(ARTIFACTS, "mobile-settings-entry-393.png"), animations: "disabled" });
+      await entry.click();
+      await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
+      assert.equal(new URL(page.url()).searchParams.get("view"), "sms");
+      assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+      passed(`${width}px settings show SMS as the first card without scrolling and open the inbox`);
+    } finally { await context.close(); }
+  }
+}
 async function missingMigrationWorkflow(browser) {
   const backend = mockBackend({ missingSms: true }); const { page, context, errors } = await fixture(browser, backend);
   try {
@@ -329,7 +351,7 @@ async function mobileWorkflow(browser) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser);
+    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); if (server.pid) try { process.kill(-server.pid, "SIGTERM"); } catch {} }

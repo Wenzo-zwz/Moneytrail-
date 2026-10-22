@@ -25,6 +25,7 @@ import {
   LayoutDashboard,
   Layers3,
   List,
+  MessageSquare,
   Pencil,
   Plus,
   Search,
@@ -998,6 +999,7 @@ export default function App({
             </h1>
           </div>
           <div className="header-actions">
+            {onSmsAutomation && <button className="button secondary small" onClick={onSmsAutomation}><MessageSquare size={16} />短信自动记账</button>}
             {accountControls}
             {(page === "overview" || page === "transactions") && (
               <div className="month-picker">
@@ -1707,6 +1709,12 @@ export default function App({
             )}
             {page === "settings" && (
               <div className="page settings-grid">
+                {onSmsAutomation && <section className="setting-card sms-entry-card" aria-labelledby="sms-entry-title">
+                  <div className="setting-heading"><MessageSquare size={23} /><h2 id="sms-entry-title">短信自动记账</h2></div>
+                  <p>连接 iPhone 快捷指令，让新的工行消费短信进入你的账户账本。</p>
+                  <p className="help-text">群收款每次待确认。首次使用，请在这里完成接入和手机配置。</p>
+                  <button className="button primary" onClick={onSmsAutomation}>打开短信自动记账<ArrowRight size={17} /></button>
+                </section>}
                 {accountPanel}
                 <section className="setting-card">
                   <div className="setting-heading">
@@ -1777,7 +1785,6 @@ export default function App({
                   <div className="notice warning">
                     {onSmsAutomation ? "短信自动接收需要在 iPhone 快捷指令中配置一次。仅明确识别的工行消费可自动入账，群收款和不明确的记录每次待确认。" : "当前支持粘贴短信与账单导入。登录云端账户后可配置 iPhone 快捷指令接收短信。"}
                   </div>
-                  {onSmsAutomation && <button className="button secondary" onClick={onSmsAutomation}><Smartphone size={17} />短信自动记账</button>}
                 </section>
                 <section className="setting-card">
                   <div className="setting-heading">

@@ -1,0 +1,10 @@
+.app-update-notice { position: fixed; z-index: 90; right: 24px; bottom: 24px; width: min(420px, calc(100% - 32px)); padding: 20px; border: 1px solid #615950; border-radius: 14px; color: #e5dfd5; background: linear-gradient(135deg, #272526, #141417); box-shadow: 0 12px 50px rgb(0 0 0 / 45%), inset 0 1px 0 rgb(255 255 255 / 7%); }
+.app-update-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.app-update-heading > svg { color: #c3b49e; }
+.app-update-heading h2 { margin: 0; font-size: 16px; font-weight: 500; }
+.app-update-notice > p { margin: 0 0 14px; color: #bcb4a9; font-size: 13px; line-height: 1.8; }
+.app-update-notice > p[role="alert"] { color: #e2b5a8; }
+.app-update-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.app-update-actions > .button { min-height: 44px; padding: 10px 13px; font-size: 13px; }
+@media (max-width: 760px) { .app-update-notice { right: 16px; bottom: calc(94px + env(safe-area-inset-bottom)); padding: 18px; } }
+@media print { .app-update-notice { display: none; } }
