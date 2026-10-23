@@ -38,7 +38,7 @@ function identity(request) {
   try { return JSON.parse(Buffer.from((request.headers().authorization || "").split(".")[1], "base64url").toString()).sub; }
   catch { return null; }
 }
-function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false } = {}) {
+function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false } = {}) {
   const ledgers = new Map([[OWNER, { data: { ...empty(), budgetCents: 900000, transactions: [manual], billCheckedMonths: ["2026-09"] }, revision: 1, updated_at: "2026-10-22T11:00:00Z" }], [MEMBER, { data: empty(), revision: 1, updated_at: "2026-10-22T11:00:00Z" }]]);
   const inboxes = new Map([[OWNER, [
     { id: GROUP, received_at: "2026-10-22T11:27:00Z", status: "pending", raw_text: RAW, draft: { kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" }, warnings: ["群收款需确认是消费还是转账。"], reason: null, transaction_id: null },
@@ -46,6 +46,15 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
   ]], [MEMBER, []]]);
   const configs = new Map([OWNER, MEMBER].map((id) => [id, { enabled: false, mode: "auto", created_at: null, last_received_at: id === OWNER ? "2026-10-22T11:27:00Z" : null }]));
   const ordinaryIds = new Set();
+  const reprocessedDrafts = new Map();
+  if (groupedBalancePending) {
+    const id = "35000000-0000-4000-8000-000000000001";
+    const draft = { kind: "expense", amountCents: 37500, date: "2026-10-23T09:47", merchant: "消费支付宝-阿里健康大药房医药连锁有限公", category: "医疗", source: "sms", note: "" };
+    ordinaryIds.add(id); reprocessedDrafts.set(id, draft);
+    inboxes.get(OWNER).unshift({ id, received_at: "2026-10-23T01:47:24Z", status: "pending", raw_text: "尾号xxxx卡10月23日09:47支出(消费支付宝-阿里健康大药房医药连锁有限公)375元，余额12,345.94元。【工商银行】", draft: null, warnings: [], reason: "暂不支持这条短信的格式，请手动核对后记账。", transaction_id: null });
+    configs.set(OWNER, { ...configs.get(OWNER), enabled: true, created_at: "2026-10-22T11:00:00Z", last_received_at: "2026-10-23T01:47:24Z" });
+    ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
+  }
   if (ordinaryPending) {
     const examples = [["快捷支付-财付通", 1200], ["支付宝", 2350], ["美团外卖", 880], ["某某便利店", 1680]];
     const records = examples.map(([merchant, amountCents], index) => {
@@ -118,10 +127,12 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
             let recorded = 0;
             for (const item of inboxes.get(id)) {
               if (item.status !== "pending" || !ordinaryIds.has(item.id)) continue;
-              const transaction = { ...clone(item.draft), id: `sms-${item.id}`, sourceRef: `sms-${item.id}` };
+              // The service fixture supplies its upgraded result; PostgreSQL parsing is tested separately.
+              const draft = clone(reprocessedDrafts.get(item.id) || item.draft);
+              const transaction = { ...draft, id: `sms-${item.id}`, sourceRef: `sms-${item.id}` };
               const current = ledgers.get(id);
               ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter(month => month !== transaction.date.slice(0, 7)) }, revision: current.revision + 1, updated_at: "2026-10-22T11:40:00Z" });
-              Object.assign(item, { status: "recorded", raw_text: null, warnings: [], reason: null, transaction_id: transaction.id });
+              Object.assign(item, { status: "recorded", raw_text: null, draft, warnings: [], reason: null, transaction_id: transaction.id });
               recorded += 1;
             }
             return respond({ recorded_count: recorded, pending_count: inboxes.get(id).filter(item => item.status === "pending").length });
@@ -412,6 +423,46 @@ async function reprocessWorkflow(browser) {
     passed("repeating reprocessing cannot append the same ordinary debits twice");
   } finally { await context.close(); }
 }
+async function groupedBalanceReprocessWorkflow(browser) {
+  const backend = mockBackend({ groupedBalancePending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 393 });
+  try {
+    await login(page);
+    const pharmacyId = "35000000-0000-4000-8000-000000000001";
+    await page.getByText("暂不支持这条短信的格式，请手动核对后记账。", { exact: true }).waitFor();
+    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === pharmacyId).draft, null);
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1, "loading an old failed receipt must not silently append it");
+    const requestCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_reprocess_pending")).length;
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
+    await until(async () => /已自动入账\s*1\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "grouped-balance repair result");
+    const recorded = page.locator(".sms-message.recorded").filter({ hasText: "阿里健康大药房" });
+    await recorded.waitFor();
+    assert((await recorded.innerText()).includes("375.00"));
+    const item = backend.inboxes.get(OWNER).find(entry => entry.id === pharmacyId);
+    assert.equal(item.status, "recorded"); assert.equal(item.raw_text, null); assert.equal(item.draft.category, "医疗");
+    const book = backend.ledgers.get(OWNER).data;
+    assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 2);
+    assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
+    assert.equal(book.transactions[1].amountCents, 37500); assert.equal(book.transactions[1].category, "医疗");
+    assert.equal(backend.inboxes.get(OWNER).find(entry => entry.id === GROUP).status, "pending");
+    assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 0, "a repaired ordinary expense must not require manual confirmation");
+    await noOverflow(page, "393px grouped-balance repair result");
+    await page.screenshot({ path: path.join(ARTIFACTS, "mobile-pharmacy-reprocessed-393.png"), fullPage: true, animations: "disabled" });
+
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
+    await until(() => requestCount() === 2, "grouped-balance repeat request");
+    await until(async () => /已自动入账\s*0\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "grouped-balance idempotent result");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 2);
+    await page.getByRole("button", { name: "返回账本", exact: true }).click();
+    await until(async () => (await page.locator(".hero-amount").innerText()).includes("433.00"), "repaired pharmacy spending refresh");
+    await page.locator(".mobile-nav").getByRole("button", { name: "账目", exact: true }).click();
+    const row = page.locator(".transaction-row").filter({ hasText: "阿里健康大药房" });
+    await row.waitFor(); assert((await row.innerText()).includes("医疗")); assert((await row.innerText()).includes("375.00"));
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("a legacy null-draft grouped-balance pharmacy SMS reprocesses once into medical spending without manual confirmation or counting its balance");
+  } finally { await context.close(); }
+}
 async function missingReprocessWorkflow(browser) {
   const backend = mockBackend({ ordinaryPending: true, missingReprocess: true }); const { page, context, errors } = await fixture(browser, backend);
   try {
@@ -447,7 +498,7 @@ async function reprocessLayoutWorkflow(browser) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
+    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); if (server.pid) try { process.kill(-server.pid, "SIGTERM"); } catch {} }
