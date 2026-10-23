@@ -38,13 +38,25 @@ function identity(request) {
   try { return JSON.parse(Buffer.from((request.headers().authorization || "").split(".")[1], "base64url").toString()).sub; }
   catch { return null; }
 }
-function mockBackend({ missingSms = false } = {}) {
+function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false } = {}) {
   const ledgers = new Map([[OWNER, { data: { ...empty(), budgetCents: 900000, transactions: [manual], billCheckedMonths: ["2026-09"] }, revision: 1, updated_at: "2026-10-22T11:00:00Z" }], [MEMBER, { data: empty(), revision: 1, updated_at: "2026-10-22T11:00:00Z" }]]);
   const inboxes = new Map([[OWNER, [
     { id: GROUP, received_at: "2026-10-22T11:27:00Z", status: "pending", raw_text: RAW, draft: { kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" }, warnings: ["群收款需确认是消费还是转账。"], reason: null, transaction_id: null },
-    { id: OTHER, received_at: "2026-10-22T11:20:00Z", status: "pending", raw_text: "尾号xxxx卡10月22日19:20支出(待核对)12元。【工商银行】", draft: null, warnings: [], reason: "未能识别完整交易，请手动核对。", transaction_id: null },
+    { id: OTHER, received_at: "2026-10-22T11:20:00Z", status: "pending", raw_text: "您今日支出12元。【工商银行】", draft: null, warnings: [], reason: "未能识别完整交易，请手动核对。", transaction_id: null },
   ]], [MEMBER, []]]);
   const configs = new Map([OWNER, MEMBER].map((id) => [id, { enabled: false, mode: "auto", created_at: null, last_received_at: id === OWNER ? "2026-10-22T11:27:00Z" : null }]));
+  const ordinaryIds = new Set();
+  if (ordinaryPending) {
+    const examples = [["快捷支付-财付通", 1200], ["支付宝", 2350], ["美团外卖", 880], ["某某便利店", 1680]];
+    const records = examples.map(([merchant, amountCents], index) => {
+      const id = `34000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+      ordinaryIds.add(id);
+      return { id, received_at: `2026-10-22T11:1${index}:00Z`, status: "pending", raw_text: `尾号xxxx卡10月22日19:1${index}支出(${merchant})${(amountCents / 100).toFixed(2)}元，余额8xxxx元。【工商银行】`, draft: { kind: "expense", amountCents, date: `2026-10-22T19:1${index}`, merchant, category: "待分类", source: "sms", note: "" }, warnings: ["交易用途尚不明确，请核对后确认。"], reason: null, transaction_id: null };
+    });
+    inboxes.set(OWNER, [...records, ...inboxes.get(OWNER)]);
+    configs.set(OWNER, { ...configs.get(OWNER), enabled: true, created_at: "2026-10-22T11:00:00Z" });
+    ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
+  }
   const requests = []; const routeErrors = []; const secrets = [];
   const config = (id) => ({ ...clone(configs.get(id)), pending_count: inboxes.get(id).filter((item) => item.status === "pending").length });
   async function attach(context) {
@@ -98,6 +110,21 @@ function mockBackend({ missingSms = false } = {}) {
             assert.deepEqual(Object.keys(body).sort(), ["p_page", "p_page_size"]);
             const page = Number(body.p_page); const pageSize = Number(body.p_page_size); const items = inboxes.get(id);
             return respond({ items: clone(items.slice((page - 1) * pageSize, page * pageSize)), total: items.length, page, page_size: pageSize });
+          }
+          if (action === "reprocess_pending") {
+            if (missingReprocess) return respond({ code: "PGRST202", message: "Function missing" }, 404);
+            assert.deepEqual(body, {});
+            assert.equal(configs.get(id).mode, "auto");
+            let recorded = 0;
+            for (const item of inboxes.get(id)) {
+              if (item.status !== "pending" || !ordinaryIds.has(item.id)) continue;
+              const transaction = { ...clone(item.draft), id: `sms-${item.id}`, sourceRef: `sms-${item.id}` };
+              const current = ledgers.get(id);
+              ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter(month => month !== transaction.date.slice(0, 7)) }, revision: current.revision + 1, updated_at: "2026-10-22T11:40:00Z" });
+              Object.assign(item, { status: "recorded", raw_text: null, warnings: [], reason: null, transaction_id: transaction.id });
+              recorded += 1;
+            }
+            return respond({ recorded_count: recorded, pending_count: inboxes.get(id).filter(item => item.status === "pending").length });
           }
           if (action === "confirm" || action === "dismiss") {
             const item = inboxes.get(id).find((item) => item.id === body.p_id);
@@ -341,6 +368,75 @@ async function mobileWorkflow(browser) {
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
   } finally { await context.close(); }
 }
+async function reprocessWorkflow(browser) {
+  const backend = mockBackend({ ordinaryPending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 393 });
+  try {
+    await login(page);
+    const reprocess = page.getByRole("button", { name: "重新识别待确认", exact: true });
+    await reprocess.waitFor();
+    const requestCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_reprocess_pending")).length;
+    page.once("dialog", dialog => dialog.dismiss());
+    await reprocess.click();
+    assert.equal(requestCount(), 0, "canceling must not call the reprocess RPC");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    passed("canceling pending-SMS reprocessing leaves the ledger and inbox untouched");
+
+    page.once("dialog", dialog => dialog.accept());
+    await reprocess.click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.length === 5, "four ordinary debit appends");
+    await until(async () => (await page.locator(".sms-message.recorded").count()) === 4, "reprocessed inbox refresh");
+    const book = backend.ledgers.get(OWNER).data;
+    assert.deepEqual(book.transactions[0], manual);
+    assert.equal(book.budgetCents, 900000);
+    assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
+    assert(book.transactions.slice(1).every(transaction => transaction.category === "待分类" && transaction.source === "sms"));
+    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending");
+    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === OTHER).status, "pending");
+    assert(backend.inboxes.get(OWNER).filter(item => item.status === "recorded").every(item => item.raw_text === null));
+    await until(async () => /已自动入账\s*4\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "explicit reprocessing result summary");
+    await noOverflow(page, "393px reprocessing result");
+    await page.screenshot({ path: path.join(ARTIFACTS, "mobile-reprocessed-393.png"), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: "返回账本", exact: true }).click();
+    await until(async () => (await page.locator(".hero-amount").innerText()).includes("119.10"), "reprocessed ledger spending refresh");
+    passed("reprocessing records four ordinary debits with pending categories, preserves budget and refreshes spending while group/unknown messages stay pending");
+
+    await openSms(page);
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
+    await until(() => requestCount() === 2, "idempotent second reprocessing");
+    await until(async () => (await page.locator(".sms-message.recorded").count()) === 4, "idempotent inbox reload");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 5);
+    assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 2);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("repeating reprocessing cannot append the same ordinary debits twice");
+  } finally { await context.close(); }
+}
+async function missingReprocessWorkflow(browser) {
+  const backend = mockBackend({ ordinaryPending: true, missingReprocess: true }); const { page, context, errors } = await fixture(browser, backend);
+  try {
+    await login(page); await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
+    await until(async () => /自动入账规则尚未升级/.test(await page.locator(".sms-notice").innerText()), "missing rules-upgrade guidance");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 6);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("missing reprocessing migration explains setup without changing existing pending receipts");
+  } finally { await context.close(); }
+}
+async function reprocessLayoutWorkflow(browser) {
+  const backend = mockBackend({ ordinaryPending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 320 });
+  try {
+    await login(page);
+    await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
+    await noOverflow(page, "320px ordinary-debit reprocessing controls");
+    assert.equal(await page.getByRole("button", { name: "重新识别待确认", exact: true }).isEnabled(), true);
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1, "loading controls must not silently process pending receipts");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("320px reprocessing controls fit without overflow or silently processing receipts");
+  } finally { await context.close(); }
+}
 
 (async () => {
   await mkdir(ARTIFACTS, { recursive: true });
@@ -351,7 +447,7 @@ async function mobileWorkflow(browser) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser);
+    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); if (server.pid) try { process.kill(-server.pid, "SIGTERM"); } catch {} }

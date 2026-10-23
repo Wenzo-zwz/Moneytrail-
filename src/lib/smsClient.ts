@@ -31,6 +31,14 @@ export type SmsInboxItem = {
 };
 export type SmsInbox = { items: SmsInboxItem[]; total: number; page: number; page_size: number };
 export type SmsInboxOptions = { page: number; pageSize: number };
+export type SmsReprocessResult = { recorded_count: number; pending_count: number };
+
+export class SmsUpgradeError extends Error {
+  constructor() {
+    super("自动入账规则尚未升级，请在 Supabase 执行本次规则更新 SQL。现有短信接收功能仍可使用。");
+    this.name = "SmsUpgradeError";
+  }
+}
 
 export class SmsSetupError extends Error {
   constructor() {
@@ -212,4 +220,12 @@ export async function dismissSms(client: SupabaseClient, userId: string, id: str
   const data = record(await rpc(client, userId, "moneytrail_sms_dismiss", { p_id: id }, signal), ["status"]);
   if (data.status !== "dismissed") return failFormat();
   return { status: "dismissed" };
+}
+
+export async function reprocessPendingSms(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsReprocessResult> {
+  let response: unknown;
+  try { response = await rpc(client, userId, "moneytrail_sms_reprocess_pending", {}, signal); }
+  catch (error) { if (error instanceof SmsSetupError) throw new SmsUpgradeError(); throw error; }
+  const data = record(response, ["recorded_count", "pending_count"]);
+  return { recorded_count: count(data.recorded_count, 200), pending_count: count(data.pending_count, 200) };
 }

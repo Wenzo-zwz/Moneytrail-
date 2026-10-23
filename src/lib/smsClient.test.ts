@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, revokeSmsToken, rotateSmsToken, setSmsMode,
+  SmsSetupError, SmsUpgradeError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMode,
   type SmsConfig, type SmsDraft, type SmsInbox,
 } from "./smsClient";
 
@@ -28,6 +28,23 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("account-bound SMS automation transport", () => {
+  it("reprocesses only the captured account's pending inbox without accepting an owner or ledger payload", async () => {
+    fetchMock.mockResolvedValue(response({ recorded_count: 4, pending_count: 2 }));
+    expect(await reprocessPendingSms(client, alice)).toEqual({ recorded_count: 4, pending_count: 2 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/rest/v1/rpc/moneytrail_sms_reprocess_pending");
+    expect(JSON.parse(String(init?.body))).toEqual({});
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token-A");
+  });
+
+  it("explains a missing rule upgrade and rejects invalid reprocessing acknowledgements", async () => {
+    fetchMock.mockResolvedValueOnce(response({ code: "PGRST202", message: "PRIVATE" }, 404));
+    await expect(reprocessPendingSms(client, alice)).rejects.toBeInstanceOf(SmsUpgradeError);
+    for (const data of [{ recorded_count: -1, pending_count: 1 }, { recorded_count: 201, pending_count: 0 }, { recorded_count: 1, pending_count: 0.5 }, { recorded_count: 1, pending_count: 0, ledger: {} }]) {
+      fetchMock.mockResolvedValueOnce(response(data));
+      await expect(reprocessPendingSms(client, alice)).rejects.toThrow("格式不正确");
+    }
+  });
   it("sends only capability settings to their named RPCs, without an owner or stored SMS token", async () => {
     fetchMock.mockResolvedValueOnce(response(config()))
       .mockResolvedValueOnce(response({ token: capability, config: config() }))
