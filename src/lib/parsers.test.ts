@@ -5,6 +5,27 @@ import { validateTransaction } from "./ledger";
 const reference = new Date(2026, 9, 22, 9, 30);
 
 describe("bank SMS parsing", () => {
+  it("keeps nested merchant brackets and categorizes the tobacco purchase", () => {
+    const result = parseSms("尾号xxxx卡10月24日00:59支出(消费财付通-示例商贸（烟酒副食）)20元，余额xxxx.86元。【工商银行】", new Date(2026, 9, 24, 1));
+    expect(result.draft).toMatchObject({ amountCents: 2000, merchant: "消费财付通-示例商贸(烟酒副食)", category: "购物" });
+  });
+  it.each(["滴滴出租车", "美团外卖", "手机话费充值"])("categorizes a common merchant: %s", merchant => {
+    const result = parseSms(`尾号xxxx卡10月24日00:59支出(${merchant})20元，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1));
+    expect(result.draft?.kind).toBe("expense");
+    expect(result.draft?.category).toBe(merchant === "滴滴出租车" ? "交通" : merchant === "美团外卖" ? "餐饮" : "居住");
+  });
+  it.each(["消费财付通", "转账财付通-群收款", "转账-张三"])("requires checking ambiguous channels or transfers: %s", merchant => {
+    const result = parseSms(`尾号xxxx卡10月24日00:59支出(${merchant})20元，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1));
+    expect(result.requiresReview).toBe(true);
+  });
+  it.each(["支出(烟酒(副食)20元", "支出(烟酒))20元", "支出(烟酒(副食)))20元"])("rejects unbalanced ICBC merchant brackets: %s", body => {
+    const result = parseSms(`尾号xxxx卡10月24日00:59${body}，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1));
+    expect(result.draft).toBeNull();
+  });
+  it.each([")。", "，余额100元("])("rejects unbalanced parentheses after the merchant: %s", suffix => {
+    const result = parseSms(`尾号xxxx卡10月24日00:59支出(烟酒)20元${suffix}【工商银行】`, new Date(2026, 9, 24, 1));
+    expect(result.draft).toBeNull();
+  });
   it("keeps an ICBC group collection pending and extracts its detail instead of the balance", () => {
     const result = parseSms("尾号xxxx卡10月22日19:27支出(转账财付通-群收款)30.90元，余额8xxxx元。【工商银行】", new Date(2026, 9, 22, 20));
     expect(result.draft).toMatchObject({ amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", source: "sms", note: "" });
