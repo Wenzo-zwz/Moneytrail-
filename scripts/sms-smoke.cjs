@@ -56,10 +56,10 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
     ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
   }
   if (ordinaryPending) {
-    const examples = [["快捷支付-财付通", 1200], ["支付宝", 2350], ["美团外卖", 880], ["某某便利店", 1680]];
-    const records = examples.map(([merchant, amountCents], index) => {
+    const examples = [["街角咖啡店", 1200, "餐饮"], ["滴滴出行", 2350, "交通"], ["美团外卖", 880, "餐饮"], ["某某便利店", 1680, "购物"]];
+    const records = examples.map(([merchant, amountCents, category], index) => {
       const id = `34000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
-      ordinaryIds.add(id);
+      ordinaryIds.add(id); reprocessedDrafts.set(id, { kind: "expense", amountCents, date: `2026-10-22T19:1${index}`, merchant, category, source: "sms", note: "" });
       return { id, received_at: `2026-10-22T11:1${index}:00Z`, status: "pending", raw_text: `尾号xxxx卡10月22日19:1${index}支出(${merchant})${(amountCents / 100).toFixed(2)}元，余额8xxxx元。【工商银行】`, draft: { kind: "expense", amountCents, date: `2026-10-22T19:1${index}`, merchant, category: "待分类", source: "sms", note: "" }, warnings: ["交易用途尚不明确，请核对后确认。"], reason: null, transaction_id: null };
     });
     inboxes.set(OWNER, [...records, ...inboxes.get(OWNER)]);
@@ -120,20 +120,23 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
             const page = Number(body.p_page); const pageSize = Number(body.p_page_size); const items = inboxes.get(id);
             return respond({ items: clone(items.slice((page - 1) * pageSize, page * pageSize)), total: items.length, page, page_size: pageSize });
           }
-          if (action === "reprocess_pending") {
+          if (action === "preview_pending") {
             if (missingReprocess) return respond({ code: "PGRST202", message: "Function missing" }, 404);
             assert.deepEqual(body, {});
-            assert.equal(configs.get(id).mode, "auto");
+            const items = inboxes.get(id).filter(item => item.status === "pending").map(item => ({ id: item.id, draft: clone(reprocessedDrafts.get(item.id) || item.draft), eligible: ordinaryIds.has(item.id), reason: ordinaryIds.has(item.id) ? "商户分类规则" : "需要确认用途" }));
+            return respond({ items, recordable_count: items.filter(item => item.eligible).length, pending_count: items.length });
+          }
+          if (action === "apply_pending") {
+            assert.deepEqual(Object.keys(body), ["p_items"]); assert.equal(configs.get(id).mode, "auto");
             let recorded = 0;
-            for (const item of inboxes.get(id)) {
-              if (item.status !== "pending" || !ordinaryIds.has(item.id)) continue;
-              // The service fixture supplies its upgraded result; PostgreSQL parsing is tested separately.
-              const draft = clone(reprocessedDrafts.get(item.id) || item.draft);
-              const transaction = { ...draft, id: `sms-${item.id}`, sourceRef: `sms-${item.id}` };
-              const current = ledgers.get(id);
+            for (const selected of body.p_items) {
+              const item = inboxes.get(id).find(item => item.id === selected.id);
+              assert(item && ordinaryIds.has(item.id), "only preview-eligible messages can be applied");
+              if (item.status !== "pending") continue;
+              const draft = clone(reprocessedDrafts.get(item.id)); assert.deepEqual(selected.draft, draft);
+              const transaction = { ...draft, id: `sms-${item.id}`, sourceRef: `sms-${item.id}` }; const current = ledgers.get(id);
               ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter(month => month !== transaction.date.slice(0, 7)) }, revision: current.revision + 1, updated_at: "2026-10-22T11:40:00Z" });
-              Object.assign(item, { status: "recorded", raw_text: null, draft, warnings: [], reason: null, transaction_id: transaction.id });
-              recorded += 1;
+              Object.assign(item, { status: "recorded", raw_text: null, draft, warnings: [], reason: null, transaction_id: transaction.id }); recorded++;
             }
             return respond({ recorded_count: recorded, pending_count: inboxes.get(id).filter(item => item.status === "pending").length });
           }
@@ -382,117 +385,71 @@ async function mobileWorkflow(browser) {
 async function reprocessWorkflow(browser) {
   const backend = mockBackend({ ordinaryPending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 393 });
   try {
-    await login(page);
-    const reprocess = page.getByRole("button", { name: "重新识别待确认", exact: true });
-    await reprocess.waitFor();
-    const requestCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_reprocess_pending")).length;
-    page.once("dialog", dialog => dialog.dismiss());
-    await reprocess.click();
-    assert.equal(requestCount(), 0, "canceling must not call the reprocess RPC");
+    await login(page); const preview = page.getByRole("button", { name: "预览待确认短信", exact: true });
+    const applyCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_apply_pending")).length;
+    await preview.click(); await page.getByText("待确认预览：可入账 4 笔，保留确认 2 笔").waitFor();
     assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
-    passed("canceling pending-SMS reprocessing leaves the ledger and inbox untouched");
-
-    page.once("dialog", dialog => dialog.accept());
-    await reprocess.click();
-    await until(() => backend.ledgers.get(OWNER).data.transactions.length === 5, "four ordinary debit appends");
-    await until(async () => (await page.locator(".sms-message.recorded").count()) === 4, "reprocessed inbox refresh");
+    await page.getByRole("button", { name: "关闭预览", exact: true }).click();
+    assert.equal(applyCount(), 0); assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 6);
+    passed("closing read-only pending preview leaves ledger and inbox unchanged");
+    await preview.click(); await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).click();
+    await until(async () => /已入账 4 笔，仍有 2 笔待确认/.test(await page.locator(".sms-notice").innerText()), "apply result");
+    await until(async () => await page.locator(".sms-message.recorded").count() === 4, "refreshed inbox");
     const book = backend.ledgers.get(OWNER).data;
-    assert.deepEqual(book.transactions[0], manual);
-    assert.equal(book.budgetCents, 900000);
-    assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
-    assert(book.transactions.slice(1).every(transaction => transaction.category === "待分类" && transaction.source === "sms"));
-    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending");
-    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === OTHER).status, "pending");
+    assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 5); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
+    assert.deepEqual(book.transactions.slice(1).map(t => t.category), ["餐饮", "交通", "餐饮", "购物"]);
+    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending"); assert.equal(backend.inboxes.get(OWNER).find(item => item.id === OTHER).status, "pending");
+    const request = backend.requests.find(request => request.path.endsWith("moneytrail_sms_apply_pending")); assert.equal(request.body.p_items.length, 4);
     assert(backend.inboxes.get(OWNER).filter(item => item.status === "recorded").every(item => item.raw_text === null));
-    await until(async () => /已自动入账\s*4\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "explicit reprocessing result summary");
-    await noOverflow(page, "393px reprocessing result");
-    await page.screenshot({ path: path.join(ARTIFACTS, "mobile-reprocessed-393.png"), fullPage: true, animations: "disabled" });
-    await page.getByRole("button", { name: "返回账本", exact: true }).click();
-    await until(async () => (await page.locator(".hero-amount").innerText()).includes("119.10"), "reprocessed ledger spending refresh");
-    passed("reprocessing records four ordinary debits with pending categories, preserves budget and refreshes spending while group/unknown messages stay pending");
-
-    await openSms(page);
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
-    page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
-    await until(() => requestCount() === 2, "idempotent second reprocessing");
-    await until(async () => (await page.locator(".sms-message.recorded").count()) === 4, "idempotent inbox reload");
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 5);
-    assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 2);
+    await noOverflow(page, "393px preview/apply result"); await page.screenshot({ path: path.join(ARTIFACTS, "mobile-reprocessed-393.png"), fullPage: true, animations: "disabled" });
+    await preview.click(); await page.getByText("待确认预览：可入账 0 笔，保留确认 2 笔").waitFor(); assert.equal(await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).isEnabled(), false);
+    assert.equal(applyCount(), 1); assert.equal(book.transactions.length, 5);
+    await page.getByRole("button", { name: "返回账本", exact: true }).click(); await until(async () => (await page.locator(".hero-amount").innerText()).includes("119.10"), "applied spending refresh");
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-    passed("repeating reprocessing cannot append the same ordinary debits twice");
+    passed("exact preview apply classifies four clear merchants, preserves group/unknown and prevents repeated application");
   } finally { await context.close(); }
 }
 async function groupedBalanceReprocessWorkflow(browser) {
   const backend = mockBackend({ groupedBalancePending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 393 });
   try {
-    await login(page);
-    const pharmacyId = "35000000-0000-4000-8000-000000000001";
-    await page.getByText("暂不支持这条短信的格式，请手动核对后记账。", { exact: true }).waitFor();
-    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === pharmacyId).draft, null);
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1, "loading an old failed receipt must not silently append it");
-    const requestCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_reprocess_pending")).length;
-    page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
-    await until(async () => /已自动入账\s*1\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "grouped-balance repair result");
-    const recorded = page.locator(".sms-message.recorded").filter({ hasText: "阿里健康大药房" });
-    await recorded.waitFor();
-    assert((await recorded.innerText()).includes("375.00"));
-    const item = backend.inboxes.get(OWNER).find(entry => entry.id === pharmacyId);
-    assert.equal(item.status, "recorded"); assert.equal(item.raw_text, null); assert.equal(item.draft.category, "医疗");
-    const book = backend.ledgers.get(OWNER).data;
-    assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 2);
-    assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
-    assert.equal(book.transactions[1].amountCents, 37500); assert.equal(book.transactions[1].category, "医疗");
-    assert.equal(backend.inboxes.get(OWNER).find(entry => entry.id === GROUP).status, "pending");
-    assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 0, "a repaired ordinary expense must not require manual confirmation");
-    await noOverflow(page, "393px grouped-balance repair result");
-    await page.screenshot({ path: path.join(ARTIFACTS, "mobile-pharmacy-reprocessed-393.png"), fullPage: true, animations: "disabled" });
-
-    page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
-    await until(() => requestCount() === 2, "grouped-balance repeat request");
-    await until(async () => /已自动入账\s*0\s*笔，仍有\s*2\s*笔待确认/.test(await page.locator(".sms-notice").innerText()), "grouped-balance idempotent result");
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 2);
-    await page.getByRole("button", { name: "返回账本", exact: true }).click();
-    await until(async () => (await page.locator(".hero-amount").innerText()).includes("433.00"), "repaired pharmacy spending refresh");
-    await page.locator(".mobile-nav").getByRole("button", { name: "账目", exact: true }).click();
-    const row = page.locator(".transaction-row").filter({ hasText: "阿里健康大药房" });
-    await row.waitFor(); assert((await row.innerText()).includes("医疗")); assert((await row.innerText()).includes("375.00"));
-    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-    passed("a legacy null-draft grouped-balance pharmacy SMS reprocesses once into medical spending without manual confirmation or counting its balance");
+    await login(page); const pharmacyId = "35000000-0000-4000-8000-000000000001";
+    await page.getByText("暂不支持这条短信的格式，请手动核对后记账。", { exact: true }).waitFor(); assert.equal(backend.inboxes.get(OWNER).find(item => item.id === pharmacyId).draft, null);
+    await page.getByRole("button", { name: "预览待确认短信", exact: true }).click();
+    const view = page.locator(".sms-classification-preview"); await view.getByText(/医疗/).waitFor(); assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).click();
+    await until(async () => /已入账 1 笔，仍有 2 笔待确认/.test(await page.locator(".sms-notice").innerText()), "pharmacy apply");
+    const recorded = page.locator(".sms-message.recorded").filter({ hasText: "阿里健康大药房" }); await recorded.waitFor(); assert((await recorded.innerText()).includes("375.00"));
+    const book = backend.ledgers.get(OWNER).data; assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 2); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]); assert.equal(book.transactions[1].category, "医疗"); assert.equal(book.transactions[1].amountCents, 37500);
+    const item = backend.inboxes.get(OWNER).find(item => item.id === pharmacyId); assert.equal(item.raw_text, null); assert.equal(item.draft.category, "医疗");
+    assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending"); assert.equal(backend.requests.filter(r => r.path.endsWith("moneytrail_sms_confirm")).length, 0);
+    await page.getByRole("button", { name: "预览待确认短信", exact: true }).click(); await page.getByText("待确认预览：可入账 0 笔，保留确认 2 笔").waitFor(); assert.equal(await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).isEnabled(), false);
+    await noOverflow(page, "393px grouped balance preview"); await page.screenshot({ path: path.join(ARTIFACTS, "mobile-pharmacy-reprocessed-393.png"), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: "返回账本", exact: true }).click(); await until(async () => (await page.locator(".hero-amount").innerText()).includes("433.00"), "pharmacy spending");
+    await page.locator(".mobile-nav").getByRole("button", { name: "账目", exact: true }).click(); const row = page.locator(".transaction-row").filter({ hasText: "阿里健康大药房" }); await row.waitFor(); assert((await row.innerText()).includes("医疗"));
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []); passed("legacy null draft previews medical category then applies once without treating balance as spending");
   } finally { await context.close(); }
 }
 async function missingReprocessWorkflow(browser) {
   const backend = mockBackend({ ordinaryPending: true, missingReprocess: true }); const { page, context, errors } = await fixture(browser, backend);
   try {
-    await login(page); await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
-    page.once("dialog", dialog => dialog.accept());
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).click();
-    await until(async () => /自动入账规则尚未升级/.test(await page.locator(".sms-notice").innerText()), "missing rules-upgrade guidance");
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
-    assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 6);
-    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-    passed("missing reprocessing migration explains setup without changing existing pending receipts");
+    await login(page); await page.getByRole("button", { name: "预览待确认短信", exact: true }).click(); await until(async () => /自动入账规则尚未升级/.test(await page.locator(".sms-notice").innerText()), "missing preview upgrade");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1); assert.equal(backend.inboxes.get(OWNER).filter(item => item.status === "pending").length, 6); assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("missing preview migration explains upgrade without changing pending receipts");
   } finally { await context.close(); }
 }
 async function reprocessLayoutWorkflow(browser) {
   const backend = mockBackend({ ordinaryPending: true }); const { page, context, errors } = await fixture(browser, backend, { width: 320 });
   try {
-    await login(page);
-    await page.getByRole("button", { name: "重新识别待确认", exact: true }).waitFor();
-    await noOverflow(page, "320px ordinary-debit reprocessing controls");
-    assert.equal(await page.getByRole("button", { name: "重新识别待确认", exact: true }).isEnabled(), true);
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1, "loading controls must not silently process pending receipts");
-    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-    passed("320px reprocessing controls fit without overflow or silently processing receipts");
+    await login(page); await page.getByRole("button", { name: "预览待确认短信", exact: true }).click(); await page.getByText("待确认预览：可入账 4 笔，保留确认 2 笔").waitFor();
+    await noOverflow(page, "320px pending preview controls"); assert.equal(await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).isEnabled(), true); assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []); passed("320px preview fits without overflow or silently processing receipts");
   } finally { await context.close(); }
 }
 
 (async () => {
   await mkdir(ARTIFACTS, { recursive: true });
   let output = "";
-  const server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], { cwd: ROOT, detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, MONEYTRAIL_BASE_PATH: "/Moneytrail-/", VITE_SUPABASE_URL: PROJECT, VITE_SUPABASE_PUBLISHABLE_KEY: PUBLIC_KEY, VITE_SUPABASE_ANON_KEY: "" } });
+  const server = spawn(process.execPath, [path.join(ROOT, "node_modules", "vite", "bin", "vite.js"), "--host", "127.0.0.1", "--port", String(PORT)], { cwd: ROOT, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, MONEYTRAIL_BASE_PATH: "/Moneytrail-/", VITE_SUPABASE_URL: PROJECT, VITE_SUPABASE_PUBLISHABLE_KEY: PUBLIC_KEY, VITE_SUPABASE_ANON_KEY: "" } });
   server.stdout.on("data", (chunk) => { output += chunk; }); server.stderr.on("data", (chunk) => { output += chunk; });
   let browser;
   try {
@@ -501,5 +458,5 @@ async function reprocessLayoutWorkflow(browser) {
     await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
-  finally { if (browser) await browser.close(); if (server.pid) try { process.kill(-server.pid, "SIGTERM"); } catch {} }
+  finally { if (browser) await browser.close(); server.kill(); }
 })();

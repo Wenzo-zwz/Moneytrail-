@@ -6,6 +6,7 @@ import {
   type Source,
   type TransactionKind,
 } from "./ledger";
+import { classifyMerchant } from "./merchantClassification";
 
 export interface SmsParseResult {
   draft: DraftTransaction | null;
@@ -35,7 +36,8 @@ const excludedAmountPattern =
 function detectKind(text: string): TransactionKind | null {
   const actions = text
     .replace(/(?:到期)?还款日(?:期)?[为是:：\s\d年月日/-]*/g, "")
-    .replace(/可退款|退款政策/g, "");
+    .replace(/可退款|退款政策/g, "")
+    .replace(/(?:手机|话费|流量)充值/g, "话费消费");
   if (/退款|退货|退回|冲正|撤销/.test(actions)) return "refund";
   if (/还款|偿还|转账|转出|转入|充值|提现|取现|取款/.test(actions))
     return "transfer";
@@ -165,6 +167,40 @@ function smsDate(
   return localTime(referenceDate);
 }
 
+function bracketedMerchant(text: string): { merchant: string | null; invalid: boolean } {
+  const start = /(?:消费|支出|支付|付款|扣款)\(/.exec(text);
+  if (!start) return { merchant: null, invalid: false };
+  const open = start.index + start[0].length - 1;
+  let depth = 0;
+  for (let index = open; index < text.length; index++) {
+    if (text[index] === "(") depth++;
+    else if (text[index] === ")") {
+      depth--;
+      if (depth === 0) {
+        const merchant = text.slice(open + 1, index).trim();
+        let trailingDepth = 0;
+        let trailingInvalid = false;
+        for (let trailingIndex = index + 1; trailingIndex < text.length; trailingIndex++) {
+          if (text[trailingIndex] === "(") trailingDepth++;
+          else if (text[trailingIndex] === ")") {
+            trailingDepth--;
+            if (trailingDepth < 0) trailingInvalid = true;
+          }
+        }
+        return {
+          merchant,
+          invalid:
+            !merchant ||
+            merchant.length > 200 ||
+            trailingInvalid ||
+            trailingDepth !== 0,
+        };
+      }
+    }
+  }
+  return { merchant: null, invalid: true };
+}
+
 function extractMerchant(text: string): string | null {
   const labelled = text.match(
     /(?:商户(?:名称)?|交易对方)\s*[：:]\s*([^，,。;；\n]{1,200})/,
@@ -175,10 +211,7 @@ function extractMerchant(text: string): string | null {
   );
   if (atMerchant && !/^\d{1,4}[年/月.-]/.test(atMerchant[1]))
     return atMerchant[1].trim();
-  const bracketed = text.match(
-    /(?:消费|支出|支付|付款|扣款)[（(]([^）)\n]{1,80})[）)]/,
-  );
-  return bracketed?.[1].trim().replace(/^转账(?=(?:财付通|微信(?:支付)?)[-—－]?群收款)/, "") ?? null;
+  return bracketedMerchant(text).merchant?.replace(/^转账(?=(?:财付通|微信(?:支付)?)[-—－]?群收款)/, "") ?? null;
 }
 
 /** Parse a single bank message into an editable draft. No data is saved here. */
@@ -212,6 +245,8 @@ export function parseSms(
       warnings,
       error: "短信含有负数金额，请手动确认交易类型和金额。",
     };
+  if (bracketedMerchant(text).invalid)
+    return { draft: null, warnings, error: "短信中的商户括号不完整，请核对原文后重试。" };
   const groupCollection = /群收款/.test(text);
   const uncertainOutcome = /失败|撤销|取消|冲正|未成功/.test(text);
   const kind = groupCollection ? "expense" : detectKind(text);
@@ -237,6 +272,7 @@ export function parseSms(
       error: "短信中的交易日期无效，请手动核对日期。",
     };
   const merchant = extractMerchant(text) ?? "待补充商户";
+  const classification = classifyMerchant(merchant);
   if (merchant === "待补充商户")
     warnings.push("短信未提供具体商户，请补充商户并选择分类。");
   else if (
@@ -257,12 +293,12 @@ export function parseSms(
       amountCents,
       date,
       merchant,
-      category: "待分类",
+      category: kind === "expense" && !groupCollection && !uncertainOutcome ? classification.category : "待分类",
       source: "sms",
       note: "",
     },
     warnings,
-    requiresReview: groupCollection || uncertainOutcome,
+    requiresReview: groupCollection || uncertainOutcome || kind === "transfer" || classification.requiresReview,
   };
 }
 

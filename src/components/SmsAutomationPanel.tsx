@@ -1,10 +1,11 @@
+import SmsClassificationTools from "./SmsClassificationTools";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, LockKeyhole, MessageSquare, RefreshCw, ShieldCheck, Smartphone, X } from "lucide-react";
 import { CATEGORIES, formatMoney, isValidLocalDateTime, parseAmount } from "../lib/ledger";
 import { readCloudConfig } from "../lib/cloudConfig";
 import type { CloudStore } from "../lib/cloudStore";
-import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMode, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsMode } from "../lib/smsClient";
+import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, revokeSmsToken, rotateSmsToken, setSmsMode, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsMode } from "../lib/smsClient";
 
 interface SmsAutomationPanelProps {
   client: SupabaseClient;
@@ -117,7 +118,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
   }, [client, userId, key, page]);
   useEffect(() => {
-    return () => { actionController.current?.abort(); actionController.current = null; };
+    return () => { actionController.current?.abort(); actionController.current = null; setBusy(false); };
   }, [userId]);
   useEffect(() => {
     if (token) tokenDialog.current?.showModal();
@@ -132,7 +133,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
     });
   }
   function clearSecret() { setSecret(null); setRevealed(false); tokenDialog.current?.close(); }
-  async function run(action: (signal: AbortSignal) => Promise<string | void>) {
+  async function run(action: (signal: AbortSignal) => Promise<string | void>, refreshAfter = true) {
     if (actionController.current) return;
     const owner = userId;
     const controller = new AbortController();
@@ -142,7 +143,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       const message = await action(controller.signal);
       if (controller.signal.aborted || ownerRef.current !== owner) return;
       if (message) setNotice(message);
-      refresh();
+      if (refreshAfter) refresh();
     } catch (error) {
       if (!controller.signal.aborted && ownerRef.current === owner) setNotice(error instanceof Error ? error.message : "操作未完成，请检查网络后重试。");
     } finally {
@@ -175,18 +176,6 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   }
   async function dismiss(id: string) { await run(async signal => { await dismissSms(client, userId, id, signal); return "已忽略这条短信，原文已移除。"; }); }
 
-  async function reprocess() {
-    if (!config || mode !== config.mode) { setNotice("请先保存记录方式，再重新识别短信。"); return; }
-    const state = store.getState();
-    if (!state.ready || state.dirty || state.phase !== "saved" || state.recoveryError) { setNotice("请先返回账本完成同步或处理冲突，再重新识别短信。"); return; }
-    if (!window.confirm("按当前规则重新识别待确认短信：普通支出会直接入账，群收款、转账和疑似重复记录仍待确认。仅使用短信原文，尚未提交的核对修改不会带入。确定继续吗？")) return;
-    await run(async signal => {
-      const result = await reprocessPendingSms(client, userId, signal);
-      if (signal.aborted) return;
-      await store.refresh();
-      return `已自动入账 ${result.recorded_count} 笔，仍有 ${result.pending_count} 笔待确认。`;
-    });
-  }
 
   return <main className="sms-shell">
     <div className="sms-content">
@@ -196,9 +185,10 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       <div className="sms-notice" role="status" aria-live="polite">{notice}</div>
       {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>正在读取接入状态</h2><p>正在连接当前账户的短信收件箱。</p></section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{currentFailure.setup && <p>请在 Supabase SQL Editor 运行短信自动化初始化 SQL 后，重新检查。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />重新检查</button></section> : config && inbox && <>
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入月度消费</small></article></section>
+        <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} />
         <div className={`sms-main-grid${config.enabled && config.pending_count > 0 ? " has-pending" : ""}`}>
           <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">当前支持工行“支出(用途)金额元”格式。无法明确判断的内容会保留给你核对。</p>
-            <fieldset className="sms-mode-options" disabled={busy}><legend>收到短信后</legend><label className={mode === "auto" ? "selected" : undefined}><input type="radio" name="sms-mode" value="auto" checked={mode === "auto"} onChange={() => setMode("auto")} /><span><strong>自动记录明确消费</strong><small>普通扣款直接入账；商户或分类可稍后补充</small></span></label><label className={mode === "review" ? "selected" : undefined}><input type="radio" name="sms-mode" value="review" checked={mode === "review"} onChange={() => setMode("review")} /><span><strong>全部先待确认</strong><small>每条短信都由你核对后再入账</small></span></label></fieldset>
+            <fieldset className="sms-mode-options" disabled={busy}><legend>收到短信后</legend><label className={mode === "auto" ? "selected" : undefined}><input type="radio" name="sms-mode" value="auto" checked={mode === "auto"} onChange={() => setMode("auto")} /><span><strong>自动记录明确消费</strong><small>明确消费和已识别的本人资金周转可入账；不明用途继续核对</small></span></label><label className={mode === "review" ? "selected" : undefined}><input type="radio" name="sms-mode" value="review" checked={mode === "review"} onChange={() => setMode("review")} /><span><strong>全部先待确认</strong><small>每条短信都由你核对后再入账</small></span></label></fieldset>
             <p className="sms-group-rule"><ShieldCheck size={15} />“财付通-群收款”始终待确认，由你判断是消费还是转账。</p>
             <p className="sms-forward-consent">启用表示你同意：由自己配置的 iPhone 自动化，将筛选后的银行消费短信转发至当前账户的 Supabase。请勿转发验证码或其他私人短信。</p>
             <div className="sms-setup-actions">{config.enabled ? <><button className="button primary" disabled={busy || mode === config.mode} onClick={() => void run(async signal => { await setSmsMode(client, userId, mode, signal); return "记录方式已更新，仅对之后收到的短信生效。"; })}>保存记录方式</button><button className="button secondary" disabled={busy} onClick={() => void createToken()}><KeyRound size={15} />更换接入令牌</button><button className="button ghost" disabled={busy} onClick={() => void run(async signal => { await revokeSmsToken(client, userId, signal); clearSecret(); return "已停用接入，手机里的旧令牌立即失效。已有待确认短信仍可处理。"; })}>停用接入</button></> : <button className="button primary" disabled={busy} onClick={() => void createToken()}><KeyRound size={16} />同意转发并启用</button>}</div>
@@ -212,7 +202,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
           </section>
 
           <section className="sms-inbox" aria-labelledby="sms-inbox-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2><p>{inbox.total} 条接收记录</p></div><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()} aria-label="刷新收件箱"><RefreshCw size={15} />刷新</button></div>
-            {config.mode === "auto" && config.pending_count > 0 && <div className="sms-reprocess"><p>已有记录也可按当前规则重新识别。普通支出直接入账，分类可稍后整理。{mode !== config.mode && "请先保存记录方式。"}</p><button className="button secondary small" disabled={busy || !canConfirm || mode !== config.mode} onClick={() => void reprocess()}><RefreshCw size={15} />重新识别待确认</button></div>}
+
             {config.pending_count > 0 && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
             {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条消费短信</h3><p>完成 iPhone 自动化后，新收到的银行消费短信会出现在这里。</p><span>群收款待确认 · 相同短信 24 小时内去重</span></div>}
             {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}

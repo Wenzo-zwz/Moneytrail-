@@ -690,9 +690,9 @@ async function staleEditorRegression(browser) {
   await mkdir(ARTIFACTS, { recursive: true });
   let output = "";
   const server = spawn(
-    "npm",
-    ["run", "preview", "--", "--port", String(PORT)],
-    { cwd: ROOT, detached: true, stdio: ["ignore", "pipe", "pipe"] },
+    process.execPath,
+    [path.join(ROOT, "node_modules", "vite", "bin", "vite.js"), "preview", "--host", "127.0.0.1", "--port", String(PORT)],
+    { cwd: ROOT, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
   );
   server.stdout.on("data", (chunk) => {
     output += chunk.toString();
@@ -747,7 +747,7 @@ async function staleEditorRegression(browser) {
     if (browser) await browser.close();
     if (server.pid) {
       try {
-        process.kill(-server.pid, "SIGTERM");
+        server.kill();
       } catch {}
     }
   }

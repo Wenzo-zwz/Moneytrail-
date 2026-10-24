@@ -189,3 +189,56 @@ describe("account-bound SMS automation transport", () => {
     await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 }, late.signal)).rejects.toMatchObject({ name: "AbortError" });
   });
 });
+
+// Classification transport stays account-bound and rejects unsafe selections before IO.
+describe("classification RPCs", () => {
+  it("reads rules, previews without writes and applies exactly the selected drafts", async () => {
+    const api = await import("./smsClient");
+    const item = { id: inboxId, draft: { ...draft(), merchant: "滴滴", category: "交通" }, eligible: true, reason: "交通商户" };
+    fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant: "滴滴", category: "交通" }] }))
+      .mockResolvedValueOnce(response({ items: [item], recordable_count: 1, pending_count: 1 }))
+      .mockResolvedValueOnce(response({ recorded_count: 1, pending_count: 0 }));
+    expect(await api.fetchSmsCategoryRules(client, alice)).toEqual([{ merchant: "滴滴", category: "交通" }]);
+    expect((await api.previewPendingSms(client, alice)).items).toEqual([item]);
+    expect(await api.applyPendingSms(client, alice, [{ id: item.id, draft: item.draft }])).toEqual({ recorded_count: 1, pending_count: 0 });
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ p_items: [{ id: item.id, draft: item.draft }] });
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization")).toBe("Bearer token-A");
+  });
+  it("rejects invalid selections/rules, malformed preview and missing migration", async () => {
+    const api = await import("./smsClient");
+    await expect(api.applyPendingSms(client, alice, [])).rejects.toThrow();
+    await expect(api.applyPendingSms(client, alice, [{ id: inboxId, draft: draft() }, { id: inboxId, draft: draft() }])).rejects.toThrow();
+    await expect(api.setSmsCategoryRule(client, alice, "财付通-群收款", "购物")).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(response({ items: [{ id: inboxId, draft: null, eligible: true, reason: "x" }], recordable_count: 1, pending_count: 1 }));
+    await expect(api.previewPendingSms(client, alice)).rejects.toThrow("格式不正确");
+    fetchMock.mockResolvedValueOnce(response({ code: "PGRST202" }, 404));
+    await expect(api.fetchSmsCategoryRules(client, alice)).rejects.toBeInstanceOf(SmsUpgradeError);
+  });
+  it("cancels late preview and refuses a different account", async () => {
+    const api = await import("./smsClient");
+    vi.mocked(client.auth.getSession).mockResolvedValueOnce({ data: { session: session(bob) }, error: null });
+    await expect(api.previewPendingSms(client, alice)).rejects.toThrow();
+    const controller = new AbortController();
+    fetchMock.mockImplementationOnce(async () => { controller.abort(); return response({ rules: [] }); });
+    await expect(api.fetchSmsCategoryRules(client, alice, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+it.each([
+  { rules: [{ merchant: "", category: "购物" }] },
+  { rules: [{ merchant: "店铺", category: "待分类" }] },
+  { rules: [{ merchant: "店铺", category: "未知" }] },
+  { rules: [{ merchant: "店铺", category: "购物", owner: alice }] },
+  { rules: [{ merchant: "店铺", category: "购物" }, { merchant: "店铺", category: "购物" }] },
+])("rejects malformed personal rule responses", async value => {
+  const { fetchSmsCategoryRules } = await import("./smsClient");
+  fetchMock.mockResolvedValueOnce(response(value));
+  await expect(fetchSmsCategoryRules(client, alice)).rejects.toThrow("格式不正确");
+});
+it("deletes an exact personal rule with null category and validates its response", async () => {
+  const { setSmsCategoryRule } = await import("./smsClient");
+  fetchMock.mockResolvedValueOnce(response({ rules: [] }));
+  expect(await setSmsCategoryRule(client, alice, "巷口咖啡", null)).toEqual([]);
+  expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ p_merchant: "巷口咖啡", p_category: null });
+});
