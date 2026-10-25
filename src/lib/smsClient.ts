@@ -229,3 +229,57 @@ export async function reprocessPendingSms(client: SupabaseClient, userId: string
   const data = record(response, ["recorded_count", "pending_count"]);
   return { recorded_count: count(data.recorded_count, 200), pending_count: count(data.pending_count, 200) };
 }
+
+export type SmsCategoryRule = { merchant: string; category: string };
+export type SmsPendingPreview = { items: { id: string; draft: SmsDraft | null; eligible: boolean; reason: string }[]; recordable_count: number; pending_count: number };
+async function classificationRpc(client: SupabaseClient, userId: string, name: string, args: Record<string, unknown>, signal?: AbortSignal) {
+  try { return await rpc(client, userId, name, args, signal); }
+  catch (error) { if (error instanceof SmsSetupError) throw new SmsUpgradeError(); throw error; }
+}
+function readRules(value: unknown): SmsCategoryRule[] {
+  const data = record(value, ["rules"]);
+  if (!Array.isArray(data.rules) || data.rules.length > 200) return failFormat();
+  const seen = new Set<string>();
+  return data.rules.map(value => {
+    const rule = record(value, ["merchant", "category"]);
+    const merchant = text(rule.merchant, 200, true);
+    if (seen.has(merchant) || !CATEGORIES.includes(rule.category as typeof CATEGORIES[number]) || rule.category === "待分类") return failFormat();
+    seen.add(merchant); return { merchant, category: rule.category as string };
+  });
+}
+export async function fetchSmsCategoryRules(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
+  return readRules(await classificationRpc(client, userId, "moneytrail_sms_category_rules", {}, signal));
+}
+export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
+  const { merchantKey } = await import("./merchantClassification");
+  if (typeof merchant !== "string" || merchant.length > 200 || !merchantKey(merchant) || (category !== null && (!CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
+  return readRules(await classificationRpc(client, userId, "moneytrail_sms_set_category_rule", { p_merchant: merchant, p_category: category }, signal));
+}
+export async function previewPendingSms(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsPendingPreview> {
+  const data = record(await classificationRpc(client, userId, "moneytrail_sms_preview_pending", {}, signal), ["items", "recordable_count", "pending_count"]);
+  const pending_count = count(data.pending_count, 200), recordable_count = count(data.recordable_count, 200);
+  if (!Array.isArray(data.items) || data.items.length !== pending_count) return failFormat();
+  const ids = new Set<string>();
+  const items = data.items.map(value => {
+    const item = record(value, ["id", "draft", "eligible", "reason"]);
+    if (typeof item.id !== "string" || !UUID.test(item.id) || ids.has(item.id.toLowerCase()) || typeof item.eligible !== "boolean") return failFormat();
+    ids.add(item.id.toLowerCase());
+    const draft = item.draft === null ? null : readDraft(item.draft);
+    if (item.eligible && !draft) return failFormat();
+    return { id: item.id, draft, eligible: item.eligible, reason: text(item.reason, 1000, true) };
+  });
+  if (items.filter(item => item.eligible).length !== recordable_count) return failFormat();
+  return { items, pending_count, recordable_count };
+}
+export async function applyPendingSms(client: SupabaseClient, userId: string, items: { id: string; draft: SmsDraft }[], signal?: AbortSignal): Promise<SmsReprocessResult> {
+  if (!Array.isArray(items) || !items.length || items.length > 200) throw new Error("请先预览并选择可入账短信。");
+  const ids = new Set<string>();
+  const clean = items.map(value => {
+    const item = record(value, ["id", "draft"]); checkId(item.id as string);
+    const id = item.id as string;
+    if (ids.has(id.toLowerCase())) throw new Error("不能重复选择同一短信。");
+    ids.add(id.toLowerCase()); return { id, draft: readDraft(item.draft) };
+  });
+  const data = record(await classificationRpc(client, userId, "moneytrail_sms_apply_pending", { p_items: clean }, signal), ["recorded_count", "pending_count"]);
+  return { recorded_count: count(data.recorded_count, clean.length), pending_count: count(data.pending_count, 200) };
+}
