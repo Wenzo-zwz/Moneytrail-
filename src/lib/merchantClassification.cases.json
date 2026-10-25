@@ -26,5 +26,7 @@
   {"merchant":"转账-医院","category":"待分类","review":true},
   {"merchant":"药店退款","category":"待分类","review":true},
   {"merchant":"药店支付失败","category":"待分类","review":true},
-  {"merchant":"示例科技有限公司","category":"待分类","review":false}
+  {"merchant":"示例科技有限公司","category":"待分类","review":false},
+  {"merchant":"消费财付通-示例台球俱乐部（青年路店）","category":"娱乐","review":false},
+  {"merchant":"示例桌球俱乐部","category":"娱乐","review":false}
 ]

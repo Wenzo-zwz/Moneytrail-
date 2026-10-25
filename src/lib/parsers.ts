@@ -7,6 +7,7 @@ import {
   type TransactionKind,
 } from "./ledger";
 import { classifyMerchant } from "./merchantClassification";
+import { repairMissingBranchBracket } from "./smsBranchRepair";
 
 export interface SmsParseResult {
   draft: DraftTransaction | null;
@@ -219,7 +220,7 @@ export function parseSms(
   rawText: string,
   referenceDate = new Date(),
 ): SmsParseResult {
-  const text = rawText.normalize("NFKC").trim();
+  const text = repairMissingBranchBracket(rawText).normalize("NFKC").trim();
   const warnings: string[] = [];
   if (!text)
     return { draft: null, warnings, error: "请先粘贴一条银行消费短信。" };
