@@ -192,6 +192,27 @@ describe("account-bound SMS automation transport", () => {
 
 // Classification transport stays account-bound and rejects unsafe selections before IO.
 describe("classification RPCs", () => {
+  it.each(["美团", "消费美团支付-美团北京三快在线科技有限公司", "北京三快科技有限公司", "美团支付"])("rejects a platform-wide category rule for %s before IO", async merchant => {
+    const api = await import("./smsClient");
+    fetchMock.mockResolvedValue(response({ rules: [] }));
+    await expect(api.setSmsCategoryRule(client, alice, merchant, "餐饮")).rejects.toThrow("平台名称无法判断消费用途");
+    expect(client.auth.getSession).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it.each(["美团", "美团支付", "北京三快在线科技有限公司"])("allows deletion of an old platform rule for %s", async merchant => {
+    const api = await import("./smsClient");
+    fetchMock.mockResolvedValue(response({ rules: [] }));
+    expect(await api.setSmsCategoryRule(client, alice, merchant, null)).toEqual([]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ p_merchant: merchant, p_category: null });
+  });
+  it("saves concrete Meituan-purpose merchants without blocking other exact merchant rules", async () => {
+    const api = await import("./smsClient");
+    for (const merchant of ["美团酒店", "美团-巷口咖啡", "示例科技有限公司"]) {
+      fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant, category: "娱乐" }] }));
+      expect(await api.setSmsCategoryRule(client, alice, merchant, "娱乐")).toEqual([{ merchant, category: "娱乐" }]);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
   it("reads rules, previews without writes and applies exactly the selected drafts", async () => {
     const api = await import("./smsClient");
     const item = { id: inboxId, draft: { ...draft(), merchant: "滴滴", category: "交通" }, eligible: true, reason: "交通商户" };

@@ -215,6 +215,12 @@ async function workflow(browser, width) {
     await page.locator(".sms-rule-editor summary").click();
     await page.getByLabel("具体商户", { exact: true }).fill("财付通-群收款");
     assert.equal(await page.getByLabel("以后这家都这样分类").isEnabled(), false);
+    for (const merchant of ["美团", "美团支付", "消费美团支付-美团北京三快在线科技有限公司"]) {
+      await page.getByLabel("具体商户", { exact: true }).fill(merchant);
+      await page.getByText("美团平台名称无法判断消费用途，请填写具体门店或用途；不能将整个平台记为一种分类。", { exact: true }).waitFor();
+      assert.equal(await page.getByLabel("以后这家都这样分类").count(), 0);
+      assert.equal(await page.getByRole("button", { name: "保存商户规则", exact: true }).isEnabled(), false);
+    }
     await page.getByLabel("具体商户", { exact: true }).fill("巷口咖啡");
     await page.getByLabel("以后这家都这样分类").check();
     await page.getByRole("button", { name: "保存商户规则", exact: true }).click();

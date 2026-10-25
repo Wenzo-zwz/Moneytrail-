@@ -16,17 +16,19 @@ const categoryRules: readonly [string, RegExp][] = [
   ["居住", /酒店|宾馆|住宿|房租|水费|电费|燃气|物业|宽带|话费|流量|手机充值/],
   ["交通", /滴滴|嘀嘀无限|出租车|打车|网约车|公交|地铁|火车票|铁路|12306|加油|油站|停车|通行费|etc/i],
   ["学习", /课程|培训|教材|书店|学费|考试/],
-  ["娱乐", /电影|影院|ktv|游戏|影音会员|视频会员|音乐会员|景区|门票|游乐园|台球|桌球/i],
+  ["娱乐", /电影|影院|ktv|游戏|影音会员|视频会员|音乐会员|景区|门票|游乐园|台球|桌球|按摩|足浴|足疗|推拿|(^|[^a-z])spa([^a-z]|$)|剧本杀|密室|桌游|棋牌/i],
   ["餐饮", /外卖|餐厅|饭店|餐饮|咖啡|奶茶|早餐|烧烤|火锅|面馆|快餐|食堂/],
   ["购物", /烟酒|副食|超市|便利店|服饰|服装|数码|日用品/],
 ];
 
-function normalizeMerchant(merchant: string): string {
+function normalizeMerchant(merchant: string, preservePlatform = false): string {
   let result = merchant.normalize("NFKC").trim().toLowerCase();
   let previous: string;
   do {
     previous = result;
-    result = result.replace(/^(?:消费|支付(?!宝)|付款)[-—－:：\s]*/, "").replace(channelPrefix, "").trim();
+    result = result.replace(/^(?:消费|支付(?!宝)|付款)[-—－:：\s]*/, "").trim();
+    if (preservePlatform && result === "美团支付") break;
+    result = result.replace(channelPrefix, "").trim();
   } while (result !== previous);
   return result;
 }
@@ -43,8 +45,16 @@ export function merchantKey(merchant: string): string {
   return !normalized || normalized.length > 200 || /[\u0000-\u001f\u007f]/.test(normalized) || needsReview(normalized) ? "" : normalized;
 }
 
+/** Shared platform identities do not identify an individual store or purchase purpose. */
+export function isPlatformOnlyMerchant(merchant: string): boolean {
+  if (merchant.length > 200 || /[\u0000-\u001f\u007f]/.test(merchant) || needsReview(merchant)) return false;
+  const normalized = normalizeMerchant(merchant, true);
+  return /^(?:美团|美团平台|美团平台商户|美团网|美团支付|美团北京三快在线科技有限公司|美团北京三快在线科技有限公|北京三快在线科技有限公司|北京三快科技有限公司)$/.test(normalized);
+}
+
 export function classifyMerchant(merchant: string, rules: MerchantRule[] = []): MerchantClassification {
   const key = merchantKey(merchant);
+  if (isPlatformOnlyMerchant(merchant)) return { category: "待分类", reason: "美团平台名称无法判断消费用途", merchantKey: key, requiresReview: false };
   if (!key) return { category: "待分类", reason: "用途不明，请核对", merchantKey: "", requiresReview: true };
   const personal = rules.find(rule => merchantKey(rule.merchant) === key
     && rule.category !== "待分类" && CATEGORIES.includes(rule.category as typeof CATEGORIES[number]));
@@ -52,7 +62,6 @@ export function classifyMerchant(merchant: string, rules: MerchantRule[] = []): 
   for (const [category, pattern] of categoryRules) {
     if (pattern.test(key)) return { category, reason: `商户关键词：${category}`, merchantKey: key, requiresReview: false };
   }
-  if (/美团/.test(key)) return { category: "餐饮", reason: "美团默认餐饮", merchantKey: key, requiresReview: false };
   if (/京东|淘宝|天猫|拼多多/.test(key)) return { category: "购物", reason: "电商平台默认购物", merchantKey: key, requiresReview: false };
   return { category: "待分类", reason: "未匹配分类，可保存具体商户规则", merchantKey: key, requiresReview: false };
 }
