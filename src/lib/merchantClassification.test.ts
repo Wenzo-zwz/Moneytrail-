@@ -28,6 +28,17 @@ describe("merchant classification", () => {
     expect(classifyMerchant("转账-示例科技有限公司", rules).requiresReview).toBe(true);
     expect(classifyMerchant("示例科技有限公司", [{ merchant: "示例科技有限公司", category: "无效类别" }]).category).toBe("待分类");
   });
+  it.each(["美团", "美团平台", "美团平台商户", "美团北京三快在线科技有限公", "美团网", "美团支付", "美团北京三快在线科技有限公司", "北京三快在线科技有限公司", "北京三快科技有限公司", "消费美团支付-美团北京三快在线科技有限公司", "微信支付：美团支付"])("ignores old platform rules for %s without requiring review", merchant => {
+    expect(classifyMerchant(merchant, [{ merchant, category: "餐饮" }])).toMatchObject({
+      category: "待分类", requiresReview: false, reason: "美团平台名称无法判断消费用途",
+    });
+  });
+  it("keeps real named stores and unknown merchants eligible for exact personal rules", () => {
+    for (const merchant of ["美团-巷口咖啡", "美团-示例科技有限公司", "三快书店", "示例科技有限公司"]) {
+      expect(classifyMerchant(merchant, [{ merchant, category: "娱乐" }])).toMatchObject({ category: "娱乐", reason: "个人商户规则" });
+    }
+    expect(merchantKey("美团支付")).toBe("");
+  });
 });
 
 describe("category backfill", () => {
@@ -39,7 +50,7 @@ describe("category backfill", () => {
     ] };
     const original = structuredClone(data);
     const changes = planCategoryChanges(data);
-    expect(changes.map(change => [change.id, change.toCategory])).toEqual([["ride", "交通"], ["meal", "餐饮"]]);
+    expect(changes.map(change => [change.id, change.toCategory])).toEqual([["ride", "交通"]]);
     expect(data).toEqual(original);
     const next = applyCategoryChanges(data, changes);
     expect(next.transactions).toHaveLength(data.transactions.length);

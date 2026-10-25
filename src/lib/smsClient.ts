@@ -251,8 +251,10 @@ export async function fetchSmsCategoryRules(client: SupabaseClient, userId: stri
   return readRules(await classificationRpc(client, userId, "moneytrail_sms_category_rules", {}, signal));
 }
 export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
-  const { merchantKey } = await import("./merchantClassification");
-  if (typeof merchant !== "string" || merchant.length > 200 || !merchantKey(merchant) || (category !== null && (!CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
+  const { merchantKey, isPlatformOnlyMerchant } = await import("./merchantClassification");
+  const platformOnly = typeof merchant === "string" && isPlatformOnlyMerchant(merchant);
+  if (category !== null && platformOnly) throw new Error("美团平台名称无法判断消费用途，请填写具体门店；不能保存整个平台的分类规则。");
+  if (typeof merchant !== "string" || merchant.length > 200 || (!merchantKey(merchant) && !(category === null && platformOnly)) || (category !== null && (!CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
   return readRules(await classificationRpc(client, userId, "moneytrail_sms_set_category_rule", { p_merchant: merchant, p_category: category }, signal));
 }
 export async function previewPendingSms(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsPendingPreview> {
