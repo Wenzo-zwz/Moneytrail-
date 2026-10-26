@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureAccountBearer } from "./cloudClient";
-import { CATEGORIES, isValidLocalDateTime, type TransactionKind } from "./ledger";
+import { CATEGORIES, isValidLocalDateTime, normalizeTransactionCategory, type TransactionKind, type DraftTransaction } from "./ledger";
 
 export type SmsMode = "review" | "auto";
 export type SmsConfig = {
@@ -18,7 +18,7 @@ export type SmsDraft = {
   category: string;
   source: "sms";
   note: string;
-};
+} & Pick<DraftTransaction, "subcategory" | "platform" | "smsEvidence">;
 export type SmsInboxItem = {
   id: string;
   received_at: string;
@@ -58,10 +58,10 @@ function failFormat(): never {
   throw new Error("短信服务返回的内容格式不正确，请刷新后重试。");
 }
 
-function record(value: unknown, keys: string[]): Record<string, unknown> {
+function record(value: unknown, keys: string[], optional: string[] = []): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return failFormat();
   const data = value as Record<string, unknown>;
-  if (Object.keys(data).length !== keys.length || keys.some(key => !Object.hasOwn(data, key))) return failFormat();
+  if (Object.keys(data).some(key => !keys.includes(key) && !optional.includes(key)) || keys.some(key => !Object.hasOwn(data, key))) return failFormat();
   return data;
 }
 
@@ -86,14 +86,31 @@ function text(value: unknown, max: number, nonempty = false): string {
 }
 
 function readDraft(value: unknown): SmsDraft {
-  const draft = record(value, DRAFT_KEYS);
+  const draft = record(value, DRAFT_KEYS, ["subcategory", "platform", "smsEvidence"]);
   if (typeof draft.kind !== "string" || !KINDS.includes(draft.kind)
     || !Number.isSafeInteger(draft.amountCents) || (draft.amountCents as number) <= 0 || (draft.amountCents as number) > 1_000_000_000_000
-    || !isValidLocalDateTime(draft.date) || !CATEGORIES.includes(draft.category as typeof CATEGORIES[number]) || draft.source !== "sms") return failFormat();
-  return {
+    || !isValidLocalDateTime(draft.date) || !validReadCategory(draft.category) || draft.source !== "sms") return failFormat();
+  const metadata: Pick<SmsDraft, "subcategory" | "platform" | "smsEvidence"> = {};
+  if (Object.hasOwn(draft, "subcategory")) metadata.subcategory = text(draft.subcategory, 40, true);
+  if (Object.hasOwn(draft, "platform")) {
+    if (!["美团", "京东", "淘宝", "天猫", "拼多多", "滴滴"].includes(draft.platform as string)) return failFormat();
+    metadata.platform = draft.platform as SmsDraft["platform"];
+  }
+  if (Object.hasOwn(draft, "smsEvidence")) {
+    const evidence = record(draft.smsEvidence, ["text"], ["receivedAt", "classificationReason", "ruleVersion"]);
+    metadata.smsEvidence = { text: text(evidence.text, 3000, true) };
+    if (Object.hasOwn(evidence, "receivedAt")) metadata.smsEvidence.receivedAt = timestamp(evidence.receivedAt);
+    if (Object.hasOwn(evidence, "classificationReason")) metadata.smsEvidence.classificationReason = text(evidence.classificationReason, 200);
+    if (Object.hasOwn(evidence, "ruleVersion")) metadata.smsEvidence.ruleVersion = text(evidence.ruleVersion, 64);
+  }
+  return normalizeTransactionCategory({
     kind: draft.kind as TransactionKind, amountCents: draft.amountCents as number, date: draft.date,
-    merchant: text(draft.merchant, 200, true), category: draft.category as string, source: "sms", note: text(draft.note, 2000),
-  };
+    merchant: text(draft.merchant, 200, true), category: draft.category as string, source: "sms" as const, note: text(draft.note, 2000), ...metadata,
+  });
+}
+
+function validReadCategory(category: unknown): boolean {
+  return CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "餐饮" || category === "娱乐";
 }
 
 function readConfig(value: unknown): SmsConfig {
@@ -243,8 +260,8 @@ function readRules(value: unknown): SmsCategoryRule[] {
   return data.rules.map(value => {
     const rule = record(value, ["merchant", "category"]);
     const merchant = text(rule.merchant, 200, true);
-    if (seen.has(merchant) || !CATEGORIES.includes(rule.category as typeof CATEGORIES[number]) || rule.category === "待分类") return failFormat();
-    seen.add(merchant); return { merchant, category: rule.category as string };
+    if (seen.has(merchant) || !validReadCategory(rule.category) || rule.category === "待分类") return failFormat();
+    seen.add(merchant); return { merchant, category: normalizeTransactionCategory({ category: rule.category as string }).category };
   });
 }
 export async function fetchSmsCategoryRules(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
@@ -253,7 +270,7 @@ export async function fetchSmsCategoryRules(client: SupabaseClient, userId: stri
 export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
   const { merchantKey, isPlatformOnlyMerchant } = await import("./merchantClassification");
   const platformOnly = typeof merchant === "string" && isPlatformOnlyMerchant(merchant);
-  if (category !== null && platformOnly) throw new Error("美团平台名称无法判断消费用途，请填写具体门店；不能保存整个平台的分类规则。");
+  if (category !== null && platformOnly) throw new Error("美团平台默认归入本地生活，细类未细分；请填写具体门店，不能保存整个平台的分类规则。");
   if (typeof merchant !== "string" || merchant.length > 200 || (!merchantKey(merchant) && !(category === null && platformOnly)) || (category !== null && (!CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
   return readRules(await classificationRpc(client, userId, "moneytrail_sms_set_category_rule", { p_merchant: merchant, p_category: category }, signal));
 }

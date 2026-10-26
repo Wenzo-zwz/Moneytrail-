@@ -12,7 +12,7 @@ const RECEIVED = "2026-10-24T13:18:00Z";
 const merchant = "消费财付通-示例台球俱乐部（青年路店";
 const sms = (detail = merchant, amount = "88") =>
   `尾号xxxx卡10月24日21:17支出(${detail})${amount}元，余额xxxx元。【工商银行】`;
-type Parsed = { draft: { kind: string; amountCents: number; merchant: string; category: string } | null; requires_review: boolean; error: string | null };
+type Parsed = { draft: { kind: string; amountCents: number; merchant: string; category: string; smsEvidence?: { text: string } } | null; requires_review: boolean; error: string | null };
 let db: PGlite;
 
 async function parse(text = sms(), received = RECEIVED): Promise<Parsed> {
@@ -52,19 +52,20 @@ describe("narrow ICBC missing branch bracket recovery", () => {
   it("recovers the original 88-yuan billiards debit independently of its balance", async () => {
     const result = await parse();
     expect(result).toMatchObject({ draft: { kind: "expense", amountCents: 8800,
-      merchant: "消费财付通-示例台球俱乐部(青年路店)", category: "娱乐" }, requires_review: false, error: null });
-    expect(JSON.stringify(result)).not.toContain("余额");
+      merchant: "消费财付通-示例台球俱乐部(青年路店)", category: "本地生活", subcategory: "桌游台球" }, requires_review: false, error: null });
+    expect(result.draft?.smsEvidence?.text).toContain("余额[已隐藏]元");
+    expect(result.draft?.smsEvidence?.text).not.toContain("12,345.94");
   });
 
   it.each(["店", "青年路店", "青年路分店", "青年路门店", "青年路营业部", "青年路支行", "青年路分行", `${"青".repeat(39)}店`])(
     "recovers only one clearly bounded branch label: %s", async branch => {
-      expect(await parse(sms(`消费财付通-示例台球（${branch}`))).toMatchObject({ draft: { amountCents: 8800, category: "娱乐" }, requires_review: false });
+      expect(await parse(sms(`消费财付通-示例台球（${branch}`))).toMatchObject({ draft: { amountCents: 8800, category: "本地生活", subcategory: "桌游台球" }, requires_review: false });
     },
   );
 
   it.each(["消费财付通-示例台球（青年路店）", "消费财付通-示例桌球(青年路店)"])(
     "preserves balanced merchant brackets: %s", async detail => {
-      expect(await parse(sms(detail))).toMatchObject({ draft: { merchant: detail.normalize("NFKC"), category: "娱乐" }, requires_review: false });
+      expect(await parse(sms(detail))).toMatchObject({ draft: { merchant: detail.normalize("NFKC"), category: "本地生活", subcategory: "桌游台球" }, requires_review: false });
     },
   );
 
@@ -100,7 +101,7 @@ describe("narrow ICBC missing branch bracket recovery", () => {
 
   it("keeps grouped amounts independent from masked balances", async () => {
     expect(await parse(sms(merchant, "1,088.25").replace("xxxx元", "xx,xxx.94元")))
-      .toMatchObject({ draft: { amountCents: 108825, category: "娱乐" }, requires_review: false });
+      .toMatchObject({ draft: { amountCents: 108825, category: "本地生活", subcategory: "桌游台球" }, requires_review: false });
   });
 
   it.each(["消费财付通-美元台球（青年路店", "消费财付通-验证码台球（青年路店", "消费财付通-示例台球（青年路\t店"])(
@@ -136,6 +137,7 @@ describe("narrow ICBC missing branch bracket recovery", () => {
     expect(await rpc("moneytrail_sms_apply_pending", [selected])).toEqual({ recorded_count: 0, pending_count: 1 });
     const ledger = (await db.query<{ data: any }>("select data from public.moneytrail_ledgers where user_id=$1", [USER])).rows[0].data;
     expect(ledger.transactions).toHaveLength(1);
+    // This test deliberately reapplies the historical repair migration.
     expect(ledger.transactions[0]).toMatchObject({ amountCents: 8800, category: "娱乐", kind: "expense" });
     expect((await db.query("select status,raw_text from moneytrail_private.sms_inbox where id=$1", [transferId])).rows[0])
       .toEqual({ status: "pending", raw_text: transferText });

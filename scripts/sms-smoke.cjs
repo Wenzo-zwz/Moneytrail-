@@ -22,7 +22,7 @@ const PASSWORD = "Fixture-password-123!";
 const RAW = "尾号xxxx卡10月22日19:27支出(转账财付通-群收款)30.90元，余额8xxxx元。【工商银行】";
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const empty = () => ({ version: 1, transactions: [], budgetCents: 0, billCheckedMonths: [] });
-const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "餐饮", source: "manual", note: "保留原账目" };
+const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "本地生活", subcategory: "餐饮", source: "manual", note: "保留原账目" };
 let checks = 0;
 const passed = (message) => { checks += 1; process.stdout.write(`PASS ${message}\n`); };
 
@@ -56,7 +56,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
     ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
   }
   if (ordinaryPending) {
-    const examples = [["街角咖啡店", 1200, "餐饮"], ["滴滴出行", 2350, "交通"], ["美团外卖", 880, "餐饮"], ["某某便利店", 1680, "购物"]];
+    const examples = [["街角咖啡店", 1200, "本地生活"], ["滴滴出行", 2350, "交通"], ["美团外卖", 880, "本地生活"], ["某某便利店", 1680, "购物"]];
     const records = examples.map(([merchant, amountCents, category], index) => {
       const id = `34000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
       ordinaryIds.add(id); reprocessedDrafts.set(id, { kind: "expense", amountCents, date: `2026-10-22T19:1${index}`, merchant, category, source: "sms", note: "" });
@@ -257,7 +257,7 @@ async function ownerWorkflow(browser) {
     await group.getByRole("button", { name: "核对并记录", exact: true }).click();
     await page.screenshot({ path: path.join(ARTIFACTS, "desktop-sms.png"), fullPage: true, animations: "disabled" });
     await group.getByLabel("商户或用途", { exact: true }).fill("朋友聚餐AA");
-    await group.getByRole("combobox", { name: /^分类/ }).selectOption("餐饮");
+    await group.getByRole("combobox", { name: /^分类/ }).selectOption("本地生活");
     await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     await until(() => backend.ledgers.get(OWNER).data.transactions.length === 2, "confirmed SMS append");
     assert.deepEqual(backend.ledgers.get(OWNER).data.transactions[0], manual);
@@ -397,7 +397,7 @@ async function reprocessWorkflow(browser) {
     await until(async () => await page.locator(".sms-message.recorded").count() === 4, "refreshed inbox");
     const book = backend.ledgers.get(OWNER).data;
     assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 5); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
-    assert.deepEqual(book.transactions.slice(1).map(t => t.category), ["餐饮", "交通", "餐饮", "购物"]);
+    assert.deepEqual(book.transactions.slice(1).map(t => t.category), ["本地生活", "交通", "本地生活", "购物"]);
     assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending"); assert.equal(backend.inboxes.get(OWNER).find(item => item.id === OTHER).status, "pending");
     const request = backend.requests.find(request => request.path.endsWith("moneytrail_sms_apply_pending")); assert.equal(request.body.p_items.length, 4);
     assert(backend.inboxes.get(OWNER).filter(item => item.status === "recorded").every(item => item.raw_text === null));

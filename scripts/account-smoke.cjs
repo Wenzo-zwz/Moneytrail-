@@ -19,7 +19,7 @@ const PASSWORD = "Fixture-password-123!";
 const CACHE = (id) => `moneytrail:cloud:v1:${encodeURIComponent(PROJECT)}:${id}`;
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const empty = () => ({ version: 1, transactions: [], budgetCents: 0, billCheckedMonths: [] });
-const transaction = (id, merchant, cents = 1000) => ({ id, kind: "expense", amountCents: cents, date: "2026-10-22T12:30", merchant, category: "餐饮", source: "manual", note: "" });
+const transaction = (id, merchant, cents = 1000) => ({ id, kind: "expense", amountCents: cents, date: "2026-10-22T12:30", merchant, category: "本地生活", subcategory: "餐饮", source: "manual", note: "" });
 let checks = 0;
 const passed = (name) => { checks += 1; process.stdout.write(`PASS ${name}\n`); };
 
@@ -143,7 +143,7 @@ async function addManual(page, merchant) {
   await modal.getByLabel("金额（元）", { exact: true }).fill("12.34");
   await modal.getByLabel("商户 / 对方", { exact: true }).fill(merchant);
   await modal.getByLabel("发生时间", { exact: true }).fill("2026-10-22T13:30");
-  await modal.getByLabel("分类", { exact: true }).selectOption("餐饮");
+  await modal.getByLabel("分类", { exact: true }).selectOption("本地生活");
   const acceptDuplicate = (confirmation) => confirmation.accept();
   page.on("dialog", acceptDuplicate);
   await modal.getByRole("button", { name: "确认保存", exact: true }).click();
@@ -320,8 +320,8 @@ async function mobileWorkflow(browser) {
 (async () => {
   await mkdir(ARTIFACTS, { recursive: true });
   let output = "";
-  const server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], {
-    cwd: ROOT, detached: true, stdio: ["ignore", "pipe", "pipe"],
+  const server = spawn(process.execPath, [path.join(ROOT, "node_modules", "vite", "bin", "vite.js"), "--host", "127.0.0.1", "--port", String(PORT)], {
+    cwd: ROOT, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, MONEYTRAIL_BASE_PATH: "/Moneytrail-/", VITE_SUPABASE_URL: PROJECT, VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_public_key", VITE_SUPABASE_ANON_KEY: "" },
   });
   server.stdout.on("data", (chunk) => { output += chunk.toString(); });
@@ -338,6 +338,6 @@ async function mobileWorkflow(browser) {
     process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    if (server.pid) { try { process.kill(-server.pid, "SIGTERM"); } catch {} }
+    if (server.pid) { try { server.kill(); } catch {} }
   }
 })();

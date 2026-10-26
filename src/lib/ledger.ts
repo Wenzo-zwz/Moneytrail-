@@ -1,9 +1,8 @@
 export const CATEGORIES = [
-  "餐饮",
+  "本地生活",
   "购物",
   "交通",
   "居住",
-  "娱乐",
   "医疗",
   "学习",
   "其他",
@@ -12,6 +11,14 @@ export const CATEGORIES = [
 
 export type TransactionKind = "expense" | "refund" | "transfer" | "income";
 export type Source = "manual" | "sms" | "wechat" | "alipay" | "csv";
+export const PLATFORMS = ["美团", "京东", "淘宝", "天猫", "拼多多", "滴滴"] as const;
+export type Platform = typeof PLATFORMS[number];
+export interface SmsEvidence {
+  text: string;
+  receivedAt?: string;
+  classificationReason?: string;
+  ruleVersion?: string;
+}
 
 export interface Transaction {
   id: string;
@@ -25,6 +32,9 @@ export interface Transaction {
   note: string;
   sourceRef?: string;
   linkedTransactionId?: string;
+  subcategory?: string;
+  platform?: Platform;
+  smsEvidence?: SmsEvidence;
 }
 
 export type DraftTransaction = Omit<Transaction, "id">;
@@ -32,6 +42,33 @@ export type DraftTransaction = Omit<Transaction, "id">;
 const MAX_AMOUNT_CENTS = 1_000_000_000_000;
 const KINDS: readonly string[] = ["expense", "refund", "transfer", "income"];
 const SOURCES: readonly string[] = ["manual", "sms", "wechat", "alipay", "csv"];
+
+/** Deterministic legacy conversion: retain any already-known purpose detail. */
+export function normalizeTransactionCategory<T extends { category: string; subcategory?: string }>(transaction: T): T {
+  if (transaction.category !== "餐饮" && transaction.category !== "娱乐") return { ...transaction };
+  return { ...transaction, category: "本地生活", subcategory: transaction.subcategory ?? (transaction.category === "餐饮" ? "餐饮" : "休闲娱乐") };
+}
+
+export function copyTransaction(transaction: Transaction): Transaction {
+  const copy: Transaction = {
+    id: transaction.id, kind: transaction.kind, amountCents: transaction.amountCents,
+    date: transaction.date, merchant: transaction.merchant, category: transaction.category,
+    source: transaction.source, note: transaction.note,
+  };
+  if (transaction.sourceRef !== undefined) copy.sourceRef = transaction.sourceRef;
+  if (transaction.linkedTransactionId !== undefined) copy.linkedTransactionId = transaction.linkedTransactionId;
+  if (transaction.subcategory !== undefined) copy.subcategory = transaction.subcategory;
+  if (transaction.platform !== undefined) copy.platform = transaction.platform;
+  if (transaction.smsEvidence !== undefined) {
+    const evidence = transaction.smsEvidence;
+    copy.smsEvidence = { text: evidence.text,
+      ...(evidence.receivedAt !== undefined ? { receivedAt: evidence.receivedAt } : {}),
+      ...(evidence.classificationReason !== undefined ? { classificationReason: evidence.classificationReason } : {}),
+      ...(evidence.ruleVersion !== undefined ? { ruleVersion: evidence.ruleVersion } : {}),
+    };
+  }
+  return normalizeTransactionCategory(copy);
+}
 
 /** Parse decimal yuan without floating-point multiplication or rounding. */
 export function parseAmount(value: string): number | null {
@@ -90,6 +127,18 @@ function nonemptyString(value: unknown, max: number): value is string {
   );
 }
 
+export function validateSmsEvidence(value: unknown): value is SmsEvidence {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return Object.keys(item).every(key => ["text", "receivedAt", "classificationReason", "ruleVersion"].includes(key))
+    && nonemptyString(item.text, 3000)
+    && (item.receivedAt === undefined || (typeof item.receivedAt === "string"
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(item.receivedAt)
+      && isValidLocalDateTime(item.receivedAt.slice(0, 16)) && Number.isFinite(Date.parse(item.receivedAt))))
+    && (item.classificationReason === undefined || (typeof item.classificationReason === "string" && item.classificationReason.length <= 200))
+    && (item.ruleVersion === undefined || (typeof item.ruleVersion === "string" && item.ruleVersion.length <= 64));
+}
+
 export function validateTransaction(value: unknown): value is Transaction {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -104,14 +153,17 @@ export function validateTransaction(value: unknown): value is Transaction {
     isValidLocalDateTime(item.date) &&
     nonemptyString(item.merchant, 200) &&
     typeof item.category === "string" &&
-    (CATEGORIES as readonly string[]).includes(item.category) &&
+    [...CATEGORIES, "餐饮", "娱乐"].includes(item.category) &&
     typeof item.source === "string" &&
     SOURCES.includes(item.source) &&
     typeof item.note === "string" &&
     item.note.length <= 2000 &&
     (item.sourceRef === undefined || nonemptyString(item.sourceRef, 200)) &&
     (item.linkedTransactionId === undefined ||
-      nonemptyString(item.linkedTransactionId, 128))
+      nonemptyString(item.linkedTransactionId, 128)) &&
+    (item.subcategory === undefined || nonemptyString(item.subcategory, 40)) &&
+    (item.platform === undefined || (PLATFORMS as readonly unknown[]).includes(item.platform)) &&
+    (item.smsEvidence === undefined || validateSmsEvidence(item.smsEvidence))
   );
 }
 
@@ -123,7 +175,7 @@ export interface MonthSummary {
   budgetRemainingCents: number;
   count: number;
   uncategorizedCount: number;
-  categories: { category: string; amountCents: number }[];
+  categories: { category: string; amountCents: number; subcategories: { subcategory: string; amountCents: number }[] }[];
 }
 
 /** Refunds reduce spending in the month received. Transfers are never spending. */
@@ -143,7 +195,9 @@ export function summarize(
     categories: [],
   };
   const categories = new Map<string, number>();
-  for (const item of transactions) {
+  const details = new Map<string, Map<string, number>>();
+  for (const raw of transactions) {
+    const item = normalizeTransactionCategory(raw);
     if (!item.date.startsWith(`${month}-`)) continue;
     if (item.kind === "income") summary.incomeCents += item.amountCents;
     if (item.kind !== "expense" && item.kind !== "refund") continue;
@@ -156,11 +210,15 @@ export function summarize(
       (categories.get(item.category) ?? 0) +
         (item.kind === "expense" ? item.amountCents : -item.amountCents),
     );
+    const subcategory = item.subcategory ?? "未细分";
+    const categoryDetails = details.get(item.category) ?? new Map<string, number>();
+    categoryDetails.set(subcategory, (categoryDetails.get(subcategory) ?? 0) + (item.kind === "expense" ? item.amountCents : -item.amountCents));
+    details.set(item.category, categoryDetails);
   }
   summary.netCents = summary.expenseCents - summary.refundCents;
   summary.budgetRemainingCents = budgetCents - summary.netCents;
   summary.categories = [...categories.entries()]
-    .map(([category, amountCents]) => ({ category, amountCents }))
+    .map(([category, amountCents]) => ({ category, amountCents, subcategories: [...details.get(category)!.entries()].map(([subcategory, amountCents]) => ({ subcategory, amountCents })).filter(item => item.amountCents !== 0).sort((a, b) => b.amountCents - a.amountCents) }))
     .filter((item) => item.amountCents !== 0)
     .sort((a, b) => b.amountCents - a.amountCents);
   return summary;

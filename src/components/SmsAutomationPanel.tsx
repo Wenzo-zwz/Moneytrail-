@@ -1,4 +1,5 @@
 import SmsClassificationTools from "./SmsClassificationTools";
+import { categoryText, DetailField } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, LockKeyhole, MessageSquare, RefreshCw, ShieldCheck, Smartphone, X } from "lucide-react";
@@ -39,6 +40,7 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
   const [date, setDate] = useState(item.draft?.date ?? receiptDate(item.received_at));
   const [merchant, setMerchant] = useState(item.draft?.merchant ?? "");
   const [category, setCategory] = useState(item.draft?.category ?? "待分类");
+  const [subcategory, setSubcategory] = useState(item.draft?.subcategory);
   const [note, setNote] = useState(item.draft?.note ?? "");
   const [error, setError] = useState("");
   const pending = item.status === "pending";
@@ -48,11 +50,12 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
     const cents = parseAmount(amount);
     if (!cents || !isValidLocalDateTime(date) || !merchant.trim() || merchant.length > 200) { setError("请填写有效的金额、时间和商户。"); return; }
     setError("");
-    await onConfirm(item.id, { kind, amountCents: cents, date, merchant: merchant.trim(), category, source: "sms", note });
+    await onConfirm(item.id, { ...item.draft, kind, amountCents: cents, date, merchant: merchant.trim(), category, ...(subcategory ? { subcategory: subcategory.trim() || "未细分" } : {}), source: "sms", note });
   }
   return <article className={`sms-message ${item.status}`}>
     <div className="sms-message-heading"><span className={`sms-status ${item.status}`}>{pending ? "待确认" : item.status === "recorded" ? "已入账" : "已忽略"}</span><time dateTime={item.received_at}>{receivedTime(item.received_at)}</time></div>
     <div className="sms-message-summary"><div><h3>{item.draft?.merchant || "需要手动核对的银行短信"}</h3><p>{item.draft?.date.replace("T", " ") || "尚未识别消费时间"}</p></div><strong>{item.draft ? formatMoney(item.draft.amountCents) : "待核对"}</strong></div>
+    {item.draft && <p className="sms-form-hint">{categoryText(item.draft)}</p>}
     {pending ? <>
       {item.reason && <p className="sms-review-reason">{item.reason}</p>}
       {item.warnings.length > 0 && <ul className="sms-warnings">{item.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
@@ -63,14 +66,15 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
         <label>金额（元）<input type="text" inputMode="decimal" required autoComplete="off" maxLength={20} value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label>
         <label>交易时间<input type="datetime-local" required value={date} onChange={event => setDate(event.target.value)} disabled={busy} /></label>
         <label>商户或用途<input type="text" required autoComplete="off" maxLength={200} value={merchant} onChange={event => setMerchant(event.target.value)} disabled={busy} /></label>
-        <label>分类<select value={category} onChange={event => setCategory(event.target.value)} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label>分类<select value={category} onChange={event => { setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        <DetailField category={category} value={subcategory} onChange={setSubcategory} disabled={busy} />
         <label>备注<input type="text" autoComplete="off" maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={busy} /></label>
         {kind === "transfer" && <p className="sms-form-hint">转账会保留记录，不计入消费支出。</p>}
         {!item.draft && <p className="sms-form-hint">未能自动识别这条短信，请对照原文逐项填写后再确认。</p>}
         {error && <p className="sms-form-error" role="alert">{error}</p>}
         <div className="sms-review-actions"><button className="button primary" type="submit" disabled={busy || !canConfirm}><Check size={16} />确认并记入账本</button><button className="button ghost" type="button" disabled={busy} onClick={() => void onDismiss(item.id)}>忽略此条</button></div>
       </form>}
-    </> : <p className="sms-processed-note">{item.status === "recorded" ? "已处理；短信原文已移除。若之后修改或删除账目，此处仍保留处理记录。" : "已移除短信原文，不计入账本。"}</p>}
+    </> : <p className="sms-processed-note">{item.status === "recorded" ? "已入账，短信原文已移除。新记录的脱敏凭据长期保留在账本中，可在编辑账目时查看；历史记录可能没有凭据。" : "已移除短信原文，不计入账本，也不新增凭据。"}</p>}
   </article>;
 }
 
@@ -209,7 +213,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
           </section>
         </div>
       </>}
-      <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。短信确认或忽略后会移除原文。</p></footer>
+      <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。入账后移除原文，脱敏凭据长期保留在账本中；历史记录可能没有凭据。忽略不会新增账目或凭据。</p></footer>
     </div>
     <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title"><div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div><p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p><h2 id="sms-token-title">接入令牌，仅显示这一次</h2><p>请将它粘贴到自己 iPhone 的快捷指令中。关闭后无法再次查看，可通过更换令牌重新生成。</p><div className="sms-token-value"><code>{revealed ? token : "mt_sms_••••••••••••••••••••••••"}</code></div><div className="sms-token-tools"><button className="button secondary" onClick={() => void copy(token, "接入令牌已复制，请粘贴到自己的快捷指令中。")}><Copy size={16} />复制令牌</button><button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button></div><p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p><button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button></dialog>
   </main>;

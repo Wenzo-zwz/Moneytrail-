@@ -44,6 +44,7 @@ import {
   findDuplicates,
   formatMoney,
   parseAmount,
+  normalizeTransactionCategory,
   summarize,
   validateTransaction,
   type DraftTransaction,
@@ -61,6 +62,7 @@ import {
 } from "./lib/storage";
 import type { LedgerStore } from "./lib/cloudStore";
 import { localLedgerStore } from "./lib/ledgerStore";
+import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/TransactionMetadata";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
 type Preview = {
@@ -145,7 +147,7 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : "操作未完成，请重试。";
 }
 function categoryIcon(category: string) {
-  return category === "餐饮"
+  return category === "本地生活"
     ? Coffee
     : category === "购物"
       ? ShoppingBag
@@ -225,7 +227,7 @@ function TransactionEditor({
   onSave: (draft: DraftTransaction) => boolean;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(initial);
+  const [draft, setDraft] = useState(() => normalizeTransactionCategory(initial));
   const [amount, setAmount] = useState(
     initial.amountCents ? (initial.amountCents / 100).toFixed(2) : "",
   );
@@ -242,6 +244,7 @@ function TransactionEditor({
       amountCents: cents,
       merchant: draft.merchant.trim(),
       note: draft.note.trim(),
+      ...(draft.subcategory ? { subcategory: draft.subcategory.trim() || "未细分" } : {}),
     };
     if (next.kind !== "refund") delete next.linkedTransactionId;
     if (!validateTransaction({ ...next, id: "validation" })) {
@@ -319,7 +322,7 @@ function TransactionEditor({
                 id="tx-category"
                 value={draft.category}
                 onChange={(e) =>
-                  setDraft({ ...draft, category: e.target.value })
+                  setDraft({ ...draft, category: e.target.value, subcategory: "未细分" })
                 }
               >
                 {CATEGORIES.map((c) => (
@@ -327,6 +330,8 @@ function TransactionEditor({
                 ))}
               </select>
             </div>
+            <DetailField category={draft.category} value={draft.subcategory} onChange={subcategory => setDraft({ ...draft, subcategory })} />
+            {draft.platform && <div className="form-field"><label>消费平台</label><p className="help-text">{draft.platform}</p></div>}
             {draft.kind === "refund" && (
               <div className="form-field full">
                 <label htmlFor="tx-linked">关联原消费（可选）</label>
@@ -341,6 +346,8 @@ function TransactionEditor({
                       ...draft,
                       linkedTransactionId: e.target.value || undefined,
                       category: original?.category ?? draft.category,
+                      subcategory: original ? original.subcategory : draft.subcategory,
+                      platform: original ? original.platform : draft.platform,
                     });
                   }}
                 >
@@ -369,6 +376,7 @@ function TransactionEditor({
               />
             </div>
           </div>
+          {draft.smsEvidence ? <SmsEvidenceDisclosure evidence={draft.smsEvidence} /> : draft.source === "sms" && <p className="help-text">此笔没有留存短信凭据。历史短信原文可能已清除，可用商户描述或支付账单补充用途。</p>}
           {saveError && (
             <p className="notice warning" role="alert">
               {saveError}
@@ -417,7 +425,7 @@ function TransactionRow({
       <div className="transaction-main">
         <div className="transaction-title">{t.merchant}</div>
         <div className="transaction-meta">
-          {t.date.replace("T", " ").slice(5)} · {t.category} ·{" "}
+          {t.date.replace("T", " ").slice(5)} · {categoryText(t)} ·{" "}
           {SOURCE_NAMES[t.source]}
           {t.kind !== "expense" ? ` · ${KIND_NAMES[t.kind]}` : ""}
         </div>
@@ -524,7 +532,7 @@ export default function App({
     (t) =>
       (category === "全部" || t.category === category) &&
       (kindFilter === "全部" || t.kind === kindFilter) &&
-      `${t.merchant} ${t.note} ${t.category}`
+      `${t.merchant} ${t.note} ${t.category} ${t.subcategory || "未细分"} ${t.platform || ""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
@@ -637,10 +645,13 @@ export default function App({
         "note",
         "sourceRef",
         "linkedTransactionId",
+        "subcategory",
+        "platform",
       ] as const;
       if (
         !current ||
-        fields.some((field) => current[field] !== editor.draft[field])
+        fields.some((field) => current[field] !== editor.draft[field]) ||
+        (["text", "receivedAt", "classificationReason", "ruleVersion"] as const).some(field => current.smsEvidence?.[field] !== editor.draft.smsEvidence?.[field])
       ) {
         setNotice(
           "这笔记录已在其他页面修改或删除。本次内容尚未保存，请关闭弹窗并重新打开最新记录后修改。",
@@ -1216,7 +1227,8 @@ export default function App({
                               1,
                             );
                             return (
-                              <div className="category-row" key={c.category}>
+                              <details className="category-group" key={c.category}>
+                              <summary className="category-row" data-amount-cents={c.amountCents}>
                                 <span
                                   className="category-dot"
                                   style={{
@@ -1224,7 +1236,7 @@ export default function App({
                                   }}
                                 />
                                 <span className="category-name">
-                                  {c.category}
+                                  {c.category}<ChevronRight size={11} aria-hidden="true" />
                                 </span>
                                 <div className="category-bar">
                                   <div
@@ -1238,7 +1250,9 @@ export default function App({
                                 <span className="category-amount">
                                   {formatMoney(c.amountCents)}
                                 </span>
-                              </div>
+                              </summary>
+                              <div className="subcategory-list">{c.subcategories.map(detail => <div className="subcategory-row" data-amount-cents={detail.amountCents} key={detail.subcategory}><span>{detail.subcategory}</span><span>{formatMoney(detail.amountCents)}</span></div>)}</div>
+                              </details>
                             );
                           })}
                       </div>
@@ -1541,7 +1555,7 @@ export default function App({
                           className="button ghost small"
                           onClick={() =>
                             download(
-                              "\uFEFF日期,类型,金额,商户,分类,备注,交易编号\r\n2026-10-22 12:30,支出,38.50,示例餐厅,餐饮,午餐,example-001\r\n",
+                              "\uFEFF日期,类型,金额,商户,分类,细类,备注,交易编号\r\n2026-10-22 12:30,支出,38.50,示例餐厅,本地生活,餐饮,午餐,example-001\r\n",
                               "moneytrail-导入模板.csv",
                               "text/csv;charset=utf-8",
                             )
@@ -1642,7 +1656,7 @@ export default function App({
                           <div className="preview-card-body">
                             <span>
                               {p.draft.date.replace("T", " ")} ·{" "}
-                              {p.draft.category} · {KIND_NAMES[p.draft.kind]} ·{" "}
+                              {categoryText(p.draft)} · {KIND_NAMES[p.draft.kind]} ·{" "}
                               {SOURCE_NAMES[p.draft.source]}
                             </span>
                             {p.duplicates.length > 0 && (

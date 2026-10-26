@@ -12,7 +12,7 @@ describe("bank SMS parsing", () => {
   it.each(["滴滴出租车", "美团外卖", "手机话费充值"])("categorizes a common merchant: %s", merchant => {
     const result = parseSms(`尾号xxxx卡10月24日00:59支出(${merchant})20元，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1));
     expect(result.draft?.kind).toBe("expense");
-    expect(result.draft?.category).toBe(merchant === "滴滴出租车" ? "交通" : merchant === "美团外卖" ? "餐饮" : "居住");
+    expect(result.draft?.category).toBe(merchant === "滴滴出租车" ? "交通" : merchant === "美团外卖" ? "本地生活" : "居住");
   });
   it.each(["消费财付通", "转账财付通-群收款", "转账-张三"])("requires checking ambiguous channels or transfers: %s", merchant => {
     const result = parseSms(`尾号xxxx卡10月24日00:59支出(${merchant})20元，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1));

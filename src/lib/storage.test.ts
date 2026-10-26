@@ -22,7 +22,7 @@ function transaction(overrides: Partial<Transaction> = {}): Transaction {
     amountCents: 2_890,
     date: "2026-10-22T12:30",
     merchant: "午餐小馆",
-    category: "餐饮",
+    category: "本地生活",
     source: "wechat",
     note: "午饭",
     sourceRef: "wx-202610221230",

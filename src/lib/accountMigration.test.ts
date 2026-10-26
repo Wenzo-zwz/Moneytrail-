@@ -5,7 +5,7 @@ import { emptyData, type AppData } from "./storage";
 
 const expense = (id: string, overrides: Partial<Transaction> = {}): Transaction => ({
   id, kind: "expense", amountCents: 1800, date: "2026-10-20T12:30",
-  merchant: "午餐", category: "餐饮", source: "manual", note: "", ...overrides,
+  merchant: "午餐", category: "本地生活", source: "manual", note: "", ...overrides,
 });
 const book = (transactions: Transaction[], overrides: Partial<AppData> = {}): AppData => ({
   ...emptyData(), transactions, ...overrides,
