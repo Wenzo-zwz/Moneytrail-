@@ -120,7 +120,7 @@ describe("monthly financial meaning", () => {
       budgetRemainingCents: 930,
       count: 3,
       uncategorizedCount: 0,
-      categories: [{ category: "餐饮", amountCents: 70 }],
+      categories: [{ category: "本地生活", amountCents: 70, subcategories: [{ subcategory: "餐饮", amountCents: 70 }] }],
     });
   });
   it("accounts for a cross-month refund when it is received", () => {

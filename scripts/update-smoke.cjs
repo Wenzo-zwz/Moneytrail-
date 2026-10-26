@@ -15,7 +15,7 @@ const KEY = "moneytrail:v1";
 const DRAFT = "未保存的短信草稿，更新前请保留";
 const BOOK = {
   version: 1, budgetCents: 50000, billCheckedMonths: ["2026-09"],
-  transactions: [{ id: "update-preserved", kind: "expense", amountCents: 1234, date: "2026-10-22T12:30", merchant: "更新前已保存的消费", category: "餐饮", source: "manual", note: "保留预算及原账目" }],
+  transactions: [{ id: "update-preserved", kind: "expense", amountCents: 1234, date: "2026-10-22T12:30", merchant: "更新前已保存的消费", category: "本地生活", subcategory: "餐饮", source: "manual", note: "保留预算及原账目" }],
 };
 const types = { ".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css", ".json": "application/json", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png" };
 

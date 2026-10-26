@@ -1,7 +1,7 @@
 /* Production-browser smoke checks. Build first: npm run build && npm run test:e2e. */
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
-const { readFile, mkdir } = require("node:fs/promises");
+const { readFile, readdir, mkdir } = require("node:fs/promises");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
@@ -102,7 +102,7 @@ async function addManual(page, values = {}) {
     .fill(values.date || "2026-10-22T12:30");
   await modal
     .getByLabel("分类", { exact: true })
-    .selectOption(values.category || "餐饮");
+    .selectOption(values.category || "本地生活");
   if (values.linkedTransactionId)
     await modal
       .getByLabel("关联原消费（可选）")
@@ -400,6 +400,121 @@ async function mobileWorkflow(browser) {
   }
 }
 
+async function localLifeDetailsAndEvidence(browser) {
+  for (const mobile of [false, true]) {
+    const { page, context, errors } = await fixture(browser, mobile);
+    try {
+      await go(page, "录入", mobile);
+      await page.getByLabel("银行消费短信", { exact: true }).fill("尾号7890卡10月22日19:27支出(消费美团支付-美团北京三快在线科技有限公司)30.90元，余额12,345.94元。【工商银行】");
+      await page.getByRole("button", { name: "识别短信", exact: true }).click();
+      await page.getByRole("button", { name: "修改信息", exact: true }).click();
+      let editor = page.getByRole("dialog");
+      await editor.getByLabel("细类（可选）", { exact: true }).fill("堂食");
+      await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+      await page.getByRole("button", { name: "确认保存 1 笔", exact: true }).click();
+      await countIs(page, 1);
+      const captured = (await data(page)).transactions[0];
+      assert.equal(captured.category, "本地生活"); assert.equal(captured.subcategory, "堂食"); assert.equal(captured.platform, "美团");
+      assert(captured.smsEvidence?.text); assert(!captured.smsEvidence.text.includes("7890")); assert(!captured.smsEvidence.text.includes("12,345.94"));
+      await addManual(page, { merchant: "用途未细分", amount: "10.00" });
+      await addManual(page, { kind: "refund", merchant: "本次退款", amount: "5.00", linkedTransactionId: captured.id });
+      await go(page, "总览", mobile);
+      const group = page.locator(".category-group").filter({ has: page.getByText("本地生活", { exact: true }) });
+      await group.locator("summary").click();
+      assert.match(await group.textContent(), /堂食/); assert.match(await group.textContent(), /未细分/);
+      const parent = Number(await group.locator("summary").getAttribute("data-amount-cents"));
+      const details = await group.locator(".subcategory-row").evaluateAll(rows => rows.reduce((sum, row) => sum + Number(row.dataset.amountCents), 0));
+      assert.equal(details, parent); assert.equal(parent, 3590);
+      await go(page, "账目", mobile);
+      await page.getByPlaceholder("搜索商户、备注…").fill("堂食");
+      assert.equal(await page.locator(".transaction-row").count(), 2);
+      await page.getByPlaceholder("搜索商户、备注…").fill("美团");
+      await page.getByRole("button", { name: `编辑${captured.merchant}`, exact: true }).click();
+      editor = page.getByRole("dialog");
+      await editor.getByText("查看脱敏短信凭据", { exact: true }).click();
+      const evidence = await editor.locator(".sms-evidence").textContent();
+      assert.match(evidence, /工商银行/); assert(!evidence.includes("7890")); assert(!evidence.includes("12,345.94"));
+      await page.screenshot({ path: path.join(ARTIFACTS, `local-life-evidence-${mobile ? 390 : 1440}.png`), fullPage: true, animations: "disabled" });
+      await editor.getByLabel("备注（可选）", { exact: true }).fill("保留凭据");
+      await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+      await page.reload({ waitUntil: "networkidle" });
+      const saved = (await data(page)).transactions.find(t => t.id === captured.id);
+      assert.deepEqual(saved.smsEvidence, captured.smsEvidence); assert.equal(saved.subcategory, "堂食");
+      assert.equal((await data(page)).transactions.find(t => t.merchant === "本次退款").smsEvidence, undefined, "refund must not copy original evidence");
+      await go(page, "设置", mobile);
+      const backupDownload = page.waitForEvent("download");
+      await page.getByRole("button", { name: "导出完整备份", exact: true }).click();
+      const downloaded = await backupDownload;
+      const backup = JSON.parse(await readFile(await downloaded.path(), "utf8"));
+      assert.deepEqual(backup.transactions.find(t => t.id === captured.id).smsEvidence, captured.smsEvidence);
+      await noOverflow(page, `${mobile ? 390 : 1440}px local life details`);
+      assert.deepEqual(errors, []);
+      passed(`${mobile ? 390 : 1440}px detail edit/search/stat sums, masked evidence and refund metadata survive refresh`);
+    } finally { await context.close(); }
+  }
+}
+
+async function refundRelinkDatabaseRegression(browser) {
+  const { PGlite } = require("@electric-sql/pglite");
+  const db = new PGlite();
+  const owner = "11111111-1111-4111-8111-111111111111";
+  let context;
+  try {
+    await db.exec(`create role anon nologin; create role authenticated nologin; create schema auth;
+      create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,banned_until timestamptz,deleted_at timestamptz);
+      create function auth.uid() returns uuid language sql stable as $$select (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid$$;
+      grant usage on schema public,auth to anon,authenticated;`);
+    const migrations = path.join(ROOT, "supabase", "migrations");
+    for (const name of (await readdir(migrations)).filter(name => name.endsWith(".sql")).sort()) {
+      await db.exec(await readFile(path.join(migrations, name), "utf8"));
+    }
+    await db.query("insert into auth.users values ($1,'fixture@invalid',now(),null,null)", [owner]);
+    await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: owner })]);
+    for (const mobile of [false, true]) {
+      const fixtureResult = await fixture(browser, mobile);
+      const { page, errors } = fixtureResult;
+      context = fixtureResult.context;
+      const original = { id: "unknown-original", kind: "expense", amountCents: 2000, date: "2026-10-22T12:30", merchant: "无细类原消费", category: "购物", source: "manual", note: "", smsEvidence: { text: "原消费自己的凭据" } };
+      const refund = { ...original, id: "relinked-refund", kind: "refund", amountCents: 500, merchant: "已有退款", category: "本地生活", subcategory: "按摩足疗", platform: "美团", smsEvidence: { text: "退款自己的凭据" } };
+      const initial = { version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [refund, original] };
+      await db.exec("delete from public.moneytrail_ledgers");
+      await db.query("select public.save_moneytrail_ledger($1::jsonb,0)", [initial]);
+      await page.evaluate(({ key, initial }) => localStorage.setItem(key, JSON.stringify(initial)), { key: KEY, initial });
+      await page.reload({ waitUntil: "networkidle" });
+      await go(page, "账目", mobile);
+      await page.getByRole("button", { name: "编辑已有退款", exact: true }).click();
+      let editor = page.getByRole("dialog");
+      await editor.getByLabel("关联原消费（可选）").selectOption(original.id);
+      await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+      await editor.waitFor({ state: "detached" });
+      const incoming = await data(page);
+      const incomingRefund = incoming.transactions.find(entry => entry.id === refund.id);
+      assert.equal(incomingRefund.category, "购物");
+      assert.equal(incomingRefund.subcategory, undefined);
+      assert.equal(incomingRefund.platform, undefined);
+      // Run the exact serialized UI snapshot through the production SQL save, including old-client preservation.
+      const saved = (await db.query("select row_to_json(saved) saved from public.save_moneytrail_ledger($1::jsonb,1) saved", [incoming])).rows[0].saved;
+      assert.deepEqual(saved.data.transactions.find(entry => entry.id === refund.id), incomingRefund, "SQL must retain the editor's deliberate inheritance of missing original metadata");
+      assert.deepEqual(saved.data.transactions.find(entry => entry.id === refund.id).smsEvidence, refund.smsEvidence, "refund keeps only its own receipt");
+      await page.evaluate(({ key, saved }) => localStorage.setItem(key, JSON.stringify(saved)), { key: KEY, saved: saved.data });
+      await page.reload({ waitUntil: "networkidle" });
+      await go(page, "账目", mobile);
+      await page.getByRole("button", { name: "编辑已有退款", exact: true }).click();
+      editor = page.getByRole("dialog");
+      assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "");
+      assert.equal(await editor.getByText("消费平台", { exact: true }).count(), 0);
+      await editor.getByText("查看脱敏短信凭据", { exact: true }).click();
+      assert.match(await editor.locator(".sms-evidence").textContent(), /退款自己的凭据/);
+      assert.deepEqual(errors, []);
+      await context.close(); context = undefined;
+      passed(`${mobile ? 390 : 1440}px refund relink clears stale detail/platform through the real SQL save and retains its own receipt`);
+    }
+  } finally {
+    if (context) await context.close();
+    await db.close();
+  }
+}
+
 async function recoveryAndFragment(browser) {
   const { page, context, errors } = await fixture(browser);
   try {
@@ -661,6 +776,18 @@ async function staleEditorRegression(browser) {
 
     await editor.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     await go(page, "账目");
+    await page.getByRole("button", { name: "编辑另页更新记录", exact: true }).click();
+    editor = page.getByRole("dialog");
+    const evidenceChanged = await otherPage.evaluate((key) => {
+      const value = JSON.parse(localStorage.getItem(key));
+      value.transactions[0].smsEvidence = { text: "脱敏凭据", classificationReason: "另一页补充的分类依据" };
+      localStorage.setItem(key, JSON.stringify(value)); return value;
+    }, KEY);
+    await editor.getByText(/另一个页面同步/).waitFor();
+    await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    await editor.getByText(/这笔记录已在其他页面修改或删除/).waitFor();
+    assert.deepEqual(await data(page), evidenceChanged, "metadata-only updates must also invalidate a stale editor");
+    await editor.getByRole("button", { name: "关闭弹窗", exact: true }).click();
     await page
       .getByRole("button", { name: "编辑另页更新记录", exact: true })
       .click();
@@ -734,6 +861,8 @@ async function staleEditorRegression(browser) {
     });
     await fullWorkflow(browser);
     await mobileWorkflow(browser);
+    await localLifeDetailsAndEvidence(browser);
+    await refundRelinkDatabaseRegression(browser);
     await recoveryAndFragment(browser);
     await ledgerRegressions(browser);
     await staleEditorRegression(browser);

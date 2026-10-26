@@ -8,7 +8,7 @@ const raw = message("消费财付通-示例台球俱乐部（青年路店");
 describe("one missing fullwidth branch bracket", () => {
   it("repairs only the missing branch close, preserving the bank event and independent amount", () => {
     expect(repairMissingBranchBracket(raw)).toBe(message("消费财付通-示例台球俱乐部（青年路店）"));
-    expect(parseSms(raw, new Date(2026, 9, 24, 22)).draft).toMatchObject({ kind: "expense", amountCents: 8800, merchant: "消费财付通-示例台球俱乐部(青年路店)", category: "娱乐" });
+    expect(parseSms(raw, new Date(2026, 9, 24, 22)).draft).toMatchObject({ kind: "expense", amountCents: 8800, merchant: "消费财付通-示例台球俱乐部(青年路店)", category: "本地生活" });
   });
   it.each(["青年路店", "青年路分店", "中心营业部", "测试支行"])("accepts an explicit branch label: %s", label => {
     const text = message(`消费示例商户（${label}`);

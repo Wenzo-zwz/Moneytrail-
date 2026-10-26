@@ -1,4 +1,4 @@
-import { validateTransaction, type Transaction } from "./ledger";
+import { copyTransaction, normalizeTransactionCategory, validateTransaction, type Transaction } from "./ledger";
 
 export type AppData = {
   version: 1;
@@ -29,25 +29,6 @@ export function emptyData(): AppData {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function copyTransaction(transaction: Transaction): Transaction {
-  const copy: Transaction = {
-    id: transaction.id,
-    kind: transaction.kind,
-    amountCents: transaction.amountCents,
-    date: transaction.date,
-    merchant: transaction.merchant,
-    category: transaction.category,
-    source: transaction.source,
-    note: transaction.note,
-  };
-  if (transaction.sourceRef !== undefined)
-    copy.sourceRef = transaction.sourceRef;
-  if (transaction.linkedTransactionId !== undefined) {
-    copy.linkedTransactionId = transaction.linkedTransactionId;
-  }
-  return copy;
 }
 
 function validateAppData(value: unknown): AppData {
@@ -274,9 +255,10 @@ export function exportCsv(transactions: Transaction[]): string {
     income: "收入",
   };
   const rows = [
-    ["日期", "类型", "金额", "商户", "分类", "备注", "交易编号", "来源"],
+    ["日期", "类型", "金额", "商户", "分类", "备注", "交易编号", "来源", "细分类", "平台", "脱敏短信凭据", "短信接收时间", "分类依据", "分类规则版本"],
   ];
-  for (const transaction of transactions) {
+  for (const raw of transactions) {
+    const transaction = normalizeTransactionCategory(raw);
     if (!validateTransaction(transaction))
       throw new Error("账目中存在无效记录，无法导出 CSV。");
     rows.push([
@@ -288,6 +270,12 @@ export function exportCsv(transactions: Transaction[]): string {
       transaction.note,
       transaction.sourceRef ?? "",
       transaction.source,
+      transaction.subcategory ?? "",
+      transaction.platform ?? "",
+      transaction.smsEvidence?.text ?? "",
+      transaction.smsEvidence?.receivedAt ?? "",
+      transaction.smsEvidence?.classificationReason ?? "",
+      transaction.smsEvidence?.ruleVersion ?? "",
     ]);
   }
   return (

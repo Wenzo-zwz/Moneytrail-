@@ -1,5 +1,7 @@
 import {
   CATEGORIES,
+  normalizeTransactionCategory,
+  validateTransaction,
   isValidLocalDateTime,
   parseAmount,
   type DraftTransaction,
@@ -8,6 +10,7 @@ import {
 } from "./ledger";
 import { classifyMerchant } from "./merchantClassification";
 import { repairMissingBranchBracket } from "./smsBranchRepair";
+import { buildSmsEvidence } from "./smsEvidence";
 
 export interface SmsParseResult {
   draft: DraftTransaction | null;
@@ -295,6 +298,9 @@ export function parseSms(
       date,
       merchant,
       category: kind === "expense" && !groupCollection && !uncertainOutcome ? classification.category : "待分类",
+      ...(kind === "expense" && !groupCollection && !uncertainOutcome && classification.subcategory ? { subcategory: classification.subcategory } : {}),
+      ...(classification.platform ? { platform: classification.platform } : {}),
+      smsEvidence: buildSmsEvidence(rawText.trim(), { classificationReason: kind === "expense" && !groupCollection && !uncertainOutcome ? classification.reason : "非正常消费，请核对交易用途" }),
       source: "sms",
       note: "",
     },
@@ -495,6 +501,12 @@ export function parseCsv(rawText: string): CsvParseResult {
     source: col(["来源", "source"]),
     refund: col(["成功退款元", "成功退款", "退款金额", "退款金额元"]),
     currency: col(["币种", "货币", "currency"]),
+    subcategory: col(["细分类", "细类", "subcategory"]),
+    platform: col(["平台", "platform"]),
+    evidence: col(["脱敏短信凭据", "smsevidence"]),
+    receivedAt: col(["短信接收时间", "receivedat"]),
+    classificationReason: col(["分类依据", "classificationreason"]),
+    ruleVersion: col(["分类规则版本", "ruleversion"]),
   };
   const intro = rows.slice(0, headerRow).flat().join(" ");
   const detected: Source =
@@ -580,7 +592,7 @@ export function parseCsv(rawText: string): CsvParseResult {
       continue;
     }
     const originalCategory = value(columns.category);
-    const category = (CATEGORIES as readonly string[]).includes(
+    const category = ([...CATEGORIES, "餐饮", "娱乐"] as readonly string[]).includes(
       originalCategory,
     )
       ? originalCategory
@@ -608,7 +620,12 @@ export function parseCsv(rawText: string): CsvParseResult {
       fail("交易编号超过 200 字。");
       continue;
     }
-    result.drafts.push({
+    // Reverse only the exact protective apostrophe added for spreadsheet formulas.
+    const restoreCell = (raw: string) => /^'[\u0000-\u0020]*[=+\-@]|^'[\t\r\n]/.test(raw) ? raw.slice(1) : raw;
+    const subcategory = restoreCell(value(columns.subcategory));
+    const platform = value(columns.platform);
+    const evidenceText = restoreCell(value(columns.evidence));
+    const draft = normalizeTransactionCategory({
       kind,
       amountCents,
       date: parsedDate.date,
@@ -617,7 +634,16 @@ export function parseCsv(rawText: string): CsvParseResult {
       source: parseSource(value(columns.source), detected),
       note,
       ...(sourceRef ? { sourceRef } : {}),
+      ...(subcategory ? { subcategory } : {}),
+      ...(platform ? { platform } : {}),
+      ...(evidenceText ? { smsEvidence: { text: evidenceText,
+        ...(value(columns.receivedAt) ? { receivedAt: value(columns.receivedAt) } : {}),
+        ...(value(columns.classificationReason) ? { classificationReason: restoreCell(value(columns.classificationReason)) } : {}),
+        ...(value(columns.ruleVersion) ? { ruleVersion: restoreCell(value(columns.ruleVersion)) } : {}),
+      } } : {}),
     });
+    if (!validateTransaction({ ...draft, id: "csv-validation" })) { fail("细分类、平台或短信凭据格式无效。"); continue; }
+    result.drafts.push(draft as DraftTransaction);
   }
   result.warnings = [...warnings];
   if (!result.drafts.length && !result.errors.length)

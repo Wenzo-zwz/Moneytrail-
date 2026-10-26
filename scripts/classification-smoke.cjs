@@ -22,7 +22,7 @@ const PASSWORD = "Fixture-password-123!";
 const RAW = "尾号xxxx卡10月22日19:27支出(转账财付通-群收款)30.90元，余额8xxxx元。【工商银行】";
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const empty = () => ({ version: 1, transactions: [], budgetCents: 0, billCheckedMonths: [] });
-const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "餐饮", source: "manual", note: "保留原账目" };
+const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "本地生活", subcategory: "餐饮", source: "manual", note: "保留原账目" };
 let checks = 0;
 const passed = (message) => { checks += 1; process.stdout.write(`PASS ${message}\n`); };
 
@@ -217,7 +217,7 @@ async function workflow(browser, width) {
     assert.equal(await page.getByLabel("以后这家都这样分类").isEnabled(), false);
     for (const merchant of ["美团", "美团支付", "消费美团支付-美团北京三快在线科技有限公司"]) {
       await page.getByLabel("具体商户", { exact: true }).fill(merchant);
-      await page.getByText("美团平台名称无法判断消费用途，请填写具体门店或用途；不能将整个平台记为一种分类。", { exact: true }).waitFor();
+      await page.getByText("美团平台默认归入本地生活，细类未细分。请填写具体门店，不能保存整个平台的用途规则。", { exact: true }).waitFor();
       assert.equal(await page.getByLabel("以后这家都这样分类").count(), 0);
       assert.equal(await page.getByRole("button", { name: "保存商户规则", exact: true }).isEnabled(), false);
     }
