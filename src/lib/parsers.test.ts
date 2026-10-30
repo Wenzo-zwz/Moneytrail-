@@ -5,6 +5,21 @@ import { validateTransaction } from "./ledger";
 const reference = new Date(2026, 9, 22, 9, 30);
 
 describe("bank SMS parsing", () => {
+  it("applies remembered category and detail to another payment channel while retaining evidence", () => {
+    const text = "尾号xxxx卡10月24日00:59支出(消费抖音支付-北京轨道交通)20元，余额xxxx.86元。【工商银行】";
+    const result = parseSms(text, new Date(2026, 9, 24, 1), [{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }]);
+    expect(result.draft).toMatchObject({ merchant: "消费抖音支付-北京轨道交通", category: "交通", subcategory: "公共交通", source: "sms", note: "", smsEvidence: { classificationReason: "个人商户规则" } });
+    expect(result.draft?.smsEvidence?.text).toContain("消费抖音支付-北京轨道交通");
+    expect(result.requiresReview).toBe(false);
+  });
+  it("never applies remembered expense categories to ambiguous groups or transfers", () => {
+    const rules = [{ merchant: "群收款", category: "交通", subcategory: "公共交通" }, { merchant: "转账-示例商店", category: "购物" }];
+    for (const merchant of ["群收款", "转账-示例商店"]) {
+      const result = parseSms(`尾号xxxx卡10月24日00:59支出(${merchant})20元，余额xxxx.86元。【工商银行】`, new Date(2026, 9, 24, 1), rules);
+      expect(result.draft?.category).toBe("待分类");
+      expect(result.requiresReview).toBe(true);
+    }
+  });
   it("keeps nested merchant brackets and categorizes the tobacco purchase", () => {
     const result = parseSms("尾号xxxx卡10月24日00:59支出(消费财付通-示例商贸（烟酒副食）)20元，余额xxxx.86元。【工商银行】", new Date(2026, 9, 24, 1));
     expect(result.draft).toMatchObject({ amountCents: 2000, merchant: "消费财付通-示例商贸(烟酒副食)", category: "购物" });

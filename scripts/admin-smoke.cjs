@@ -93,6 +93,7 @@ function mockBackend({ missingAdmin = false, forgedMemberMetadata = false, stale
         if (url.pathname === "/auth/v1/user") return id ? respond(authUser(id, id === MEMBER && forgedMemberMetadata)) : respond({ code: "bad_jwt", msg: "Not authenticated" }, 401);
         if (url.pathname === "/auth/v1/logout") return respond({}, 204);
         if (!id || !ledgers.has(id)) return respond({ code: "42501", message: "Not authenticated" }, 403);
+        if (url.pathname === "/rest/v1/rpc/moneytrail_sms_category_rules") return respond({ rules: [] });
         if (url.pathname === "/rest/v1/rpc/moneytrail_is_admin") {
           if (missingAdmin) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           return respond((id === OWNER && ownerEnabled) || (id === MEMBER && staleMemberGrant));

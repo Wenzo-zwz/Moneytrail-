@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { emptyData, importBackup, type AppData } from "./storage";
 import { isValidLocalDateTime } from "./ledger";
+import type { MerchantRuleIntent } from "./merchantClassification";
+import { matchingMerchantRuleIntents, readMerchantRuleIntents } from "./merchantRuleIntents";
 import { readCloudConfig, getCloudConfigError as configError, type CloudConfig } from "./cloudConfig";
 
 export type AccountIdentity = { id: string; email?: string };
@@ -52,6 +54,7 @@ function throwCloudError(error: unknown, status?: number): never {
   if (code === "40001" || code === "23505") throw new CloudConflictError();
   if (["PGRST301", "PGRST302"].includes(code) || status === 401) throw new Error("登录状态已过期，请重新登录后同步。");
   if (code === "42501" || status === 403) throw new Error("没有当前账本的访问权限，请重新登录。");
+  if (code === "54000") throw new Error("商户规则已达上限（200 条）。请在个人商户规则的待同步记忆列表中取消这次学习，让账目先同步，再删除不再使用的规则；本机账目与记忆选择已保留。");
   if (["42P01", "42883", "PGRST202", "PGRST205"].includes(code)) throw new Error("账号账本尚未开通，请联系应用维护者。");
   if (["23514", "22023", "22P02", "22001"].includes(code)) throw new Error("云端拒绝了无效或过大的账目，请导出备份并检查数据。");
   throw new Error("暂时无法连接云端，请检查网络后重试。");
@@ -103,14 +106,18 @@ export async function fetchCloudLedger(client: SupabaseClient, userId: string, s
   return readSnapshot(result.data);
 }
 
-export async function pushCloudLedger(client: SupabaseClient, data: AppData, expectedRevision: number, userId: string, signal?: AbortSignal): Promise<CloudSnapshot> {
+export async function pushCloudLedger(client: SupabaseClient, data: AppData, expectedRevision: number, userId: string, signal?: AbortSignal, merchantRules: MerchantRuleIntent[] = []): Promise<CloudSnapshot> {
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error("本机同步版本无效，请先核对云端账目。");
   // Sanitize the payload through the same strict format used by backups; never send auth/cache state.
   const clean = importBackup(JSON.stringify(data));
+  const rules = readMerchantRuleIntents(merchantRules);
+  if (matchingMerchantRuleIntents(clean, rules).length !== rules.length) throw new Error("商户分类已改变，请重新确认后同步。");
   const token = await capturedBearer(client, userId, signal);
   let result;
   try {
-    const query = client.rpc("save_moneytrail_ledger", { p_data: clean, p_expected_revision: expectedRevision }).setHeader("Authorization", `Bearer ${token}`);
+    const query = client.rpc(rules.length ? "save_moneytrail_ledger_with_rules" : "save_moneytrail_ledger", {
+      p_data: clean, p_expected_revision: expectedRevision, ...(rules.length ? { p_rules: rules } : {}),
+    }).setHeader("Authorization", `Bearer ${token}`);
     if (signal) query.abortSignal(signal);
     result = await query;
   } catch (error) { throwIfAborted(signal); return throwCloudError(error); }

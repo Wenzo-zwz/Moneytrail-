@@ -8,7 +8,7 @@ import {
   type Source,
   type TransactionKind,
 } from "./ledger";
-import { classifyMerchant } from "./merchantClassification";
+import { classifyMerchant, type MerchantRule } from "./merchantClassification";
 import { repairMissingBranchBracket } from "./smsBranchRepair";
 import { buildSmsEvidence } from "./smsEvidence";
 
@@ -222,6 +222,7 @@ function extractMerchant(text: string): string | null {
 export function parseSms(
   rawText: string,
   referenceDate = new Date(),
+  rules: MerchantRule[] = [],
 ): SmsParseResult {
   const text = repairMissingBranchBracket(rawText).normalize("NFKC").trim();
   const warnings: string[] = [];
@@ -276,7 +277,7 @@ export function parseSms(
       error: "短信中的交易日期无效，请手动核对日期。",
     };
   const merchant = extractMerchant(text) ?? "待补充商户";
-  const classification = classifyMerchant(merchant);
+  const classification = classifyMerchant(merchant, rules);
   if (merchant === "待补充商户")
     warnings.push("短信未提供具体商户，请补充商户并选择分类。");
   else if (

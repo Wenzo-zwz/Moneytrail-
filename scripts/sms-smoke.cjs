@@ -100,6 +100,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
         if (url.pathname.startsWith("/rest/v1/rpc/moneytrail_sms_")) {
           if (missingSms) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           const action = url.pathname.split("moneytrail_sms_")[1];
+          if (action === "category_rules") return respond({ rules: [] });
           if (action === "config") return respond(config(id));
           if (action === "rotate") {
             assert.deepEqual(Object.keys(body), ["p_mode"]);
@@ -218,7 +219,7 @@ async function ownerWorkflow(browser) {
   const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { sms: false });
   try {
     await login(page); await page.locator(".hero-amount").waitFor();
-    assert.equal(backend.requests.filter((request) => request.path.includes("moneytrail_sms_")).length, 0, "personal ledger must not fetch sensitive SMS inbox before it is opened");
+    assert.equal(backend.requests.filter((request) => request.path.includes("moneytrail_sms_") && !request.path.endsWith("moneytrail_sms_category_rules")).length, 0, "personal ledger must not fetch sensitive SMS inbox before it is opened");
     await page.locator(".page-header").getByRole("button", { name: "短信自动记账", exact: true }).click();
     await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
     await page.getByText("财付通-群收款", { exact: true }).first().waitFor();

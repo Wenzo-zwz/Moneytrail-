@@ -1,5 +1,7 @@
 import { importBackup, type AppData, type StorageWriteResult } from "./storage";
 import { isValidLocalDateTime } from "./ledger";
+import type { MerchantRuleIntent } from "./merchantClassification";
+import { latestMerchantRuleIntents, matchingMerchantRuleIntents, readMerchantRuleIntents } from "./merchantRuleIntents";
 
 export type AccountCache = {
   version: 1;
@@ -8,6 +10,7 @@ export type AccountCache = {
   baseRevision: number;
   dirty: boolean;
   lastSyncedAt: string | null;
+  pendingMerchantRules?: MerchantRuleIntent[];
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,7 +50,10 @@ function validateCache(value: unknown, userId: string): AccountCache {
   if (item.version !== 1 || typeof item.ownerId !== "string" || owner(item.ownerId) !== expectedOwner) throw new Error("缓存不属于当前账号。");
   if (!Number.isSafeInteger(item.baseRevision) || (item.baseRevision as number) < 0 || typeof item.dirty !== "boolean" || !(item.lastSyncedAt === null || isTimestamp(item.lastSyncedAt))) throw new Error("缓存的同步状态无效。");
   const data = importBackup(JSON.stringify(item.data));
-  return { version: 1, ownerId: expectedOwner, data, baseRevision: item.baseRevision as number, dirty: item.dirty, lastSyncedAt: item.lastSyncedAt as string | null };
+  const pending = latestMerchantRuleIntents(matchingMerchantRuleIntents(data, readMerchantRuleIntents(item.pendingMerchantRules)));
+  if (pending.length && !item.dirty) throw new Error("商户记忆尚未提交，缓存状态无效。");
+  return { version: 1, ownerId: expectedOwner, data, baseRevision: item.baseRevision as number, dirty: item.dirty, lastSyncedAt: item.lastSyncedAt as string | null,
+    ...(pending.length ? { pendingMerchantRules: pending } : {}) };
 }
 
 function parseCache(raw: string, userId: string): AccountCache {

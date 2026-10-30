@@ -1,7 +1,8 @@
 import { CATEGORIES, copyTransaction, normalizeTransactionCategory, type Platform, type Transaction } from "./ledger";
 import type { AppData } from "./storage";
 
-export type MerchantRule = { merchant: string; category: string };
+export type MerchantRule = { merchant: string; category: string; subcategory?: string };
+export type MerchantRuleIntent = MerchantRule & { transactionId: string };
 export type MerchantClassification = { category: string; subcategory?: string; platform?: Platform; reason: string; merchantKey: string; requiresReview: boolean };
 export type CategoryChange = {
   id: string; merchant: string; fromCategory: string; toCategory: string; reason: string;
@@ -10,7 +11,7 @@ export type CategoryChange = {
 
 const fundWords = /转账|转出|转入|充值|提现|取现|取款|支取|还款|偿还|缴款|还贷|贷款|余额宝|零钱通|花呗|借呗|白条|网商贷|理财|基金|证券|买入|申购|赎回/;
 const outcomeWords = /退款|退回|冲正|撤销|失败|未成功|取消/;
-const channelPrefix = /^(?:(?:快捷支付[-\s]*)?(?:财付通|微信支付|微信|支付宝|美团支付|滴滴支付|银联商务|银联)|快捷支付)[-—－:：\s]*/;
+const channelPrefix = /^(?:(?:快捷支付[-\s]*)?(?:财付通|微信支付|微信|支付宝|美团支付|滴滴支付|抖音支付|银联商务|银联)|快捷支付)[-—－:：\s]*/;
 const categoryRules: readonly [string, RegExp][] = [
   ["医疗", /药房|药店|医院|诊所|体检|买药/],
   ["居住", /酒店|宾馆|住宿|房租|水费|电费|燃气|物业|宽带|话费|流量|手机充值/],
@@ -72,18 +73,27 @@ export function isPlatformOnlyMerchant(merchant: string): boolean {
   return /^(?:美团|美团平台|美团平台商户|美团网|美团支付|美团北京三快在线科技有限公司|美团北京三快在线科技有限公|北京三快在线科技有限公司|北京三快科技有限公司)$/.test(normalized);
 }
 
+/** A shared platform or a placeholder cannot identify a concrete merchant to remember. */
+export function canRememberMerchant(merchant: string): boolean {
+  const key = merchantKey(merchant);
+  return Boolean(key) && !isPlatformOnlyMerchant(merchant)
+    && !/^(?:京东|京东商城|京东平台|淘宝|淘宝网|淘宝平台|天猫|天猫商城|天猫平台|拼多多|拼多多平台|滴滴|滴滴出行|抖音|抖音平台)$/.test(key)
+    && !/^(?:待补充商户|待补充|未知商户|未知|不详|商户不详|未提供商户|未识别商户|无商户|[-—]+)$/.test(key);
+}
+
 export function classifyMerchant(merchant: string, rules: MerchantRule[] = []): MerchantClassification {
   const key = merchantKey(merchant);
   const platform = detectPlatform(merchant);
   const metadata = platform ? { platform } : {};
   if (isPlatformOnlyMerchant(merchant)) return { category: "本地生活", reason: "美团平台默认本地生活", merchantKey: key, requiresReview: false, ...metadata };
   if (!key) return { category: "待分类", reason: "用途不明，请核对", merchantKey: "", requiresReview: true, ...metadata };
-  const personal = rules.find(rule => merchantKey(rule.merchant) === key
-    && rule.category !== "待分类" && [...CATEGORIES, "餐饮", "娱乐"].includes(rule.category));
+  const matchingRules = canRememberMerchant(merchant) ? rules.filter(rule => merchantKey(rule.merchant) === key
+    && rule.category !== "待分类" && [...CATEGORIES, "餐饮", "娱乐"].includes(rule.category)) : [];
+  const personal = matchingRules.find(rule => rule.merchant === key) ?? matchingRules[0];
   if (personal) {
-    const normalized = normalizeTransactionCategory({ category: personal.category });
+    const normalized = normalizeTransactionCategory({ category: personal.category, ...(personal.subcategory !== undefined ? { subcategory: personal.subcategory } : {}) });
     const keywordCategory = categoryRules.find(([, pattern]) => pattern.test(key))?.[0];
-    const subcategory = "subcategory" in normalized ? normalized.subcategory as string : keywordCategory === normalized.category ? detailRules[normalized.category]?.find(([, pattern]) => pattern.test(key))?.[0] : undefined;
+    const subcategory = normalized.subcategory ?? (keywordCategory === normalized.category ? detailRules[normalized.category]?.find(([, pattern]) => pattern.test(key))?.[0] : undefined);
     return { category: normalized.category, ...(subcategory ? { subcategory } : {}), reason: "个人商户规则", merchantKey: key, requiresReview: false, ...metadata };
   }
   for (const [category, pattern] of categoryRules) {

@@ -10,6 +10,8 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const client = {} as SupabaseClient;
 const at = "2026-10-22T12:00:00.000Z";
 const data = (budgetCents = 10000): AppData => ({ ...emptyData(), budgetCents });
+const remembered = { id: "remembered", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "消费抖音支付-星辰小馆", category: "本地生活", subcategory: "堂食", source: "manual" as const, note: "" };
+const intent = { transactionId: remembered.id, merchant: remembered.merchant, category: remembered.category, subcategory: remembered.subcategory };
 const snapshot = (budget = 10000, revision = 1): CloudSnapshot => ({ data: data(budget), revision, updatedAt: at });
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -46,6 +48,89 @@ beforeEach(() => {
 afterEach(() => { for (const store of stores) store.dispose(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("account cloud store", () => {
+  it("durably queues explicit merchant learning with offline transactions and sends it after restart", async () => {
+    seed(); const push = vi.fn(async (next: AppData, revision: number) => ({ data: next, revision: revision + 1, updatedAt: at }));
+    const offline = create({ load: vi.fn(), push }, () => false);
+    const next = { ...data(), transactions: [remembered] };
+    expect(offline.saveData(next, data(), { merchantRules: [intent] }).ok).toBe(true);
+    await settle();
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toEqual([intent]);
+    const shown = offline.getPendingMerchantRules();
+    expect(shown).toEqual([intent]); shown[0].category = "购物";
+    expect(offline.getPendingMerchantRules()).toEqual([intent]);
+    expect(push).not.toHaveBeenCalled(); offline.dispose();
+    const restarted = create({ load: vi.fn(), push });
+    await restarted.refresh();
+    expect(push).toHaveBeenCalledWith(next, 1, expect.any(AbortSignal), [intent]);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+    expect(restarted.getState()).toMatchObject({ dirty: false, phase: "saved" });
+  });
+
+  it("drops stale or explicitly cancelled pending learning without changing transaction edits", async () => {
+    seed(); const push = vi.fn(); const store = create({ load: vi.fn(), push }, () => false);
+    const first = { ...data(), transactions: [remembered] };
+    expect(store.saveData(first, data(), { merchantRules: [intent] }).ok).toBe(true);
+    const second = { ...first, transactions: [{ ...remembered, subcategory: "外卖" }] };
+    expect(store.saveData(second, first).ok).toBe(true);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+    const replacement = { ...intent, subcategory: "外卖" };
+    expect(store.saveData(second, second, { merchantRules: [replacement] }).ok).toBe(true);
+    expect(store.saveData(second, second, { forgetMerchantRulesFor: [remembered.id] }).ok).toBe(true);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+    expect(store.loadData().data).toEqual(second);
+    await settle(); expect(push).not.toHaveBeenCalled();
+  });
+
+  it("uses the latest explicit choice across channel aliases without blocking unrelated ledger saves", async () => {
+    seed(); const store = create({ load: vi.fn(), push: vi.fn() }, () => false);
+    const first = { ...data(), transactions: [remembered] };
+    store.saveData(first, data(), { merchantRules: [intent] });
+    const newer = { ...remembered, id: "newer", merchant: "财付通-星辰小馆", subcategory: "外卖" };
+    const latest = { ...intent, transactionId: newer.id, merchant: newer.merchant, subcategory: newer.subcategory };
+    const second = { ...first, transactions: [remembered, newer] };
+    expect(store.saveData(second, first, { merchantRules: [latest] }).ok).toBe(true);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toEqual([latest]);
+    expect(store.loadData().data.transactions).toEqual([remembered, newer]);
+  });
+
+  it("keeps a newer merchant learning choice when an older push is acknowledged", async () => {
+    seed(); const flight = deferred<CloudSnapshot>(); const followup = deferred<CloudSnapshot>();
+    const push = vi.fn().mockReturnValueOnce(flight.promise).mockReturnValueOnce(followup.promise);
+    const store = create({ load: vi.fn(), push });
+    const first = { ...data(), transactions: [remembered] };
+    store.saveData(first, data(), { merchantRules: [intent] }); await settle();
+    const newer = { ...first, transactions: [{ ...remembered, subcategory: "外卖" }] };
+    const latestIntent = { ...intent, subcategory: "外卖" };
+    store.saveData(newer, first, { merchantRules: [latestIntent] });
+    flight.resolve({ data: first, revision: 2, updatedAt: at }); await settle();
+    expect(push).toHaveBeenNthCalledWith(2, newer, 2, expect.any(AbortSignal), [latestIntent]);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toEqual([latestIntent]);
+    followup.resolve({ data: newer, revision: 3, updatedAt: at }); await settle();
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+  });
+
+  it("does not queue learning after failed storage and never publishes mismatched intents", async () => {
+    seed(); const store = create({ load: vi.fn(), push: vi.fn() }, () => false);
+    const next = { ...data(), transactions: [remembered] };
+    expect(store.saveData(next, data(), { merchantRules: [{ ...intent, category: "购物" }] }).ok).toBe(false);
+    expect(store.loadData().data).toEqual(data());
+    vi.mocked(local.setItem).mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    expect(store.saveData(next, data(), { merchantRules: [intent] }).ok).toBe(false);
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+  });
+
+  it("retains learning on CAS conflict and discards it when explicitly adopting cloud data", async () => {
+    seed(); const push = vi.fn().mockRejectedValue(new CloudConflictError());
+    const store = create({ load: vi.fn().mockResolvedValue(snapshot(30000, 2)), push }, () => false);
+    store.saveData({ ...data(), transactions: [remembered] }, data(), { merchantRules: [intent] });
+    // Reopen online so the dirty cache is submitted with its original CAS revision.
+    store.dispose(); const restarted = create({ load: vi.fn().mockResolvedValue(snapshot(30000, 2)), push });
+    await restarted.refresh();
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toEqual([intent]);
+    await restarted.resolveConflict("cloud");
+    expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toBeUndefined();
+    expect(restarted.loadData().data).toEqual(data(30000));
+  });
   it("requires a first cloud read before accepting edits and only reads this account's cache", async () => {
     const load = deferred<CloudSnapshot>();
     const push = vi.fn();

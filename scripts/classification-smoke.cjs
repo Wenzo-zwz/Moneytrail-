@@ -82,18 +82,28 @@ function mockBackend({ missingSms = false, ordinaryPending = false } = {}) {
           assert.equal(url.searchParams.get("user_id"), `eq.${id}`);
           return respond([{ user_id: id, ...clone(ledgers.get(id)) }]);
         }
-        if (url.pathname === "/rest/v1/rpc/save_moneytrail_ledger") {
+        if (["/rest/v1/rpc/save_moneytrail_ledger", "/rest/v1/rpc/save_moneytrail_ledger_with_rules"].includes(url.pathname)) {
           if (controls.failPush) return respond({ code: "network", message: "Fixture offline" }, 503);
           const current = ledgers.get(id);
           if (body.p_expected_revision !== current.revision) return respond({ code: "40001", message: "Stale revision" }, 409);
           const updated = { data: clone(body.p_data), revision: current.revision + 1, updated_at: new Date().toISOString() };
+          for (const rule of body.p_rules || []) {
+            const transaction = updated.data.transactions.find(item => item.id === rule.transactionId);
+            assert(transaction, "remembered merchant belongs to the committed transaction");
+            assert.equal(transaction.merchant, rule.merchant);
+            assert.equal(transaction.category, rule.category);
+            assert.equal(transaction.subcategory, rule.subcategory);
+            const next = rules.get(id).filter(item => item.merchant !== rule.merchant);
+            next.push({ merchant: rule.merchant, category: rule.category, ...(rule.subcategory ? { subcategory: rule.subcategory } : {}) });
+            rules.set(id, next);
+          }
           ledgers.set(id, updated); return respond([{ user_id: id, ...updated }]);
         }
         if (url.pathname.startsWith("/rest/v1/rpc/moneytrail_sms_")) {
           if (missingSms) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           const action = url.pathname.split("moneytrail_sms_")[1];
           if (action === "category_rules") return controls.missingRules ? respond({ code: "PGRST202" }, 404) : respond({ rules: rules.get(id) });
-          if (action === "set_category_rule") { const next = rules.get(id).filter(r => r.merchant !== body.p_merchant); if (body.p_category !== null) next.push({ merchant: body.p_merchant, category: body.p_category }); rules.set(id, next); return respond({ rules: next }); }
+          if (action === "set_category_rule" || action === "set_merchant_rule") { const next = rules.get(id).filter(r => r.merchant !== body.p_merchant); if (body.p_category !== null) next.push({ merchant: body.p_merchant, category: body.p_category, ...(body.p_subcategory ? { subcategory: body.p_subcategory } : {}) }); rules.set(id, next); return respond({ rules: next }); }
           if (action === "preview_pending") {
             if (controls.delayPreview) await new Promise(resolve => setTimeout(resolve, controls.delayPreview));
             const items = inboxes.get(id).filter(item => item.status === "pending").map(item => ({ id: item.id, draft: item.draft, eligible: item.draft?.merchant === "美团外卖", reason: item.draft?.merchant === "美团外卖" ? "餐饮商户" : "需要确认用途" }));
@@ -125,14 +135,15 @@ function mockBackend({ missingSms = false, ordinaryPending = false } = {}) {
             const page = Number(body.p_page); const pageSize = Number(body.p_page_size); const items = inboxes.get(id);
             return respond({ items: clone(items.slice((page - 1) * pageSize, page * pageSize)), total: items.length, page, page_size: pageSize });
           }
-          if (action === "confirm" || action === "dismiss") {
+          if (action === "confirm" || action === "confirm_with_rule" || action === "dismiss") {
             const item = inboxes.get(id).find((item) => item.id === body.p_id);
             if (!item) return respond({ code: "42501", message: "Message unavailable" }, 403);
-            if (action === "confirm") {
+            if (action === "confirm" || action === "confirm_with_rule") {
               assert.equal(item.status, "pending");
               const transaction = { ...clone(body.p_draft), id: `sms-${item.id}`, source: "sms", sourceRef: `sms-${item.id}` };
               const current = ledgers.get(id); const month = transaction.date.slice(0, 7);
               ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter((checked) => checked !== month) }, revision: current.revision + 1, updated_at: "2026-10-22T11:35:00Z" });
+              if (body.p_remember) rules.set(id, [...rules.get(id).filter(rule => rule.merchant !== transaction.merchant), { merchant: transaction.merchant, category: transaction.category, subcategory: transaction.subcategory }]);
               item.status = "recorded"; item.raw_text = null; item.transaction_id = transaction.id;
               return respond({ status: "recorded", transaction_id: transaction.id });
             }
@@ -147,7 +158,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false } = {}) {
       }
     });
   }
-  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, controls };
+  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, controls, rules };
 }
 async function ready(server, output) {
   const deadline = Date.now() + 20000;
@@ -187,6 +198,180 @@ async function openSms(page) {
   await dialog.getByRole("button", { name: "短信自动记账", exact: true }).click();
 }
 
+async function merchantMemoryWorkflow(browser) {
+  const backend = mockBackend();
+  const { page, context, errors } = await fixture(browser, backend, { sms: false });
+  try {
+    await login(page); await page.locator(".hero-amount").waitFor();
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    let editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("金额（元）", { exact: true }).fill("36.80");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城东店)");
+    assert.equal(await editor.getByLabel("以后这家都这样分类").count(), 0, "typing a merchant does not teach a category");
+    await editor.getByLabel("分类", { exact: true }).selectOption("本地生活");
+    await editor.getByLabel("细类（可选）", { exact: true }).fill("桌游聚会");
+    assert.equal(await editor.getByLabel("以后这家都这样分类").isChecked(), true);
+    await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    await until(() => backend.rules.get(OWNER).some(rule => rule.subcategory === "桌游聚会"), "atomic merchant memory save");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.at(-1).merchant, "巷口体验馆(城东店)", "source merchant is preserved");
+    await until(() => backend.requests.filter(item => item.path.endsWith("moneytrail_sms_category_rules")).length >= 2, "rules refreshed after successful save");
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("金额（元）", { exact: true }).fill("12.00");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("旧巷体验馆(北店)");
+    await editor.getByLabel("分类", { exact: true }).selectOption("购物");
+    await editor.getByLabel("以后这家都这样分类").uncheck();
+    await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.some(transaction => transaction.merchant === "旧巷体验馆(北店)"), "opt-out transaction persisted");
+    assert.equal(backend.rules.get(OWNER).length, 1, "unchecking memory preserves only the transaction");
+    await page.locator(".sidebar-nav").getByRole("button", { name: /^录入/ }).click();
+    await page.getByLabel("银行消费短信", { exact: true }).fill("尾号1234卡10月22日19:27支出(消费抖音支付-巷口体验馆（城东店）)30.90元，余额12,345.94元。【工商银行】");
+    await page.getByRole("button", { name: "识别短信", exact: true }).click();
+    await page.locator(".preview-card").getByText(/本地生活 · 桌游聚会/).waitFor();
+    await page.getByLabel("银行消费短信", { exact: true }).fill("尾号1234卡10月22日19:28支出(支付宝-巷口体验馆(城西店))31.90元，余额12,345.94元。【工商银行】");
+    await page.getByRole("button", { name: "识别短信", exact: true }).click();
+    await page.locator(".preview-card").getByText(/待分类 · 未细分/).waitFor();
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("财付通-巷口体验馆（城东店）");
+    await editor.getByLabel("商户 / 对方", { exact: true }).blur();
+    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "本地生活", "new manual transaction reuses a personal rule");
+    assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "桌游聚会");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城西店)");
+    await editor.getByLabel("商户 / 对方", { exact: true }).blur();
+    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "待分类", "another branch does not retain the prior automatic classification");
+    assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "");
+    await editor.getByLabel("分类", { exact: true }).selectOption("购物");
+    await editor.getByLabel("细类（可选）", { exact: true }).fill("礼品");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("财付通-巷口体验馆（城东店）");
+    await editor.getByLabel("商户 / 对方", { exact: true }).blur();
+    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "购物", "automatic reuse preserves an explicit user choice");
+    await editor.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("金额（元）", { exact: true }).fill("14.00");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("支付宝-巷口体验馆（城东店）");
+    await editor.getByLabel("商户 / 对方", { exact: true }).press("Enter");
+    await until(() => backend.ledgers.get(OWNER).data.transactions.some(transaction => transaction.merchant === "支付宝-巷口体验馆（城东店）" && transaction.category === "本地生活" && transaction.subcategory === "桌游聚会"), "manual Enter submit reuses category/detail without relying on blur");
+    assert.equal(backend.rules.get(OWNER).length, 1, "automatic reuse does not publish another teaching intent");
+    await page.getByLabel("银行消费短信", { exact: true }).fill(RAW);
+    await page.getByRole("button", { name: "识别短信", exact: true }).click();
+    await page.getByRole("button", { name: "修改信息", exact: true }).click();
+    editor = page.getByRole("dialog", { name: "核对这笔记录", exact: true });
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城南店)");
+    await editor.getByLabel("分类", { exact: true }).selectOption("购物");
+    await editor.getByLabel("细类（可选）", { exact: true }).fill("日用品");
+    assert.equal(await editor.getByLabel("以后这家都这样分类").count(), 0, "renaming a group cannot make it learnable");
+    await editor.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("tab", { name: "导入账单", exact: true }).click();
+    await page.getByLabel("选择 CSV 账单文件", { exact: true }).setInputFiles({ name: "merchant-memory.csv", mimeType: "text/csv", buffer: Buffer.from("日期,类型,金额,商户,分类,细类,交易编号\n2026-10-22 13:00,支出,21.00,槐荫体验馆(东店),待分类,,memory-east\n2026-10-22 14:00,支出,22.00,槐荫体验馆(西店),待分类,,memory-west\n2026-10-22 15:00,支出,23.00,原始导入分类商户,购物,日用品,memory-raw\n") });
+    await until(async () => await page.locator(".preview-card").count() === 3, "merchant import preview");
+    for (const merchant of ["槐荫体验馆(东店)", "槐荫体验馆(西店)"]) {
+      const card = page.locator(".preview-card").filter({ hasText: merchant });
+      await card.getByRole("button", { name: "修改信息", exact: true }).click();
+      editor = page.getByRole("dialog", { name: "核对这笔记录", exact: true });
+      await editor.getByLabel("分类", { exact: true }).selectOption("本地生活");
+      await editor.getByLabel("细类（可选）", { exact: true }).fill("桌游聚会");
+      assert.equal(await editor.getByLabel("以后这家都这样分类").isChecked(), true);
+      await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    }
+    assert.equal(backend.rules.get(OWNER).length, 1, "editing a preview does not publish rules");
+    await page.locator(".preview-card").filter({ hasText: "槐荫体验馆(西店)" }).getByRole("checkbox").uncheck();
+    await page.getByRole("button", { name: "确认保存 2 笔", exact: true }).click();
+    await until(() => backend.rules.get(OWNER).some(rule => rule.merchant === "槐荫体验馆(东店)"), "only selected edited preview teaches");
+    assert.equal(backend.rules.get(OWNER).length, 2);
+    assert(!backend.rules.get(OWNER).some(rule => ["槐荫体验馆(西店)", "原始导入分类商户"].includes(rule.merchant)), "unselected and unedited import rows never teach");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("explicit category/detail saves atomically; exact cross-channel reuse, branch/ambiguity guards, opt-out and selected import learning");
+  } finally { await context.close(); }
+}
+
+async function smsMemoryWorkflow(browser) {
+  const backend = mockBackend();
+  const pendingId = "35000000-0000-4000-8000-000000000001";
+  backend.inboxes.get(OWNER).unshift({ id: pendingId, received_at: "2026-10-22T11:20:00Z", status: "pending", raw_text: "尾号xxxx卡10月22日19:20支出(支付宝-巷口体验馆(城东店))36.80元，余额xxxx元。【工商银行】", draft: { kind: "expense", amountCents: 3680, date: "2026-10-22T19:20", merchant: "支付宝-巷口体验馆(城东店)", category: "待分类", source: "sms", note: "" }, warnings: [], reason: null, transaction_id: null });
+  const { page, context, errors } = await fixture(browser, backend, { width: 390 });
+  try {
+    await login(page);
+    const card = page.locator(".sms-message").filter({ hasText: "支付宝-巷口体验馆(城东店)" });
+    await card.getByRole("button", { name: "核对并记录", exact: true }).click();
+    assert.equal(await card.getByLabel("以后这家都这样分类").count(), 0);
+    await card.getByRole("combobox", { name: /^分类/ }).selectOption("本地生活");
+    await card.getByLabel("细类（可选）", { exact: true }).fill("公司活动");
+    assert.equal(await card.getByLabel("以后这家都这样分类").isChecked(), true);
+    await card.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    await until(() => backend.inboxes.get(OWNER).find(item => item.id === pendingId).status === "recorded", "atomic SMS confirmation");
+    const request = backend.requests.find(item => item.path.endsWith("moneytrail_sms_confirm_with_rule"));
+    assert.equal(request.body.p_remember, true);
+    assert.equal(request.body.p_draft.subcategory, "公司活动");
+    assert.equal(backend.rules.get(OWNER)[0].subcategory, "公司活动");
+    await until(async () => await page.locator(".sms-message.recorded").count() === 1, "confirmed inbox refresh");
+    const group = page.locator(".sms-message").filter({ hasText: "财付通-群收款" });
+    await group.getByRole("button", { name: "核对并记录", exact: true }).click();
+    await group.getByLabel("商户或用途", { exact: true }).fill("巷口体验馆(城西店)");
+    await group.getByRole("combobox", { name: /^分类/ }).selectOption("购物");
+    await group.getByLabel("细类（可选）", { exact: true }).fill("日用品");
+    assert.equal(await group.getByLabel("以后这家都这样分类").count(), 0);
+    await noOverflow(page, "390px SMS memory confirmation");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("SMS explicit classification confirms with one atomic remember request; renamed group cannot teach");
+  } finally { await context.close(); }
+}
+
+async function rulesRetryWorkflow(browser) {
+  const backend = mockBackend(); backend.controls.missingRules = true;
+  const { page, context, errors } = await fixture(browser, backend, { sms: false });
+  try {
+    await login(page); await page.getByRole("button", { name: "重试个人规则", exact: true }).waitFor();
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("金额（元）", { exact: true }).fill("18.00");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("暂待核对商户");
+    const failedRefresh = page.waitForResponse(response => response.url().endsWith("/rest/v1/rpc/moneytrail_sms_category_rules") && response.status() === 404);
+    await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.length === 2, "ordinary save while rules unavailable");
+    await failedRefresh;
+    assert.equal(backend.rules.get(OWNER).length, 0);
+    backend.controls.missingRules = false;
+    await page.getByRole("button", { name: "重试个人规则", exact: true }).click();
+    await until(async () => await page.getByRole("button", { name: "重试个人规则", exact: true }).count() === 0, "rules retry recovers");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("unavailable account rules show retry while ordinary ledger saves remain usable");
+  } finally { await context.close(); }
+}
+
+async function cancelPendingMemoryWorkflow(browser) {
+  const backend = mockBackend(); backend.controls.failPush = true;
+  backend.rules.get(OWNER).push({ merchant: "已有体验馆", category: "购物", subcategory: "礼品" });
+  const { page, context, errors } = await fixture(browser, backend, { sms: false });
+  try {
+    await login(page); await page.locator(".hero-amount").waitFor();
+    await page.getByRole("button", { name: "记一笔", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
+    await editor.getByLabel("金额（元）", { exact: true }).fill("18.00");
+    await editor.getByLabel("商户 / 对方", { exact: true }).fill("待同步体验馆");
+    await editor.getByLabel("分类", { exact: true }).selectOption("本地生活");
+    await editor.getByLabel("细类（可选）", { exact: true }).fill("公司活动");
+    await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+    await until(() => backend.requests.some(request => request.path.endsWith("save_moneytrail_ledger_with_rules")), "failed memory push");
+    await openSms(page);
+    await page.locator(".sms-rule-editor summary").click();
+    await page.getByRole("button", { name: "读取个人规则", exact: true }).click();
+    await page.getByRole("button", { name: "删除规则", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "删除规则", exact: true }).isEnabled(), false, "dirty outbox blocks direct rule writes");
+    await page.getByRole("button", { name: "取消这次待同步记忆", exact: true }).waitFor();
+    backend.controls.failPush = false;
+    await page.getByRole("button", { name: "取消这次待同步记忆", exact: true }).click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.some(transaction => transaction.merchant === "待同步体验馆"), "transaction syncs after its memory is cancelled");
+    assert(!backend.rules.get(OWNER).some(rule => rule.merchant === "待同步体验馆"));
+    await until(async () => await page.getByRole("button", { name: "删除规则", exact: true }).isEnabled(), "clean ledger permits direct rule changes");
+    await page.getByRole("button", { name: "删除规则", exact: true }).click();
+    await until(() => backend.rules.get(OWNER).length === 0, "direct rule deletion after recovery");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("failed memory push can cancel learning while preserving and syncing its transaction; direct rules wait for a clean ledger");
+  } finally { await context.close(); }
+}
+
 // Workflow selectors are kept accessible so the test exercises the shipped UI.
 async function workflow(browser, width) {
   const backend = mockBackend({ ordinaryPending: true });
@@ -222,9 +407,17 @@ async function workflow(browser, width) {
       assert.equal(await page.getByRole("button", { name: "保存商户规则", exact: true }).isEnabled(), false);
     }
     await page.getByLabel("具体商户", { exact: true }).fill("巷口咖啡");
+    await page.getByLabel("细类（可选）", { exact: true }).fill("公司招待");
     await page.getByLabel("以后这家都这样分类").check();
     await page.getByRole("button", { name: "保存商户规则", exact: true }).click();
     await page.getByRole("button", { name: "删除规则", exact: true }).waitFor();
+    await page.getByText("巷口咖啡 · 购物 · 公司招待", { exact: true }).waitFor();
+    await noOverflow(page, `${width}px populated rule editor`);
+    await page.getByRole("button", { name: "编辑规则", exact: true }).click();
+    assert.equal(await page.getByLabel("细类（可选）", { exact: true }).inputValue(), "公司招待");
+    await page.getByLabel("细类（可选）", { exact: true }).fill("");
+    await page.getByRole("button", { name: "保存商户规则", exact: true }).click();
+    await page.getByText("巷口咖啡 · 购物 · 未细分", { exact: true }).waitFor();
     await until(async () => await page.getByRole("button", { name: "删除规则" }).isEnabled(), "rule ready");
     await page.getByRole("button", { name: "删除规则", exact: true }).click();
     await until(async () => await page.getByRole("button", { name: "删除规则" }).count() === 0, "rule deleted");
@@ -261,7 +454,7 @@ async function failureWorkflow(browser) {
   try {
     await login(page); await page.getByRole("button", { name: "预览账本待分类", exact: true }).click();
     await page.locator(".sms-rule-editor summary").click();
-    await page.getByText(/自动入账规则尚未升级/).first().waitFor();
+    await page.locator(".sms-rule-editor").getByText(/自动入账规则尚未升级/).waitFor();
     await page.getByText("财付通-群收款", { exact: true }).first().waitFor();
     backend.controls.missingRules = false;
     await page.getByRole("button", { name: "预览账本待分类", exact: true }).click();
@@ -280,7 +473,7 @@ async function failureWorkflow(browser) {
   await mkdir(ARTIFACTS, { recursive: true }); let output = "";
   const server = spawn(process.execPath, [path.join(ROOT, "node_modules", "vite", "bin", "vite.js"), "--host", "127.0.0.1", "--port", String(PORT)], { cwd: ROOT, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, MONEYTRAIL_BASE_PATH: "/Moneytrail-/", VITE_SUPABASE_URL: PROJECT, VITE_SUPABASE_PUBLISHABLE_KEY: PUBLIC_KEY, VITE_SUPABASE_ANON_KEY: "" } });
   server.stdout.on("data", c => { output += c; }); server.stderr.on("data", c => { output += c; }); let browser;
-  try { await ready(server, () => output); browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}) }); await workflow(browser, 390); await workflow(browser, 1440); await failureWorkflow(browser); await lateAccountWorkflow(browser); }
+  try { await ready(server, () => output); browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}) }); await merchantMemoryWorkflow(browser); await cancelPendingMemoryWorkflow(browser); await smsMemoryWorkflow(browser); await rulesRetryWorkflow(browser); await workflow(browser, 390); await workflow(browser, 1440); await failureWorkflow(browser); await lateAccountWorkflow(browser); }
   catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); server.kill(); }
 })();

@@ -9,6 +9,8 @@ import { planLegacyMigration } from "./lib/accountMigration";
 import { clearAccountCache } from "./lib/accountCache";
 import { clearStoredData, exportBackup, loadData, readStoredRaw } from "./lib/storage";
 import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/adminClient";
+import { fetchSmsCategoryRules } from "./lib/smsClient";
+import type { MerchantRule } from "./lib/merchantClassification";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const SmsAutomationPanel = lazy(() => import("./components/SmsAutomationPanel"));
@@ -45,6 +47,42 @@ function useAdminAccess(client: SupabaseClient, session: Session, view: AccountV
     return () => window.removeEventListener("focus", retry);
   }, [retry]);
   return { ...(access.key === key ? access : { key, status: "loading" as const }), retry };
+}
+
+function useMerchantRules(client: SupabaseClient, session: Session, state: CloudStoreState, view: AccountView) {
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<{ owner: string; rules: MerchantRule[]; error?: string }>({ owner: "", rules: [] });
+  const retry = useCallback(() => setAttempt(value => value + 1), []);
+  const owner = `${session.user.id}|${session.access_token}`;
+  const wasDirty = useRef(state.dirty);
+  const previousView = useRef(view);
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    const fail = (message: string) => setResult(previous => ({ owner, rules: previous.owner === owner ? previous.rules : [], error: message }));
+    const timeout = setTimeout(() => {
+      controller.abort();
+      if (active) fail("读取个人商户规则超时，请检查网络后重试。");
+    }, 20_000);
+    void fetchSmsCategoryRules(client, session.user.id, controller.signal).then(rules => {
+      if (active && !controller.signal.aborted) setResult({ owner, rules });
+    }).catch(error => {
+      if (active && !controller.signal.aborted) fail(error instanceof Error ? error.message : "暂时无法读取个人商户规则。");
+    }).finally(() => clearTimeout(timeout));
+    return () => { active = false; clearTimeout(timeout); controller.abort(); };
+  }, [client, session.user.id, owner, attempt]);
+  useEffect(() => {
+    if (state.dirty) wasDirty.current = true;
+    else if (wasDirty.current && state.phase === "saved") { wasDirty.current = false; retry(); }
+  }, [state.dirty, state.phase, retry]);
+  useEffect(() => {
+    if (previousView.current === "sms" && view === "ledger") retry();
+    previousView.current = view;
+  }, [view, retry]);
+  useEffect(() => {
+    window.addEventListener("focus", retry);
+    return () => window.removeEventListener("focus", retry);
+  }, [retry]);
+  return { rules: result.owner === owner ? result.rules : [], loading: result.owner !== owner, error: result.owner === owner ? result.error : undefined, retry };
 }
 
 function download(text: string, filename: string) {
@@ -145,6 +183,7 @@ function CloudConnection({ client, projectUrl, session, view, onView }: { client
 function CloudLedger({ client, projectUrl, session, store, view, onView }: { client: SupabaseClient; projectUrl: string; session: Session; store: CloudStore; view: AccountView; onView: (view: AccountView) => void }) {
   const state = useSyncExternalStore(store.subscribeState, store.getState);
   const adminAccess = useAdminAccess(client, session, view);
+  const merchantRules = useMerchantRules(client, session, state, view);
   const dialog = useRef<HTMLDialogElement>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -235,12 +274,12 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const controls = <button className="button secondary small account-control" onClick={() => dialog.current?.showModal()} aria-label="我的账户"><UserRound size={16} /><span>我的账户</span><SyncBadge state={state} /></button>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
   const ledger = state.ready || state.recoveryError
-    ? <App key={bookEpoch} store={store} cloudMode accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
+    ? <App key={bookEpoch} store={store} cloudMode merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
     : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>;
   return <>
     {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>
       <div hidden={view !== "ledger"}>{ledger}</div>
-      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} onBack={() => onView("ledger")} /></Suspense>}
+      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} merchantRules={merchantRules.rules} onRulesChanged={merchantRules.retry} onBack={() => onView("ledger")} /></Suspense>}
       {view === "admin" && notice && <div className="account-panel" role="alert">{notice}</div>}
       {view === "admin" && (adminAccess.status === "allowed"
         ? <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开管理后台</h1></main>}><AdminPanel client={client} user={session.user} onBack={() => onView("ledger")} onSignOut={() => void signOut()} /></Suspense>

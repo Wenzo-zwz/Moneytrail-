@@ -2,10 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emptyData, importBackup, type AppData, type StorageWriteResult } from "./storage";
 import { cacheKey, clearAccountCache, loadAccountCache, readAccountCacheRaw, replaceAccountCache, saveAccountCache, type AccountCache } from "./accountCache";
 import { CloudConflictError, fetchCloudLedger, pushCloudLedger, type CloudSnapshot } from "./cloudClient";
+import type { MerchantRuleIntent } from "./merchantClassification";
+import { latestMerchantRuleIntents, matchingMerchantRuleIntents, readMerchantRuleIntents, sameMerchantRuleIntent } from "./merchantRuleIntents";
+
+export type LedgerSaveOptions = { merchantRules?: MerchantRuleIntent[]; forgetMerchantRulesFor?: string[] };
 
 export interface LedgerStore {
   loadData(): { data: AppData; error?: string };
-  saveData(data: AppData, expected?: AppData): StorageWriteResult;
+  saveData(data: AppData, expected?: AppData, options?: LedgerSaveOptions): StorageWriteResult;
   restoreData(data: AppData, expectedRaw: string | null): StorageWriteResult;
   readStoredRaw(): string | null;
   subscribe(listener: () => void): () => void;
@@ -21,10 +25,11 @@ export interface CloudStoreState {
 }
 export interface CloudTransport {
   load(signal: AbortSignal): Promise<CloudSnapshot>;
-  push(data: AppData, revision: number, signal: AbortSignal): Promise<CloudSnapshot>;
+  push(data: AppData, revision: number, signal: AbortSignal, merchantRules?: MerchantRuleIntent[]): Promise<CloudSnapshot>;
 }
 export interface CloudStore extends LedgerStore {
   getState(): CloudStoreState;
+  getPendingMerchantRules(): MerchantRuleIntent[];
   subscribeState(listener: () => void): () => void;
   start(): void;
   refresh(): Promise<void>;
@@ -47,7 +52,7 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
 }): CloudStore {
   const io = transport ?? {
     load: (signal: AbortSignal) => fetchCloudLedger(client, userId, signal),
-    push: (data: AppData, revision: number, signal: AbortSignal) => pushCloudLedger(client, data, revision, userId, signal),
+    push: (data: AppData, revision: number, signal: AbortSignal, merchantRules?: MerchantRuleIntent[]) => pushCloudLedger(client, data, revision, userId, signal, merchantRules),
   };
   const loaded = loadAccountCache(projectUrl, userId);
   let cache: AccountCache | null = loaded.cache;
@@ -92,13 +97,15 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     // Keep the exact canonical bytes we wrote. A second storage read can fail after
     // a successful write, or observe another tab's edit and incorrectly adopt it
     // as the expected bytes for this tab's older in-memory ledger.
-    const canonical: AccountCache = { version: 1, ownerId: userId.toLowerCase(), data: clean(next.data), baseRevision: next.baseRevision, dirty: next.dirty, lastSyncedAt: next.lastSyncedAt };
+    const pending = latestMerchantRuleIntents(matchingMerchantRuleIntents(next.data, readMerchantRuleIntents(next.pendingMerchantRules)));
+    const canonical: AccountCache = { version: 1, ownerId: userId.toLowerCase(), data: clean(next.data), baseRevision: next.baseRevision, dirty: next.dirty, lastSyncedAt: next.lastSyncedAt,
+      ...(pending.length ? { pendingMerchantRules: pending } : {}) };
     const result = recovery ? replaceAccountCache(projectUrl, userId, canonical, raw) : saveAccountCache(projectUrl, userId, canonical, raw);
     if (!result.ok) { if (result.conflict) adoptExternal(); setState({ phase: "error", message: result.error ?? "本机副本未能保存" }); return result; }
     cache = canonical; raw = JSON.stringify(canonical); knownRevision = canonical.baseRevision;
     setState({ ready: true, recoveryError: undefined }); return result;
   }
-  function localWrite(data: AppData, expected?: AppData, recoveryRaw?: string | null): StorageWriteResult {
+  function localWrite(data: AppData, expected?: AppData, recoveryRaw?: string | null, options?: LedgerSaveOptions): StorageWriteResult {
     if (disposed) return failure("账户已关闭，请重新登录。");
     if (recoveryRaw !== undefined) {
       let actual: string | null; try { actual = readAccountCacheRaw(projectUrl, userId); } catch { return failure("无法读取本机账户副本。"); }
@@ -112,13 +119,23 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     try {
       const nextData = clean(data);
       if (expected && cache && !same(expected, cache.data)) return { ok: false, conflict: true, error: "账本已经更新，本次修改未保存。" };
+      const incomingRules = readMerchantRuleIntents(options?.merchantRules);
+      if (matchingMerchantRuleIntents(nextData, incomingRules).length !== incomingRules.length) return failure("商户分类已改变，请重新确认后保存。");
+      const forget = options?.forgetMerchantRulesFor ?? [];
+      if (!Array.isArray(forget) || forget.length > 200 || forget.some(id => typeof id !== "string" || !id || id.length > 200)) return failure("商户记忆选择无效，请重新打开账目。");
+      const replaced = new Set([...forget, ...incomingRules.map(rule => rule.transactionId)]);
+      const pending = readMerchantRuleIntents(latestMerchantRuleIntents([
+        ...(recoveryRaw === undefined ? matchingMerchantRuleIntents(nextData, cache?.pendingMerchantRules ?? []).filter(rule => !replaced.has(rule.transactionId)) : []),
+        ...incomingRules,
+      ]));
       // An observed remote revision is not an accepted merge baseline. In a
       // conflict, ordinary edits must retain the old CAS revision, including
       // across reloads, until the user explicitly resolves the conflict.
-      const result = write({ version: 1, ownerId: userId.toLowerCase(), data: nextData, baseRevision: cache?.baseRevision ?? knownRevision ?? 0, dirty: true, lastSyncedAt: cache?.lastSyncedAt ?? null }, recoveryRaw !== undefined);
+      const result = write({ version: 1, ownerId: userId.toLowerCase(), data: nextData, baseRevision: cache?.baseRevision ?? knownRevision ?? 0, dirty: true, lastSyncedAt: cache?.lastSyncedAt ?? null,
+        ...(pending.length ? { pendingMerchantRules: pending } : {}) }, recoveryRaw !== undefined);
       if (!result.ok) return result;
       const conflict = state.phase === "conflict";
-      setState({ phase: conflict ? "conflict" : isOnline() ? "pending" : "offline", message: conflict ? "本机修改已保留，请先核对同步冲突" : isOnline() ? "本机已保存，等待云端确认" : "本机已保存，联网后同步" });
+      setState({ phase: conflict ? "conflict" : isOnline() ? "pending" : "offline", message: conflict ? "本机修改已保留，请先核对同步冲突" : pending.length ? "账目与商户记忆已保存在本机，联网同步后生效" : isOnline() ? "本机已保存，等待云端确认" : "本机已保存，联网后同步" });
       if (!conflict) queueMicrotask(() => void refresh());
       return { ok: true };
     } catch { return failure("账目格式无效，本次修改未保存。"); }
@@ -132,14 +149,18 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     try {
       if (cache?.dirty && !state.recoveryError) {
         const sent = clean(cache.data); const revision = cache.baseRevision;
-        const snapshot = await io.push(sent, revision, signal);
+        const sentRules = matchingMerchantRuleIntents(sent, cache.pendingMerchantRules ?? []);
+        const snapshot = await (sentRules.length ? io.push(sent, revision, signal, sentRules) : io.push(sent, revision, signal));
         if (disposed || signal.aborted) return;
         adoptExternal(); if (!cache || state.recoveryError) return;
         // A newer write in this tab or another tab survives an older request's response.
         if (cache.baseRevision > snapshot.revision) return;
-        const stillDirty = !same(cache.data, sent);
-        const result = write({ ...cache, data: cache.data, baseRevision: snapshot.revision, dirty: stillDirty, lastSyncedAt: snapshot.updatedAt ?? new Date().toISOString() });
-        if (result.ok) setState({ phase: stillDirty ? "pending" : "saved", message: stillDirty ? "新修改等待下一次同步" : "已同步至云端" });
+        const remaining = matchingMerchantRuleIntents(cache.data, cache.pendingMerchantRules ?? []).filter(rule => !sentRules.some(sentRule => sameMerchantRuleIntent(rule, sentRule)));
+        const stillDirty = !same(cache.data, sent) || remaining.length > 0;
+        const { pendingMerchantRules: _pending, ...rest } = cache;
+        const result = write({ ...rest, data: cache.data, baseRevision: snapshot.revision, dirty: stillDirty, lastSyncedAt: snapshot.updatedAt ?? new Date().toISOString(),
+          ...(remaining.length ? { pendingMerchantRules: remaining } : {}) });
+        if (result.ok) setState({ phase: stillDirty ? "pending" : "saved", message: stillDirty ? "新修改等待下一次同步" : sentRules.length ? "账目与商户记忆已同步至云端" : "已同步至云端" });
       } else {
         const snapshot = await io.load(signal);
         if (disposed || signal.aborted) return;
@@ -189,11 +210,12 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
   }
   return {
     loadData: () => ({ data: cache ? clean(cache.data) : emptyData(), error: state.recoveryError }),
-    saveData: (data, expected) => localWrite(data, expected),
+    saveData: (data, expected, options) => localWrite(data, expected, undefined, options),
     restoreData: (data, expectedRaw) => localWrite(data, undefined, expectedRaw),
     readStoredRaw: () => readAccountCacheRaw(projectUrl, userId),
     subscribe(listener) { dataListeners.add(listener); return () => { dataListeners.delete(listener); }; },
     getState: () => state,
+    getPendingMerchantRules: () => disposed ? [] : readMerchantRuleIntents(cache?.pendingMerchantRules),
     subscribeState(listener) { stateListeners.add(listener); return () => { stateListeners.delete(listener); }; },
     start() {
       if (started || disposed) return; started = true;
@@ -224,7 +246,9 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
           }
           if (choice === "local" && !cache) throw new Error("本机版本无法安全读取，请恢复云端版本。");
           const data = choice === "cloud" ? snapshot.data : cache!.data;
-          const result = write({ version: 1, ownerId: userId.toLowerCase(), data, baseRevision: snapshot.revision, dirty: choice === "local", lastSyncedAt: snapshot.updatedAt }, true);
+          const pending = choice === "local" ? matchingMerchantRuleIntents(data, cache?.pendingMerchantRules ?? []) : [];
+          const result = write({ version: 1, ownerId: userId.toLowerCase(), data, baseRevision: snapshot.revision, dirty: choice === "local", lastSyncedAt: snapshot.updatedAt,
+            ...(pending.length ? { pendingMerchantRules: pending } : {}) }, true);
           if (!result.ok) return;
           setState({ phase: choice === "cloud" ? "saved" : "pending", message: choice === "cloud" ? "已采用云端版本" : "正在提交你确认的本机版本" }); emitData();
         } catch (error) { if (!disposed && !signal.aborted) setState({ phase: error instanceof CloudConflictError ? "conflict" : "error", message: error instanceof Error ? error.message : "恢复未完成" }); }

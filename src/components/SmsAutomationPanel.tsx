@@ -7,6 +7,8 @@ import { CATEGORIES, formatMoney, isValidLocalDateTime, parseAmount } from "../l
 import { readCloudConfig } from "../lib/cloudConfig";
 import type { CloudStore } from "../lib/cloudStore";
 import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, revokeSmsToken, rotateSmsToken, setSmsMode, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsMode } from "../lib/smsClient";
+import type { MerchantRule } from "../lib/merchantClassification";
+import { canOfferMerchantMemory } from "./merchantMemory";
 
 interface SmsAutomationPanelProps {
   client: SupabaseClient;
@@ -14,6 +16,8 @@ interface SmsAutomationPanelProps {
   projectUrl: string;
   onBack: () => void;
   store: CloudStore;
+  merchantRules?: MerchantRule[];
+  onRulesChanged?: () => void;
 }
 type Result = { owner: string; key: string; config: SmsConfig; inbox: SmsInbox };
 type Failure = { owner: string; key: string; setup: boolean; message: string };
@@ -33,7 +37,7 @@ function receiptDate(value: string) {
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 }
 
-function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; onConfirm: (id: string, draft: SmsDraft) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
+function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; merchantRules: MerchantRule[]; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<SmsDraft["kind"]>(item.draft?.kind ?? "expense");
   const [amount, setAmount] = useState(item.draft ? (item.draft.amountCents / 100).toFixed(2) : "");
@@ -43,6 +47,9 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
   const [subcategory, setSubcategory] = useState(item.draft?.subcategory);
   const [note, setNote] = useState(item.draft?.note ?? "");
   const [error, setError] = useState("");
+  const [explicitChoice, setExplicitChoice] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const canRemember = Boolean(item.draft && item.warnings.length === 0 && canOfferMerchantMemory(item.draft, { ...item.draft, kind, merchant, category, subcategory }, explicitChoice, merchantRules));
   const pending = item.status === "pending";
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,7 +57,7 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
     const cents = parseAmount(amount);
     if (!cents || !isValidLocalDateTime(date) || !merchant.trim() || merchant.length > 200) { setError("请填写有效的金额、时间和商户。"); return; }
     setError("");
-    await onConfirm(item.id, { ...item.draft, kind, amountCents: cents, date, merchant: merchant.trim(), category, ...(subcategory ? { subcategory: subcategory.trim() || "未细分" } : {}), source: "sms", note });
+    await onConfirm(item.id, { ...item.draft, kind, amountCents: cents, date, merchant: merchant.trim(), category, ...(subcategory ? { subcategory: subcategory.trim() || "未细分" } : {}), source: "sms", note }, canRemember && remember);
   }
   return <article className={`sms-message ${item.status}`}>
     <div className="sms-message-heading"><span className={`sms-status ${item.status}`}>{pending ? "待确认" : item.status === "recorded" ? "已入账" : "已忽略"}</span><time dateTime={item.received_at}>{receivedTime(item.received_at)}</time></div>
@@ -66,8 +73,9 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
         <label>金额（元）<input type="text" inputMode="decimal" required autoComplete="off" maxLength={20} value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label>
         <label>交易时间<input type="datetime-local" required value={date} onChange={event => setDate(event.target.value)} disabled={busy} /></label>
         <label>商户或用途<input type="text" required autoComplete="off" maxLength={200} value={merchant} onChange={event => setMerchant(event.target.value)} disabled={busy} /></label>
-        <label>分类<select value={category} onChange={event => { setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
-        <DetailField category={category} value={subcategory} onChange={setSubcategory} disabled={busy} />
+        <label>分类<select value={category} onChange={event => { setExplicitChoice(true); setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        <DetailField category={category} value={subcategory} onChange={value => { setExplicitChoice(true); setSubcategory(value); }} disabled={busy} />
+        {canRemember && <label className="sms-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy} />以后这家都这样分类</label>}
         <label>备注<input type="text" autoComplete="off" maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={busy} /></label>
         {kind === "transfer" && <p className="sms-form-hint">转账会保留记录，不计入消费支出。</p>}
         {!item.draft && <p className="sms-form-hint">未能自动识别这条短信，请对照原文逐项填写后再确认。</p>}
@@ -78,7 +86,7 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
   </article>;
 }
 
-export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store }: SmsAutomationPanelProps) {
+export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store, merchantRules = [], onRulesChanged }: SmsAutomationPanelProps) {
   const syncState = useSyncExternalStore(store.subscribeState, store.getState);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -168,12 +176,13 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
     try { await navigator.clipboard.writeText(value); if (ownerRef.current === owner) setNotice(message); }
     catch { if (ownerRef.current === owner) setNotice("复制未完成，请长按内容手动复制。" ); }
   }
-  async function confirm(id: string, draft: SmsDraft) {
+  async function confirm(id: string, draft: SmsDraft, remember: boolean) {
     const state = store.getState();
     if (!state.ready || state.dirty || state.phase !== "saved" || state.recoveryError) { setNotice("请先返回账本完成同步或处理冲突，再确认这条短信。" ); return; }
     await run(async signal => {
-      await confirmSms(client, userId, id, draft, signal);
+      await confirmSms(client, userId, id, draft, signal, remember);
       if (signal.aborted) return;
+      if (remember) onRulesChanged?.();
       await store.refresh();
       return "已确认并记入云端账本。";
     });
@@ -189,7 +198,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       <div className="sms-notice" role="status" aria-live="polite">{notice}</div>
       {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>正在读取接入状态</h2><p>正在连接当前账户的短信收件箱。</p></section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{currentFailure.setup && <p>请在 Supabase SQL Editor 运行短信自动化初始化 SQL 后，重新检查。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />重新检查</button></section> : config && inbox && <>
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入月度消费</small></article></section>
-        <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} />
+        <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} onRulesChanged={onRulesChanged} />
         <div className={`sms-main-grid${config.enabled && config.pending_count > 0 ? " has-pending" : ""}`}>
           <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">当前支持工行“支出(用途)金额元”格式。无法明确判断的内容会保留给你核对。</p>
             <fieldset className="sms-mode-options" disabled={busy}><legend>收到短信后</legend><label className={mode === "auto" ? "selected" : undefined}><input type="radio" name="sms-mode" value="auto" checked={mode === "auto"} onChange={() => setMode("auto")} /><span><strong>自动记录明确消费</strong><small>明确消费和已识别的本人资金周转可入账；不明用途继续核对</small></span></label><label className={mode === "review" ? "selected" : undefined}><input type="radio" name="sms-mode" value="review" checked={mode === "review"} onChange={() => setMode("review")} /><span><strong>全部先待确认</strong><small>每条短信都由你核对后再入账</small></span></label></fieldset>
@@ -208,7 +217,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
           <section className="sms-inbox" aria-labelledby="sms-inbox-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2><p>{inbox.total} 条接收记录</p></div><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()} aria-label="刷新收件箱"><RefreshCw size={15} />刷新</button></div>
 
             {config.pending_count > 0 && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
-            {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条消费短信</h3><p>完成 iPhone 自动化后，新收到的银行消费短信会出现在这里。</p><span>群收款待确认 · 相同短信 24 小时内去重</span></div>}
+            {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} merchantRules={merchantRules} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条消费短信</h3><p>完成 iPhone 自动化后，新收到的银行消费短信会出现在这里。</p><span>群收款待确认 · 相同短信 24 小时内去重</span></div>}
             {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}
           </section>
         </div>
