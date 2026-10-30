@@ -38,6 +38,7 @@ function mockBackend() {
     [B, { data: { ...empty(), transactions: [transaction("b-only", "账户 B 原有消费", 2000)] }, revision: 1, updated_at: "2026-10-22T04:30:00Z" }],
   ]);
   const requests = [];
+  const merchantRules = new Map([[A, []], [B, []]]);
   const accepted = [];
   let recoveryRedirect = null;
   let userUpdates = 0;
@@ -74,17 +75,22 @@ function mockBackend() {
       }
       if (!id || !ledgers.has(id)) return respond({ code: "42501", message: "Not authenticated" }, 403);
       if (url.pathname === "/rest/v1/rpc/moneytrail_is_admin") return respond(false);
+      if (url.pathname === "/rest/v1/rpc/moneytrail_sms_category_rules") return respond({ rules: merchantRules.get(id) });
       if (url.pathname === "/rest/v1/rpc/moneytrail_admin_overview") return respond({ code: "42501", message: "Administrator access required" }, 403);
       if (url.pathname === "/rest/v1/moneytrail_ledgers") {
         assert.equal(request.method(), "GET");
         assert.equal(url.searchParams.get("user_id"), `eq.${id}`, "SDK query must select its own user");
         return respond([{ ...copy(ledgers.get(id)), user_id: id }]);
       }
-      if (url.pathname === "/rest/v1/rpc/save_moneytrail_ledger") {
-        assert.deepEqual(Object.keys(body).sort(), ["p_data", "p_expected_revision"]);
+      if (["/rest/v1/rpc/save_moneytrail_ledger", "/rest/v1/rpc/save_moneytrail_ledger_with_rules"].includes(url.pathname)) {
+        assert.deepEqual(Object.keys(body).sort(), body.p_rules ? ["p_data", "p_expected_revision", "p_rules"] : ["p_data", "p_expected_revision"]);
         const existing = ledgers.get(id);
         if (existing.revision !== body.p_expected_revision) return respond({ code: "40001", message: "Revision conflict" }, 409);
         const next = { data: copy(body.p_data), revision: existing.revision + 1, updated_at: new Date().toISOString() };
+        for (const rule of body.p_rules || []) {
+          assert(next.data.transactions.some(transaction => transaction.id === rule.transactionId && transaction.merchant === rule.merchant && transaction.category === rule.category && transaction.subcategory === rule.subcategory));
+          merchantRules.set(id, [...merchantRules.get(id).filter(item => item.merchant !== rule.merchant), { merchant: rule.merchant, category: rule.category, ...(rule.subcategory ? { subcategory: rule.subcategory } : {}) }]);
+        }
         ledgers.set(id, next); accepted.push({ id, ...copy(next) });
         return respond([{ user_id: id, ...next }]);
       }

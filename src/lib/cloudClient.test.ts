@@ -68,6 +68,15 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("authenticated ledger transport", () => {
+  it("submits matching explicit merchant memory in the same CAS RPC as the ledger", async () => {
+    const transaction = { id: "one", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "星辰小馆", category: "本地生活", subcategory: "堂食", source: "manual" as const, note: "" };
+    const data = { ...emptyData(), transactions: [transaction] };
+    const rule = { transactionId: "one", merchant: "星辰小馆", category: "本地生活", subcategory: "堂食" };
+    fetchMock.mockResolvedValue(response([{ data, revision: 2, updated_at: timestamp }]));
+    await pushCloudLedger(client, data, 1, userA, undefined, [rule]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${project}/rest/v1/rpc/save_moneytrail_ledger_with_rules`);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ p_data: data, p_expected_revision: 1, p_rules: [rule] });
+  });
   it("binds a read to the captured account bearer and its own row filter", async () => {
     vi.mocked(client.auth.getSession)
       .mockResolvedValueOnce({ data: { session: session() }, error: null })
@@ -127,7 +136,7 @@ describe("authenticated ledger transport", () => {
   it.each([
     ["42501", 403, "访问权限"], ["PGRST301", 401, "过期"],
     ["PGRST202", 404, "尚未开通"], ["22023", 400, "无效或过大"],
-    ["other", 500, "检查网络"],
+    ["54000", 400, "商户规则已达上限"], ["other", 500, "检查网络"],
   ])("maps %s failures without exposing backend diagnostics", async (code, status, expected) => {
     fetchMock.mockResolvedValue(response({ code, message: "secret diagnostic" }, status));
     const result = fetchCloudLedger(client, userA);

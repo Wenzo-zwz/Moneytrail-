@@ -60,9 +60,11 @@ import {
   importBackup,
   type AppData,
 } from "./lib/storage";
-import type { LedgerStore } from "./lib/cloudStore";
+import type { LedgerSaveOptions, LedgerStore } from "./lib/cloudStore";
 import { localLedgerStore } from "./lib/ledgerStore";
 import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/TransactionMetadata";
+import { canOfferMerchantMemory } from "./components/merchantMemory";
+import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
 type Preview = {
@@ -71,6 +73,8 @@ type Preview = {
   selected: boolean;
   warnings: string[];
   duplicates: Transaction[];
+  original: DraftTransaction;
+  remember?: boolean;
 };
 const KIND_NAMES: Record<TransactionKind, string> = {
   expense: "支出",
@@ -119,6 +123,9 @@ function newDraft(): DraftTransaction {
     source: "manual",
     note: "",
   };
+}
+function memoryIntent(draft: DraftTransaction, transactionId: string): MerchantRuleIntent {
+  return { transactionId, merchant: draft.merchant, category: draft.category, ...(draft.subcategory ? { subcategory: draft.subcategory } : {}) };
 }
 function download(
   text: string,
@@ -217,6 +224,11 @@ function TransactionEditor({
   transactions,
   title,
   saveError,
+  merchantRules,
+  canLearn,
+  isNew,
+  initialRemember,
+  memoryOriginal = initial,
   onSave,
   onClose,
 }: {
@@ -224,7 +236,12 @@ function TransactionEditor({
   transactions: Transaction[];
   title: string;
   saveError?: string;
-  onSave: (draft: DraftTransaction) => boolean;
+  merchantRules: MerchantRule[];
+  canLearn: boolean;
+  isNew: boolean;
+  initialRemember?: boolean;
+  memoryOriginal?: DraftTransaction;
+  onSave: (draft: DraftTransaction, remember: boolean, explicitChoice: boolean) => boolean;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(() => normalizeTransactionCategory(initial));
@@ -232,6 +249,21 @@ function TransactionEditor({
     initial.amountCents ? (initial.amountCents / 100).toFixed(2) : "",
   );
   const [error, setError] = useState("");
+  const [explicitChoice, setExplicitChoice] = useState(initialRemember !== undefined);
+  const [remember, setRemember] = useState(initialRemember ?? true);
+  const automaticMerchant = useRef<string | null>(null);
+  const canRemember = canLearn && canOfferMerchantMemory(memoryOriginal, draft, explicitChoice, merchantRules, isNew);
+  function withPersonalCategory(next: DraftTransaction) {
+    if (!isNew || explicitChoice) return next;
+    const match = next.kind === "expense" ? classifyMerchant(next.merchant, merchantRules) : null;
+    if (match?.reason === "个人商户规则") return { ...next, category: match.category, subcategory: match.subcategory || "未细分" };
+    return automaticMerchant.current ? { ...next, category: initial.category, subcategory: initial.subcategory } : next;
+  }
+  function applyPersonalCategory(next: DraftTransaction) {
+    const classified = withPersonalCategory(next);
+    automaticMerchant.current = isNew && !explicitChoice && next.kind === "expense" && classifyMerchant(next.merchant, merchantRules).reason === "个人商户规则" ? merchantKey(next.merchant) : null;
+    setDraft(classified);
+  }
   function submit(e: FormEvent) {
     e.preventDefault();
     const cents = parseAmount(amount);
@@ -239,19 +271,20 @@ function TransactionEditor({
       setError("请输入大于 0 的人民币金额，最多两位小数。");
       return;
     }
+    const classified = withPersonalCategory(draft);
     const next = {
-      ...draft,
+      ...classified,
       amountCents: cents,
       merchant: draft.merchant.trim(),
       note: draft.note.trim(),
-      ...(draft.subcategory ? { subcategory: draft.subcategory.trim() || "未细分" } : {}),
+      ...(classified.subcategory ? { subcategory: classified.subcategory.trim() || "未细分" } : {}),
     };
     if (next.kind !== "refund") delete next.linkedTransactionId;
     if (!validateTransaction({ ...next, id: "validation" })) {
       setError("请检查金额、日期和商户，日期需为有效的本地时间。");
       return;
     }
-    if (onSave(next)) onClose();
+    if (onSave(next, canRemember && remember, explicitChoice)) onClose();
   }
   return (
     <Modal title={title} onClose={onClose}>
@@ -267,7 +300,7 @@ function TransactionEditor({
                 id="tx-kind"
                 value={draft.kind}
                 onChange={(e) =>
-                  setDraft({
+                  applyPersonalCategory({
                     ...draft,
                     kind: e.target.value as TransactionKind,
                   })
@@ -301,9 +334,14 @@ function TransactionEditor({
                 maxLength={150}
                 placeholder="例如：楼下咖啡店"
                 value={draft.merchant}
-                onChange={(e) =>
-                  setDraft({ ...draft, merchant: e.target.value })
-                }
+                onChange={(e) => {
+                  const merchant = e.target.value;
+                  if (!explicitChoice && automaticMerchant.current && merchantKey(merchant) !== automaticMerchant.current) {
+                    automaticMerchant.current = null;
+                    setDraft({ ...draft, merchant, category: initial.category, subcategory: initial.subcategory });
+                  } else setDraft({ ...draft, merchant });
+                }}
+                onBlur={() => applyPersonalCategory(draft)}
               />
             </div>
             <div className="form-field">
@@ -321,16 +359,18 @@ function TransactionEditor({
               <select
                 id="tx-category"
                 value={draft.category}
-                onChange={(e) =>
-                  setDraft({ ...draft, category: e.target.value, subcategory: "未细分" })
-                }
+                onChange={(e) => {
+                  setExplicitChoice(true);
+                  automaticMerchant.current = null;
+                  setDraft({ ...draft, category: e.target.value, subcategory: "未细分" });
+                }}
               >
                 {CATEGORIES.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>
             </div>
-            <DetailField category={draft.category} value={draft.subcategory} onChange={subcategory => setDraft({ ...draft, subcategory })} />
+            <DetailField category={draft.category} value={draft.subcategory} onChange={subcategory => { setExplicitChoice(true); automaticMerchant.current = null; setDraft({ ...draft, subcategory }); }} />
             {draft.platform && <div className="form-field"><label>消费平台</label><p className="help-text">{draft.platform}</p></div>}
             {draft.kind === "refund" && (
               <div className="form-field full">
@@ -376,6 +416,8 @@ function TransactionEditor({
               />
             </div>
           </div>
+          {canRemember && <label className="sms-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} />以后这家都这样分类</label>}
+          {canRemember && <p className="help-text">保存后，同一具体商户会沿用「{categoryText(draft)}」。不同分店分别确认。</p>}
           {draft.smsEvidence ? <SmsEvidenceDisclosure evidence={draft.smsEvidence} /> : draft.source === "sms" && <p className="help-text">此笔没有留存短信凭据。历史短信原文可能已清除，可用商户描述或支付账单补充用途。</p>}
           {saveError && (
             <p className="notice warning" role="alert">
@@ -483,12 +525,18 @@ export default function App({
   accountControls,
   accountPanel,
   onSmsAutomation,
+  merchantRules = [],
+  merchantRulesNotice,
+  merchantRulesLoading = false,
 }: {
   store?: LedgerStore;
   cloudMode?: boolean;
   accountControls?: ReactNode;
   accountPanel?: ReactNode;
   onSmsAutomation?: () => void;
+  merchantRules?: MerchantRule[];
+  merchantRulesNotice?: ReactNode;
+  merchantRulesLoading?: boolean;
 }) {
   const { loadData, saveData, restoreData, readStoredRaw } = store;
   const [initial] = useState(() => loadData());
@@ -567,7 +615,7 @@ export default function App({
       }
     }
   }, []);
-  function persist(next: AppData, success?: string) {
+  function persist(next: AppData, success?: string, options?: LedgerSaveOptions) {
     if (recoveryError) {
       setNotice("当前数据需要恢复，请先导出原始数据或恢复备份。");
       return false;
@@ -591,7 +639,7 @@ export default function App({
         ),
       };
     }
-    const saved = saveData(next, data);
+    const saved = saveData(next, data, options);
     if (!saved.ok) {
       if (saved.conflict) {
         const latest = loadData();
@@ -609,7 +657,7 @@ export default function App({
     setBudgetInput(data.budgetCents ? (data.budgetCents / 100).toFixed(2) : "");
     setBudgetOpen(true);
   }
-  function saveEditor(draft: DraftTransaction) {
+  function saveEditor(draft: DraftTransaction, remember: boolean, explicitChoice: boolean) {
     if (editor?.previewKey) {
       const others = previews
         .filter((p) => p.key !== editor.previewKey)
@@ -625,6 +673,7 @@ export default function App({
                 ...p,
                 draft,
                 duplicates,
+                remember: canOfferMerchantMemory(p.original, draft, true, merchantRules) ? (explicitChoice ? remember : p.remember) : false,
                 selected: duplicates.length ? false : p.selected,
               }
             : p,
@@ -667,7 +716,7 @@ export default function App({
         }
         return t;
       });
-      return persist({ ...data, transactions }, "这笔账已更新");
+      return persist({ ...data, transactions }, "这笔账已更新", explicitChoice ? { forgetMerchantRulesFor: [editedId], merchantRules: remember ? [memoryIntent(draft, editedId)] : [] } : undefined);
     }
     const duplicates = findDuplicates(draft, data.transactions);
     if (
@@ -677,12 +726,14 @@ export default function App({
       )
     )
       return false;
+    const transactionId = uid();
     return persist(
       {
         ...data,
-        transactions: [...data.transactions, { ...draft, id: uid() }],
+        transactions: [...data.transactions, { ...draft, id: transactionId }],
       },
       "已记下一笔",
+      remember ? { merchantRules: [memoryIntent(draft, transactionId)] } : undefined,
     );
   }
   function deleteTransaction(t: Transaction) {
@@ -729,6 +780,7 @@ export default function App({
       pending.push({
         key: uid(),
         draft,
+        original: draft,
         selected: duplicates.length === 0,
         duplicates,
         warnings:
@@ -745,7 +797,8 @@ export default function App({
     ]);
   }
   function parseMessage() {
-    const result = parseSms(smsText);
+    if (merchantRulesLoading) return;
+    const result = parseSms(smsText, new Date(), merchantRules);
     if (!result.draft) {
       setPreviews([]);
       setImportMessages([
@@ -849,6 +902,7 @@ export default function App({
       persist(
         { ...data, transactions: [...data.transactions, ...tx] },
         `已保存 ${tx.length} 笔记录`,
+        { merchantRules: tx.flatMap((transaction, index) => selected[index].remember && canOfferMerchantMemory(selected[index].original, transaction, true, merchantRules) ? [memoryIntent(transaction, transaction.id)] : []) },
       )
     ) {
       setPreviews((prev) => prev.filter((p) => !p.selected));
@@ -1052,6 +1106,7 @@ export default function App({
             </button>
           </div>
         </header>
+        {merchantRulesNotice}
         {notice && (
           <div className="notice warning" role="alert">
             <span>{notice}</span>
@@ -1512,11 +1567,12 @@ export default function App({
                             每次识别一条。自动提取金额和时间；短信没有的商户信息，需要你补充。
                           </p>
                           {onSmsAutomation && <button className="button secondary small" onClick={onSmsAutomation}><Smartphone size={16} />设置短信自动记账</button>}
+                          {merchantRulesLoading && <p className="help-text" role="status">正在读取个人商户规则…</p>}
                         </div>
                         <div className="form-actions">
                           <button
                             className="button primary"
-                            disabled={!smsText.trim()}
+                            disabled={!smsText.trim() || merchantRulesLoading}
                             onClick={parseMessage}
                           >
                             <FileText size={17} />
@@ -1895,6 +1951,11 @@ export default function App({
         <TransactionEditor
           key={editor.id ?? editor.previewKey ?? "new"}
           initial={editor.draft}
+          merchantRules={merchantRules}
+          canLearn={cloudMode}
+          isNew={!editor.id && !editor.previewKey}
+          initialRemember={editor.previewKey ? previews.find(preview => preview.key === editor.previewKey)?.remember : undefined}
+          memoryOriginal={editor.previewKey ? previews.find(preview => preview.key === editor.previewKey)?.original : editor.draft}
           transactions={data.transactions.filter((t) => t.id !== editor.id)}
           title={
             editor.previewKey

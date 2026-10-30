@@ -10,6 +10,8 @@
   {"merchant":"支付-示例咖啡","category":"本地生活","review":false,"subcategory":"咖啡奶茶"},
   {"merchant":"支付宝-京东大药房","category":"医疗","review":false,"platform":"京东","subcategory":"药品"},
   {"merchant":"微信支付-轨道地铁","category":"交通","review":false,"subcategory":"公共交通"},
+  {"merchant":"消费抖音支付-轨道地铁","category":"交通","review":false,"subcategory":"公共交通"},
+  {"merchant":"消费抖音支付","category":"待分类","review":true},
   {"merchant":"消费财付通-示例停车场","category":"交通","review":false,"subcategory":"停车通行"},
   {"merchant":"手机话费充值","category":"居住","review":false,"subcategory":"生活缴费"},
   {"merchant":"手机充值","category":"居住","review":false,"subcategory":"生活缴费"},

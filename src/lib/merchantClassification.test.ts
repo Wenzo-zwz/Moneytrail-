@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import cases from "./merchantClassification.cases.json";
 import { applyCategoryChanges, classifyMerchant, merchantKey, planCategoryChanges } from "./merchantClassification";
+import * as merchantClassification from "./merchantClassification";
 import { emptyData } from "./storage";
 import type { Transaction } from "./ledger";
 
@@ -9,6 +10,12 @@ const transaction = (id: string, merchant: string, category = "待分类", kind:
 });
 
 describe("merchant classification", () => {
+  it("prefers a canonical rule over a conflicting historical payment-prefix alias", () => {
+    expect(classifyMerchant("消费抖音支付-星辰小馆", [
+      { merchant: "抖音支付-星辰小馆", category: "购物" },
+      { merchant: "星辰小馆", category: "本地生活", subcategory: "堂食" },
+    ])).toMatchObject({ category: "本地生活", subcategory: "堂食" });
+  });
   it.each(cases)("classifies $merchant as $category (review=$review)", ({ merchant, category, review, ...metadata }) => {
     const match = classifyMerchant(merchant);
     expect(match).toMatchObject({ category, requiresReview: review, ...metadata });
@@ -22,6 +29,37 @@ describe("merchant classification", () => {
     expect(merchantKey("支付宝")).toBe("");
     expect(merchantKey("财付通-群收款")).toBe("");
     expect(merchantKey("转账张三")).toBe("");
+  });
+  it("reuses an exact remembered merchant across Douyin and other payment prefixes", () => {
+    const rules = [{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }];
+    expect(merchantKey("消费抖音支付-北京轨道交通")).toBe(merchantKey("北京轨道交通"));
+    for (const merchant of ["消费抖音支付-北京轨道交通", "微信支付-北京轨道交通", "支付宝-北京轨道交通"]) {
+      expect(classifyMerchant(merchant, rules)).toMatchObject({ category: "交通", subcategory: "公共交通", reason: "个人商户规则" });
+    }
+    expect(classifyMerchant("消费抖音支付-北京轨道交通(东站)", rules).reason).not.toBe("个人商户规则");
+  });
+  it("uses remembered detail before keyword inference and preserves an explicit 未细分", () => {
+    for (const subcategory of ["餐饮", "未细分"]) {
+      expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "本地生活", subcategory }])).toMatchObject({
+        category: "本地生活", subcategory, reason: "个人商户规则",
+      });
+    }
+    expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "餐饮", subcategory: "未细分" }])).toMatchObject({ category: "本地生活", subcategory: "未细分" });
+    expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "本地生活" }]).subcategory).toBe("咖啡奶茶");
+  });
+  it("allows remembering only concrete merchants while retaining branch identity", () => {
+    expect(merchantClassification.canRememberMerchant).toBeTypeOf("function");
+    for (const merchant of ["消费抖音支付-北京轨道交通", "示例科技有限公司", "示例商店(东店)", "美团-巷口咖啡"]) {
+      expect(merchantClassification.canRememberMerchant(merchant), merchant).toBe(true);
+    }
+    for (const merchant of ["", "待补充商户", "未知商户", "消费财付通", "抖音支付", "群收款-示例商店", "转账-示例商店", "示例商店退款", "美团", "美团支付", "北京三快科技有限公司", "京东", "淘宝", "天猫", "拼多多", "滴滴", "抖音"]) {
+      expect(merchantClassification.canRememberMerchant(merchant), merchant).toBe(false);
+    }
+    expect(merchantKey("示例商店(东店)")).not.toBe(merchantKey("示例商店(西店)"));
+  });
+  it("ignores unsafe historical rules for placeholders and shared platforms", () => {
+    expect(classifyMerchant("待补充商户", [{ merchant: "待补充商户", category: "医疗" }]).category).toBe("待分类");
+    expect(classifyMerchant("淘宝", [{ merchant: "淘宝", category: "医疗" }])).toMatchObject({ category: "购物", reason: "电商平台默认购物" });
   });
   it("remembers only explicit exact merchant rules and never bypasses ambiguity", () => {
     const rules = [{ merchant: "示例科技有限公司", category: "娱乐" }, { merchant: "财付通-群收款", category: "餐饮" }];
