@@ -165,3 +165,8 @@
 .sms-shortcut-receipt > time, .sms-shortcut-receipt > strong { color: #d7c9b4; font-size: 12px; font-weight: 450; line-height: 1.8; font-variant-numeric: tabular-nums; }
 .sms-shortcut-boundary { margin: 17px 0 0; padding: 12px; border-left: 2px solid #70604a; border-radius: 0 5px 5px 0; color: #b9a78f; background: #221e1c; font-size: 10px; }
 @media (max-width: 360px) { .sms-shortcut-install, .sms-shortcut-refresh { width: 100%; } .sms-shortcut-step-heading { gap: 8px; } }
+.sms-shortcut-bank-picker { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 15px 0 0; color: #cbbfae; font-size: 11px; }
+.sms-shortcut-bank-picker select { width: 100%; max-width: 100%; min-height: 44px; padding: 11px; border: 1px solid #554b3f; border-radius: 7px; background: #191619; color: #dfd5c7; font: inherit; }
+.sms-shortcut-bank-picker select:focus-visible { outline: 2px solid #d3c7b1; outline-offset: 3px; }
+.sms-shortcut-bank-status { margin: 10px 0 0; padding: 10px; border-radius: 5px; background: #29231e; color: #d0bfa2; font-size: 11px; line-height: 1.9; overflow-wrap: anywhere; }
+.sms-shortcut-setup > .sms-shortcut-note { color: #a99b8a; font-size: 10px; line-height: 1.9; }

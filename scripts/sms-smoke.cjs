@@ -274,6 +274,7 @@ async function ownerWorkflow(browser) {
     await openSms(page);
     const other = page.locator(".sms-message").filter({ hasText: "未能识别完整交易" });
     await other.getByRole("button", { name: "核对并记录", exact: true }).click();
+    assert.equal(await other.getByLabel("交易时间", { exact: true }).inputValue(), "", "unparsed SMS must not invent transaction time from receipt time");
     await other.getByRole("button", { name: "忽略此条", exact: true }).click();
     await until(() => backend.inboxes.get(OWNER)[1].status === "dismissed", "dismissal");
     assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 2);
