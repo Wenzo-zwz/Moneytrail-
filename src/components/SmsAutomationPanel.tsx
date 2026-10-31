@@ -10,6 +10,7 @@ import { readCloudConfig } from "../lib/cloudConfig";
 import type { CloudStore } from "../lib/cloudStore";
 import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, revokeSmsToken, rotateSmsToken, setSmsMode, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsMode } from "../lib/smsClient";
 import type { MerchantRule } from "../lib/merchantClassification";
+import type { SmsBankCode } from "../lib/smsBanks";
 import { canOfferMerchantMemory } from "./merchantMemory";
 
 interface SmsAutomationPanelProps {
@@ -33,17 +34,11 @@ function receivedTime(value: string | null) {
   return Number.isFinite(date.getTime()) ? `${dateTime.format(date)}（北京时间）` : "—";
 }
 
-function receiptDate(value: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Shanghai" }).formatToParts(new Date(value));
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
-}
-
 function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; merchantRules: MerchantRule[]; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<SmsDraft["kind"]>(item.draft?.kind ?? "expense");
   const [amount, setAmount] = useState(item.draft ? (item.draft.amountCents / 100).toFixed(2) : "");
-  const [date, setDate] = useState(item.draft?.date ?? receiptDate(item.received_at));
+  const [date, setDate] = useState(item.draft?.date ?? "");
   const [merchant, setMerchant] = useState(item.draft?.merchant ?? "");
   const [category, setCategory] = useState(item.draft?.category ?? "待分类");
   const [subcategory, setSubcategory] = useState(item.draft?.subcategory);
@@ -95,6 +90,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const [result, setResult] = useState<Result | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [mode, setMode] = useState<SmsMode>("auto");
+  const [setupBank, setSetupBank] = useState<{ owner: string; code: SmsBankCode }>({ owner: userId, code: "icbc" });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [secret, setSecret] = useState<{ owner: string; value: string } | null>(null);
@@ -110,6 +106,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const inbox = current?.inbox;
   const loading = !current && !currentFailure;
   const token = secret?.owner === userId ? secret.value : "";
+  const selectedSetupBank = setupBank.owner === userId ? setupBank.code : "icbc";
   const canConfirm = syncState.ready && !syncState.dirty && syncState.phase === "saved" && !syncState.recoveryError;
   const publicConfig = readCloudConfig(import.meta.env);
   const endpoint = `${projectUrl.replace(/\/$/, "")}/rest/v1/rpc/moneytrail_receive_sms`;
@@ -202,15 +199,15 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入月度消费</small></article></section>
         <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} onRulesChanged={onRulesChanged} />
         <div className={`sms-main-grid${config.enabled && config.pending_count > 0 ? " has-pending" : ""}`}>
-          <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">当前支持工行“支出(用途)金额元”格式。无法明确判断的内容会保留给你核对。</p>
+          <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">工行明确消费可自动记录；农行、中行、建行已开放接收，新格式先待确认。请在下方选择银行查看接入说明。</p>
             <fieldset className="sms-mode-options" disabled={busy}><legend>收到短信后</legend><label className={mode === "auto" ? "selected" : undefined}><input type="radio" name="sms-mode" value="auto" checked={mode === "auto"} onChange={() => setMode("auto")} /><span><strong>自动记录明确消费</strong><small>明确消费和已识别的本人资金周转可入账；不明用途继续核对</small></span></label><label className={mode === "review" ? "selected" : undefined}><input type="radio" name="sms-mode" value="review" checked={mode === "review"} onChange={() => setMode("review")} /><span><strong>全部先待确认</strong><small>每条短信都由你核对后再入账</small></span></label></fieldset>
             <p className="sms-group-rule"><ShieldCheck size={15} />“财付通-群收款”始终待确认，由你判断是消费还是转账。</p>
             <p className="sms-forward-consent">启用表示你同意：由自己配置的 iPhone 自动化，将筛选后的银行消费短信转发至当前慢慢记账账户。请勿转发验证码或其他私人短信。</p>
             <div className="sms-setup-actions">{config.enabled ? <><button className="button primary" disabled={busy || mode === config.mode} onClick={() => void run(async signal => { await setSmsMode(client, userId, mode, signal); return "记录方式已更新，仅对之后收到的短信生效。"; })}>保存记录方式</button><button className="button secondary" disabled={busy} onClick={() => void createToken()}><KeyRound size={15} />更换接入令牌</button><button className="button ghost" disabled={busy} onClick={() => void run(async signal => { await revokeSmsToken(client, userId, signal); clearSecret(); return "已停用接入，手机里的旧令牌立即失效。已有待确认短信仍可处理。"; })}>停用接入</button></> : <button className="button primary" disabled={busy} onClick={() => void createToken()}><KeyRound size={16} />同意转发并启用</button>}</div>
-            <SmsShortcutSetup projectUrl={projectUrl} config={config} busy={busy} onRefresh={() => void refreshInbox()} />
+            <SmsShortcutSetup projectUrl={projectUrl} config={config} busy={busy} bankCode={selectedSetupBank} onBankChange={code => setSetupBank({ owner: userId, code })} onRefresh={() => void refreshInbox()} />
             <details className="sms-guide"><summary><span><Smartphone size={17} />iPhone 配置步骤</span><ChevronDown size={16} /></summary><div>
-              <p className="sms-guide-intro">以下为高级手动配置。使用上方现成模板时，无需填写接收地址、公开密钥或 JSON 字段。</p>
-              <p className="sms-guide-intro">适用于 iOS 18。创建一次个人自动化后，新短信才能触发；网站无法直接读取 iPhone 的短信历史。</p>
+              <p className="sms-guide-intro">以下为高级手动配置。工行可使用上方现成模板；其他三行按上方对应银行的触发、筛选说明设置，以下网络字段共用。</p>
+              <p className="sms-guide-intro">以下筛选步骤以工行为例，其他三行以所选银行说明为准。创建个人自动化后，新短信才能触发；网站无法直接读取短信历史。</p>
               <ol><li>打开 iPhone「快捷指令」→「自动化」→「＋」→「信息」。发件人选择银行短信的真实号码（工行通常为 95588，请以实际短信为准），内容包含填「支出」，选择「立即运行」。</li><li>添加「从输入中获取文本」，输入选择「快捷指令输入／信息正文」。发送前增加「如果」筛选：包含「工商银行」和「支出」，且不包含「验证码」「动态口令」「一次性密码」。</li><li>添加「获取 URL 内容」，填入下方接收地址，方法选 <strong>POST</strong>，请求体选 <strong>JSON</strong>。添加两个文本字段：<code>p_token</code> 填刚保存的接入令牌；<code>p_message</code> 选择上一步的短信文本变量。</li><li>在请求头添加 <code>apikey</code>，值填下方公开密钥；添加 <code>Content-Type</code>，值为 <code>application/json</code>。保存自动化。</li><li>下一笔真实消费短信到达后，打开这里点击「刷新收件箱」，核对最近接收时间、金额与状态。请勿为了测试通知而提交虚构消费。</li></ol>
               <div className="sms-copy-field"><span>接收地址</span><code>{endpoint}</code><button className="button secondary small" onClick={() => void copy(endpoint, "接收地址已复制。")}><Copy size={14} />复制接收地址</button></div>
               <div className="sms-copy-field"><span>公开密钥（apikey）</span>{publicConfig?.url === projectUrl.replace(/\/$/, "") ? <><code>{publicConfig.publishableKey}</code><button className="button secondary small" onClick={() => void copy(publicConfig.publishableKey, "公开密钥已复制。")}><Copy size={14} />复制公开密钥</button></> : <p>请使用此 Supabase 项目的 Publishable key。不要填写 Secret key。</p>}</div>
@@ -228,6 +225,6 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       </>}
       <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。入账后移除原文，脱敏凭据长期保留在账本中；历史记录可能没有凭据。忽略不会新增账目或凭据。</p></footer>
     </div>
-    <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title"><div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div><p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p><h2 id="sms-token-title">接入令牌，仅显示这一次</h2><p>请先复制并保存令牌，再填写到手机快捷指令中。关闭后无法再次查看，可通过更换令牌重新生成。</p><div className="sms-token-value"><code>{revealed ? token : "mt_sms_••••••••••••••••••••••••"}</code></div><div className="sms-token-tools"><button className="button secondary" onClick={() => void copy(token, "接入令牌已复制，请粘贴到自己的快捷指令中。")}><Copy size={16} />复制令牌</button><button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button></div>{isShortcutTemplateCompatible(projectUrl) && <p>复制后，<a className="button secondary small" href={SMS_SHORTCUT_TEMPLATE.url} target="_blank" rel="noopener noreferrer">打开模板安装页</a>，在导入问题中粘贴自己的令牌。</p>}<p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p><button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button></dialog>
+    <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title"><div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div><p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p><h2 id="sms-token-title">接入令牌，仅显示这一次</h2><p>请先复制并保存令牌，再填写到手机快捷指令中。关闭后无法再次查看，可通过更换令牌重新生成。</p><div className="sms-token-value"><code>{revealed ? token : "mt_sms_••••••••••••••••••••••••"}</code></div><div className="sms-token-tools"><button className="button secondary" onClick={() => void copy(token, "接入令牌已复制，请粘贴到自己的快捷指令中。")}><Copy size={16} />复制令牌</button><button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button></div>{isShortcutTemplateCompatible(projectUrl, selectedSetupBank) && <p>复制后，<a className="button secondary small" href={SMS_SHORTCUT_TEMPLATE.url} target="_blank" rel="noopener noreferrer">打开模板安装页</a>，在导入问题中粘贴自己的令牌。此共享模板仅用于工行，其他三行需按对应银行的手动说明配置。</p>}<p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p><button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button></dialog>
   </main>;
 }

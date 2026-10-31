@@ -9,6 +9,8 @@ describe("verified SMS shortcut template", () => {
       url: "https://www.icloud.com/shortcuts/86d33de8ff704d6581c173b82f3f4f21",
       name: "MoneyTrail 慢慢记账",
       projectUrl,
+      version: 1,
+      supportedBanks: ["icbc"],
     });
     const link = new URL(SMS_SHORTCUT_TEMPLATE.url);
     expect(link.protocol).toBe("https:");
@@ -20,6 +22,15 @@ describe("verified SMS shortcut template", () => {
 
   it.each([projectUrl, `${projectUrl}/`, "https://OJCGABICPJIPWPVWOLZN.SUPABASE.CO/"])("accepts only the matching full project address %s", value => {
     expect(isShortcutTemplateCompatible(value)).toBe(true);
+  });
+
+  it.each(["abc", "boc", "ccb"] as const)("does not advertise the ICBC-only shared template for %s", bankCode => {
+    expect(isShortcutTemplateCompatible(projectUrl, bankCode)).toBe(false);
+  });
+
+  it("keeps explicit ICBC compatibility subject to the deployment guard", () => {
+    expect(isShortcutTemplateCompatible(projectUrl, "icbc")).toBe(true);
+    expect(isShortcutTemplateCompatible("https://other.supabase.co", "icbc")).toBe(false);
   });
 
   it.each([
