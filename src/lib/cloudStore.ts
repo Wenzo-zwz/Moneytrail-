@@ -82,9 +82,12 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     try { actual = readAccountCacheRaw(projectUrl, userId); } catch { setState({ phase: "error", message: "无法读取本机账户副本，请检查存储权限。" }); return false; }
     if (actual === raw) return false;
     if (actual === null) { invalidateCache(); return true; }
+    const conflictedRevision = state.phase === "conflict" ? cache?.baseRevision : undefined;
     raw = actual; const latest = loadAccountCache(projectUrl, userId);
     cache = latest.cache; knownRevision = cache?.baseRevision ?? null;
-    setState({ ready: Boolean(cache), recoveryError: latest.error, phase: latest.error ? "error" : cache?.dirty ? "pending" : "loading", message: latest.error ?? "另一页面已更新当前账本" });
+    // A new local edit cannot resolve a conflict against the same cloud baseline.
+    const conflict = conflictedRevision !== undefined && cache?.dirty && cache.baseRevision <= conflictedRevision;
+    setState({ ready: Boolean(cache), recoveryError: latest.error, phase: latest.error ? "error" : conflict ? "conflict" : cache?.dirty ? "pending" : "loading", message: latest.error ?? (conflict ? "本机修改已保留，请先核对同步冲突" : "另一页面已更新当前账本") });
     emitData(); return true;
   }
   function invalidateCache() {

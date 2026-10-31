@@ -12,6 +12,7 @@ import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, r
 import type { MerchantRule } from "../lib/merchantClassification";
 import type { SmsBankCode } from "../lib/smsBanks";
 import { canOfferMerchantMemory } from "./merchantMemory";
+import { refreshSmsLedger } from "../lib/smsLedgerSync";
 
 interface SmsAutomationPanelProps {
   client: SupabaseClient;
@@ -108,6 +109,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const token = secret?.owner === userId ? secret.value : "";
   const selectedSetupBank = setupBank.owner === userId ? setupBank.code : "icbc";
   const canConfirm = syncState.ready && !syncState.dirty && syncState.phase === "saved" && !syncState.recoveryError;
+  const canRefreshLedger = syncState.ready && !syncState.dirty && syncState.phase !== "conflict" && !syncState.recoveryError;
   const publicConfig = readCloudConfig(import.meta.env);
   const endpoint = `${projectUrl.replace(/\/$/, "")}/rest/v1/rpc/moneytrail_receive_sms`;
 
@@ -140,7 +142,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   async function refreshInbox() {
     await run(async () => {
       const state = store.getState();
-      if (state.ready && !state.dirty && state.phase === "saved" && !state.recoveryError) await store.refresh();
+      if (state.ready && !state.dirty && state.phase !== "conflict" && !state.recoveryError) return refreshSmsLedger(store);
     });
   }
   function clearSecret() { setSecret(null); setRevealed(false); tokenDialog.current?.close(); }
@@ -182,8 +184,8 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       await confirmSms(client, userId, id, draft, signal, remember);
       if (signal.aborted) return;
       if (remember) onRulesChanged?.();
-      await store.refresh();
-      return "已确认并记入云端账本。";
+      const refreshNotice = await refreshSmsLedger(store);
+      return `已确认并记入云端账本。${refreshNotice}`;
     });
   }
   async function dismiss(id: string) { await run(async signal => { await dismissSms(client, userId, id, signal); return "已忽略这条短信，原文已移除。"; }); }
@@ -195,6 +197,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       <section className="sms-intro"><div><p className="sms-eyebrow">MONEYTRAIL / SMS AUTOMATION</p><h1>短信自动记账</h1><p>让银行短信，成为账本的起点。</p></div><span className="sms-privacy-tag"><LockKeyhole size={15} />仅进入当前账户</span></section>
 
       <div className="sms-notice" role="status" aria-live="polite">{notice}</div>
+      {canRefreshLedger && syncState.phase !== "saved" && syncState.phase !== "syncing" && <div className="sms-sync-hint" role="status"><p>首页账目尚未刷新。{syncState.message}</p><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()}><RefreshCw size={15} />重试账本同步</button></div>}
       {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>正在读取接入状态</h2><p>正在连接当前账户的短信收件箱。</p></section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{currentFailure.setup && <p>请联系应用维护者完成短信接入配置，已有账本仍可使用。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />重新检查</button></section> : config && inbox && <>
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入月度消费</small></article></section>
         <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} onRulesChanged={onRulesChanged} />

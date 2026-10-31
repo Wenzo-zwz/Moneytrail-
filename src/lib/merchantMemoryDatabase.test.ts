@@ -122,7 +122,7 @@ it('saves matching transaction and rule in one revisioned write', async () => {
 it('fails stale revision without publishing the accompanying intent', async () => {
   await rpc('save_moneytrail_ledger', [ledger(tx({ category: '待分类', subcategory: undefined })), 0]);
   const before = await saved();
-  await expect(save(ledger(tx()), 0)).rejects.toMatchObject({ code: '40001' });
+  await expect(save(ledger(tx()), 0)).rejects.toMatchObject({ code: 'PT409' });
   expect(await saved()).toEqual(before);
   expect(await rules()).toEqual({ rules: [] });
 });
@@ -291,7 +291,7 @@ it('isolates owners for rules, ledger writes and SMS confirmation', async () => 
   await user(B);
   expect(await rules()).toEqual({ rules: [] });
   await expect(rpc('moneytrail_sms_confirm_with_rule', [foreign.id, { ...foreign.draft, category: '本地生活' }, true])).rejects.toMatchObject({ code: '42501' });
-  await expect(save(ledger(tx()), 1)).rejects.toMatchObject({ code: '40001' });
+  await expect(save(ledger(tx()), 1)).rejects.toMatchObject({ code: 'PT409' });
   expect(await rules()).toEqual({ rules: [] });
   expect((await saved()).revision).toBe(1);
 });

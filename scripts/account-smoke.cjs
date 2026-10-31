@@ -85,7 +85,7 @@ function mockBackend() {
       if (["/rest/v1/rpc/save_moneytrail_ledger", "/rest/v1/rpc/save_moneytrail_ledger_with_rules"].includes(url.pathname)) {
         assert.deepEqual(Object.keys(body).sort(), body.p_rules ? ["p_data", "p_expected_revision", "p_rules"] : ["p_data", "p_expected_revision"]);
         const existing = ledgers.get(id);
-        if (existing.revision !== body.p_expected_revision) return respond({ code: "40001", message: "Revision conflict" }, 409);
+        if (existing.revision !== body.p_expected_revision) return respond({ code: "PT409", message: "Revision conflict" }, 409);
         const next = { data: copy(body.p_data), revision: existing.revision + 1, updated_at: new Date().toISOString() };
         for (const rule of body.p_rules || []) {
           assert(next.data.transactions.some(transaction => transaction.id === rule.transactionId && transaction.merchant === rule.merchant && transaction.category === rule.category && transaction.subcategory === rule.subcategory));
@@ -256,6 +256,7 @@ async function ledgerWorkflow(browser) {
     await context.setOffline(false);
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.locator(".sync-state.conflict").first().waitFor();
+    await page.getByRole("alert").filter({ hasText: "首页金额尚未更新到云端最新账本" }).waitFor();
     assert.equal(backend.ledgers.get(A).data.transactions.some((item) => item.merchant === "本机待核对消费"), false);
     dialog = await accountDialog(page);
     await dialog.getByRole("heading", { name: "两个设备的账目需要核对", exact: true }).waitFor();

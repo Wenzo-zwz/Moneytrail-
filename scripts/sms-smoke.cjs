@@ -66,7 +66,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
     configs.set(OWNER, { ...configs.get(OWNER), enabled: true, created_at: "2026-10-22T11:00:00Z" });
     ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
   }
-  const requests = []; const routeErrors = []; const secrets = [];
+  const requests = []; const routeErrors = []; const secrets = []; const ledgerRead = { fail: false };
   const config = (id) => ({ ...clone(configs.get(id)), pending_count: inboxes.get(id).filter((item) => item.status === "pending").length });
   async function attach(context) {
     await context.route("**/*", async (route) => {
@@ -89,6 +89,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
         if (url.pathname === "/rest/v1/rpc/moneytrail_is_admin") return respond(false);
         if (url.pathname === "/rest/v1/moneytrail_ledgers") {
           assert.equal(url.searchParams.get("user_id"), `eq.${id}`);
+          if (ledgerRead.fail) return respond({ code: "42501", message: "Fixture ledger read unavailable" }, 403);
           return respond([{ user_id: id, ...clone(ledgers.get(id)) }]);
         }
         if (url.pathname === "/rest/v1/rpc/save_moneytrail_ledger") {
@@ -163,7 +164,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
       }
     });
   }
-  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets };
+  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, ledgerRead };
 }
 async function ready(server, output) {
   const deadline = Date.now() + 20000;
@@ -448,6 +449,66 @@ async function reprocessLayoutWorkflow(browser) {
   } finally { await context.close(); }
 }
 
+async function monthRolloverWorkflow(browser) {
+  const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { sms: false });
+  try {
+    await page.clock.setFixedTime(new Date("2026-10-31T15:59:00Z"));
+    await login(page); await page.locator(".hero-amount").waitFor();
+    assert.equal(await page.locator("#month").inputValue(), "2026-10");
+    await openSms(page);
+    await page.clock.setFixedTime(new Date("2026-10-31T16:01:00Z"));
+    const current = backend.ledgers.get(OWNER);
+    const transaction = { ...manual, id: "november-expense", amountCents: 2500, date: "2026-11-01T00:01" };
+    backend.ledgers.set(OWNER, { ...current, data: { ...current.data, transactions: [...current.data.transactions, transaction] }, revision: current.revision + 1 });
+    await page.getByRole("button", { name: "刷新收件箱", exact: true }).click();
+    await page.getByRole("button", { name: "刷新收件箱", exact: true }).waitFor();
+    await page.getByRole("button", { name: "返回账本", exact: true }).click();
+    await until(async () => (await page.locator("#month").inputValue()) === "2026-11", "calendar month rollover while SMS panel is open");
+    assert((await page.locator(".hero-amount").innerText()).includes("25.00"));
+    passed("current-month dashboard follows Shanghai midnight and includes a new month's server-added expense");
+
+    await page.locator("#month").fill("2026-09");
+    await openSms(page);
+    await page.clock.setFixedTime(new Date("2026-11-30T16:01:00Z"));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.getByRole("button", { name: "返回账本", exact: true }).click();
+    assert.equal(await page.locator("#month").inputValue(), "2026-09", "rollover preserves an explicitly selected historical month");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("calendar rollover preserves a deliberately selected historical month");
+  } finally { await context.close(); }
+}
+
+async function ledgerRefreshFailureWorkflow(browser, batch = false) {
+  const backend = mockBackend({ ordinaryPending: batch }); const { page, context, errors } = await fixture(browser, backend);
+  try {
+    await login(page);
+    if (batch) {
+      await page.getByRole("button", { name: "预览待确认短信", exact: true }).click();
+      await page.getByText("待确认预览：可入账 4 笔，保留确认 2 笔").waitFor();
+      backend.ledgerRead.fail = true;
+      await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).click();
+    } else {
+      const group = page.locator(".sms-message").filter({ hasText: "财付通-群收款" });
+      await group.getByRole("button", { name: "核对并记录", exact: true }).click();
+      await group.getByLabel("商户或用途", { exact: true }).fill("核对后的消费");
+      await group.getByRole("combobox", { name: /^分类/ }).selectOption("购物");
+      backend.ledgerRead.fail = true;
+      await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    }
+    await until(async () => /已入账 4 笔|已确认并记入云端账本/.test(await page.locator(".sms-notice").innerText()), "successful SMS write despite failed ledger read");
+    assert((await page.locator(".sms-notice").innerText()).includes("首页账目尚未刷新"), "successful server write must explain that the homepage still shows stale spending");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, batch ? 5 : 2);
+    assert((await page.locator(".hero-amount").textContent()).includes("58.00"));
+    const endpoint = batch ? "moneytrail_sms_apply_pending" : "moneytrail_sms_confirm";
+    backend.ledgerRead.fail = false;
+    await page.getByRole("button", { name: "重试账本同步", exact: true }).click();
+    await until(async () => (await page.locator(".hero-amount").textContent()).includes(batch ? "119.10" : "88.90"), "retry refresh updates spending without resubmitting the SMS");
+    assert.equal(backend.requests.filter(request => request.path.endsWith(endpoint)).length, 1);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed(`${batch ? "batch" : "single"} SMS success explains stale homepage after a failed refresh and offers a read-only retry`);
+  } finally { await context.close(); }
+}
+
 (async () => {
   await mkdir(ARTIFACTS, { recursive: true });
   let output = "";
@@ -457,7 +518,7 @@ async function reprocessLayoutWorkflow(browser) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
+    await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); server.kill(); }

@@ -527,6 +527,7 @@ export default function App({
   onSmsAutomation,
   merchantRules = [],
   merchantRulesNotice,
+  syncNotice,
   merchantRulesLoading = false,
 }: {
   store?: LedgerStore;
@@ -536,6 +537,7 @@ export default function App({
   onSmsAutomation?: () => void;
   merchantRules?: MerchantRule[];
   merchantRulesNotice?: ReactNode;
+  syncNotice?: ReactNode;
   merchantRulesLoading?: boolean;
 }) {
   const { loadData, saveData, restoreData, readStoredRaw } = store;
@@ -543,7 +545,8 @@ export default function App({
   const [data, setData] = useState<AppData>(initial.data);
   const [recoveryError, setRecoveryError] = useState(initial.error ?? "");
   const [page, setPage] = useState<Page>("overview");
-  const [month, setMonth] = useState(currentMonth());
+  const [month, setMonth] = useState(currentMonth);
+  const calendarMonth = useRef(month);
   const [toast, setToast] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
@@ -584,6 +587,24 @@ export default function App({
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  useEffect(() => {
+    function followCalendarMonth() {
+      const next = currentMonth();
+      const previous = calendarMonth.current;
+      if (next === previous) return;
+      calendarMonth.current = next;
+      setMonth(selected => selected === previous ? next : selected);
+    }
+    followCalendarMonth();
+    const timer = setInterval(followCalendarMonth, 60_000);
+    window.addEventListener("focus", followCalendarMonth);
+    document.addEventListener("visibilitychange", followCalendarMonth);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", followCalendarMonth);
+      document.removeEventListener("visibilitychange", followCalendarMonth);
+    };
+  }, [data]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4500);
@@ -1107,6 +1128,7 @@ export default function App({
           </div>
         </header>
         {merchantRulesNotice}
+        {syncNotice}
         {notice && (
           <div className="notice warning" role="alert">
             <span>{notice}</span>

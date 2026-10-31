@@ -101,6 +101,8 @@ GitHub Pages 的构建不能读取你电脑上的 `.env.local`。本项目的部
 
 多设备同时修改会触发版本冲突。界面应保留当前设备尚未同步的内容，提供备份，再由用户选择使用云端版本或明确覆盖；不采用静默的最后写入者覆盖。
 
+业务版本冲突使用 `PT409`，立即返回 HTTP 409；客户端仍兼容历史 `40001`。不要主动用 `40001` 表示业务校验失败：PostgREST 14 会把它当成暂时的事务失败而无限重试。相关行为见 [Supabase 故障说明](https://supabase.com/kb/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions)。首页在冲突、离线或读取失败时会显示本机副本提示，其他标签页对同一旧版本的编辑不能解除冲突。
+
 退出登录前检查待同步修改。需要先同步或导出备份，再由用户确认退出；退出后清理该账户的本机账目缓存和页面状态。认证会话由 Supabase SDK 管理。
 
 ## 隐私边界
