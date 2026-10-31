@@ -142,3 +142,26 @@
 .sms-rule-editor label { color: #c7b9a5; }
 .sms-rule-editor input:focus-visible, .sms-rule-editor select:focus-visible { outline: 2px solid #d3c7b1; outline-offset: 2px; border-color: #d3c7b1; }
 .sms-rule-editor input[type=checkbox] { accent-color: #d3c7b1; }
+
+.sms-shortcut-setup { min-width: 0; margin-top: 25px; padding-top: 23px; border-top: 1px solid #343032; }
+.sms-shortcut-setup > h3 { margin: 0 0 9px; color: #dfd5c7; font-size: 15px; font-weight: 500; letter-spacing: .3px; }
+.sms-shortcut-intro, .sms-shortcut-steps p, .sms-shortcut-boundary { color: #b7aea2; font-size: 11px; line-height: 1.95; overflow-wrap: anywhere; }
+.sms-shortcut-intro { margin: 0; }
+.sms-shortcut-steps { min-width: 0; margin: 7px 0 0; padding: 0; list-style: none; }
+.sms-shortcut-steps > li { min-width: 0; padding: 18px 0; border-bottom: 1px solid #302c2e; }
+.sms-shortcut-steps > li:last-child { padding-bottom: 0; border-bottom: 0; }
+.sms-shortcut-step-heading { display: flex; align-items: center; gap: 10px; min-width: 0; margin-bottom: 9px; }
+.sms-shortcut-step-heading > span { display: inline-flex; flex: 0 0 25px; align-items: center; justify-content: center; width: 25px; height: 25px; border: 1px solid #675947; border-radius: 7px; color: #d7c4a4; background: #2a241f; font-size: 11px; font-variant-numeric: tabular-nums; }
+.sms-shortcut-step-heading > h4 { min-width: 0; margin: 0; color: #d8cdbb; font-size: 12px; font-weight: 500; }
+.sms-shortcut-steps p { margin: 9px 0 0; }
+.sms-shortcut-access-state { display: inline-block; padding: 3px 7px; border: 1px solid #474044; border-radius: 5px; color: #aaa099; background: #211e22; font-size: 9px; line-height: 1.6; }
+.sms-shortcut-access-state.enabled { border-color: #615640; color: #d0c0a2; background: #2a251d; }
+.sms-shortcut-install, .sms-shortcut-refresh { max-width: 100%; min-height: 44px; margin-top: 13px; padding: 11px 13px; font-size: 11px; line-height: 1.6; text-align: center; text-decoration: none; white-space: normal; overflow-wrap: anywhere; }
+.sms-shortcut-install:focus-visible, .sms-shortcut-refresh:focus-visible { outline: 2px solid #d3c7b1; outline-offset: 3px; }
+.sms-shortcut-steps p.sms-shortcut-caution { color: #c4ad8d; font-size: 10px; }
+.sms-shortcut-steps p.sms-shortcut-note { color: #a29686; font-size: 10px; }
+.sms-shortcut-receipt { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin-top: 12px; padding: 12px; border: 1px solid #3d3530; border-radius: 7px; background: #151316; overflow-wrap: anywhere; }
+.sms-shortcut-receipt > span { color: #a99c8b; font-size: 10px; }
+.sms-shortcut-receipt > time, .sms-shortcut-receipt > strong { color: #d7c9b4; font-size: 12px; font-weight: 450; line-height: 1.8; font-variant-numeric: tabular-nums; }
+.sms-shortcut-boundary { margin: 17px 0 0; padding: 12px; border-left: 2px solid #70604a; border-radius: 0 5px 5px 0; color: #b9a78f; background: #221e1c; font-size: 10px; }
+@media (max-width: 360px) { .sms-shortcut-install, .sms-shortcut-refresh { width: 100%; } .sms-shortcut-step-heading { gap: 8px; } }

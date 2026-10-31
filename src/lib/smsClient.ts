@@ -36,14 +36,14 @@ export type SmsReprocessResult = { recorded_count: number; pending_count: number
 
 export class SmsUpgradeError extends Error {
   constructor() {
-    super("自动入账规则尚未升级，请在 Supabase 执行本次规则更新 SQL。现有短信接收功能仍可使用。");
+    super("自动入账规则尚未升级，请联系应用维护者。现有短信接收功能仍可使用。");
     this.name = "SmsUpgradeError";
   }
 }
 
 export class SmsSetupError extends Error {
   constructor() {
-    super("短信自动化尚未开通，请先在 Supabase 执行短信数据库脚本。已有账本仍可正常使用。");
+    super("短信自动化尚未开通，请联系应用维护者。已有账本仍可正常使用。");
     this.name = "SmsSetupError";
   }
 }
