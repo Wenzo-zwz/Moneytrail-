@@ -64,6 +64,7 @@ import type { LedgerSaveOptions, LedgerStore } from "./lib/cloudStore";
 import { localLedgerStore } from "./lib/ledgerStore";
 import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/TransactionMetadata";
 import { canOfferMerchantMemory } from "./components/merchantMemory";
+import AppUpdateSettings from "./components/AppUpdateSettings";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
@@ -1808,6 +1809,7 @@ export default function App({
                   <button className="button primary" onClick={onSmsAutomation}>打开短信自动记账<ArrowRight size={17} /></button>
                 </section>}
                 {accountPanel}
+                <AppUpdateSettings />
                 <section className="setting-card">
                   <div className="setting-heading">
                     <Wallet size={23} />

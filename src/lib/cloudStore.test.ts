@@ -45,9 +45,61 @@ beforeEach(() => {
   };
   vi.stubGlobal("localStorage", local);
 });
-afterEach(() => { for (const store of stores) store.dispose(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { for (const store of stores) store.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("account cloud store", () => {
+  it("automatically adopts server-added SMS transactions on the visible 30-second poll", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const document = Object.assign(new EventTarget(), { visibilityState: "visible" }); vi.stubGlobal("document", document);
+    seed(); let remote = snapshot();
+    const load = vi.fn(async () => remote); const store = create({ load, push: vi.fn() });
+    const changed = vi.fn(); store.subscribe(changed); store.start(); await settle();
+    const sms = { ...remembered, id: "sms-arrived", source: "sms" as const, sourceRef: "sms-receipt" };
+    remote = { ...snapshot(10000, 2), data: { ...data(), transactions: [sms] } };
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(store.loadData().data.transactions).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.loadData().data.transactions).toEqual([sms]);
+    expect(loadAccountCache(projectUrl, userId).cache?.baseRevision).toBe(2);
+    expect(changed).toHaveBeenCalledTimes(1);
+    document.visibilityState = "hidden";
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes the ledger immediately when the page becomes visible without a focus event", async () => {
+    const document = Object.assign(new EventTarget(), { visibilityState: "visible" }); vi.stubGlobal("document", document);
+    seed(); const load = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(snapshot(25000, 2));
+    const store = create({ load, push: vi.fn() }); store.start(); await settle();
+    document.visibilityState = "hidden"; document.dispatchEvent(new Event("visibilitychange")); await settle();
+    expect(load).toHaveBeenCalledTimes(1);
+    document.visibilityState = "visible"; document.dispatchEvent(new Event("visibilitychange")); await settle();
+    expect(store.loadData().data).toEqual(data(25000));
+    expect(loadAccountCache(projectUrl, userId).cache?.baseRevision).toBe(2);
+  });
+
+  it("keeps a conflicted ledger blocked when the page becomes visible", async () => {
+    const document = Object.assign(new EventTarget(), { visibilityState: "hidden" }); vi.stubGlobal("document", document);
+    seed(20000, 1, true); const load = vi.fn(); const push = vi.fn().mockRejectedValue(new CloudConflictError());
+    const store = create({ load, push }); store.start(); await settle();
+    document.visibilityState = "visible"; document.dispatchEvent(new Event("visibilitychange")); await settle();
+    expect(store.getState()).toMatchObject({ phase: "conflict", dirty: true });
+    expect(store.loadData().data).toEqual(data(20000));
+    expect(push).toHaveBeenCalledTimes(1); expect(load).not.toHaveBeenCalled();
+  });
+
+  it("registers the visibility wake listener once and removes it when disposed", async () => {
+    const document = Object.assign(new EventTarget(), { visibilityState: "visible" }); vi.stubGlobal("document", document);
+    const added = vi.spyOn(document, "addEventListener"); const removed = vi.spyOn(document, "removeEventListener");
+    const load = vi.fn().mockResolvedValue(snapshot()); const store = create({ load, push: vi.fn() });
+    store.start(); store.start(); await settle(); store.dispose();
+    expect(added).toHaveBeenCalledTimes(1);
+    expect(added).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+    expect(removed).toHaveBeenCalledWith("visibilitychange", added.mock.calls[0][1]);
+    document.dispatchEvent(new Event("visibilitychange")); await settle();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it("durably queues explicit merchant learning with offline transactions and sends it after restart", async () => {
     seed(); const push = vi.fn(async (next: AppData, revision: number) => ({ data: next, revision: revision + 1, updatedAt: at }));
     const offline = create({ load: vi.fn(), push }, () => false);
