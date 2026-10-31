@@ -175,12 +175,13 @@ async function ready(server, output) {
   }
   throw Error(`SMS dev server not ready: ${output()}`);
 }
-async function fixture(browser, backend, { width = 1440, sms = true } = {}) {
+async function fixture(browser, backend, { width = 1440, sms = true, controlledClock = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: width <= 393 ? 852 : 1000 }, locale: "zh-CN", timezoneId: "Asia/Shanghai", ...(width <= 393 ? { isMobile: true, hasTouch: true } : {}) });
   await backend.attach(context);
   const page = await context.newPage(); const errors = [];
   page.on("pageerror", (error) => errors.push(error.message)); page.setDefaultTimeout(12000);
-  await page.clock.setFixedTime(new Date("2026-10-22T11:30:00Z"));
+  if (controlledClock) await page.clock.install({ time: new Date("2026-10-22T11:30:00Z") });
+  else await page.clock.setFixedTime(new Date("2026-10-22T11:30:00Z"));
   await page.goto(sms ? `${BASE}?view=sms` : BASE, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "登录我的账本", exact: true }).waitFor();
   return { page, context, errors };
@@ -478,6 +479,42 @@ async function monthRolloverWorkflow(browser) {
   } finally { await context.close(); }
 }
 
+async function automaticLedgerRefreshWorkflow(browser) {
+  const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { sms: false, controlledClock: true });
+  try {
+    await login(page); await page.locator(".hero-amount").waitFor();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    assert((await page.locator(".hero-amount").innerText()).includes("58.00"));
+    const appendSms = (id, amountCents, merchant) => {
+      const current = backend.ledgers.get(OWNER);
+      const transaction = { ...manual, id, amountCents, merchant, source: "sms", sourceRef: id, date: "2026-10-22T19:31", note: "" };
+      backend.ledgers.set(OWNER, { ...current, data: { ...current.data, transactions: [...current.data.transactions, transaction] }, revision: current.revision + 1 });
+    };
+    appendSms("sms-visible-poll", 1200, "自动记录的便利店消费");
+    const readCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_ledgers")).length;
+    const initialReads = readCount();
+    await page.clock.fastForward(30_000);
+    await until(async () => (await page.locator(".hero-amount").innerText()).includes("70.00"), "visible polling updates homepage spending without a click");
+    await page.getByText("自动记录的便利店消费", { exact: true }).waitFor();
+    assert.equal(readCount(), initialReads + 1);
+    passed("a visible homepage automatically displays a new server-recorded SMS transaction on its 30-second poll");
+
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
+    appendSms("sms-foreground-wake", 500, "返回前台后的自动消费");
+    const readsBeforeHidden = readCount();
+    await page.clock.fastForward(30_000);
+    assert.equal(readCount(), readsBeforeHidden, "hidden pages skip ledger polling");
+    assert((await page.locator(".hero-amount").innerText()).includes("70.00"));
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }); document.dispatchEvent(new Event("visibilitychange")); });
+    await until(async () => (await page.locator(".hero-amount").innerText()).includes("75.00"), "visibility return updates homepage without focus or manual sync");
+    await page.getByText("返回前台后的自动消费", { exact: true }).waitFor();
+    assert.equal(readCount(), readsBeforeHidden + 1);
+    assert.equal(backend.requests.filter(request => request.path.endsWith("save_moneytrail_ledger")).length, 0);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("returning to a visible homepage immediately fetches SMS spending without a focus event or sync button");
+  } finally { await context.close(); }
+}
+
 async function ledgerRefreshFailureWorkflow(browser, batch = false) {
   const backend = mockBackend({ ordinaryPending: batch }); const { page, context, errors } = await fixture(browser, backend);
   try {
@@ -518,7 +555,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
+    await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); server.kill(); }

@@ -198,6 +198,7 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     return flight;
   }
   const onWake = () => void refresh();
+  const onVisibilityChange = () => { if (document.visibilityState === "visible") void refresh(); };
   const onStorage = (event: StorageEvent) => {
     if (event.key === cacheKey(projectUrl, userId) || event.key === null) {
       try {
@@ -209,6 +210,7 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
   function dispose() {
     disposed = true; controller?.abort(); clearInterval(poll);
     if (typeof window !== "undefined") { window.removeEventListener("online", onWake); window.removeEventListener("focus", onWake); window.removeEventListener("storage", onStorage); }
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibilityChange);
     dataListeners.clear(); stateListeners.clear();
   }
   return {
@@ -223,6 +225,7 @@ export function createCloudStore({ client, userId, projectUrl, isOnline = () => 
     start() {
       if (started || disposed) return; started = true;
       if (typeof window !== "undefined") { window.addEventListener("online", onWake); window.addEventListener("focus", onWake); window.addEventListener("storage", onStorage); }
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibilityChange);
       poll = setInterval(() => { if (typeof document === "undefined" || document.visibilityState === "visible") void refresh(); }, 30_000);
       void refresh();
     },
