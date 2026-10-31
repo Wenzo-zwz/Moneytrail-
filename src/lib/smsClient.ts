@@ -172,7 +172,7 @@ function throwSmsError(error: unknown, status?: number): never {
   if (code === "54000") throw new Error("商户规则已达上限（200 条）。请删除不再使用的规则，或取消本次记住商户后重试；账目尚未新增。");
   if (["22023", "23514", "22P02", "22001"].includes(code)) throw new Error("短信记录或设置无效，请核对金额、日期和其他内容后重试。");
   if (code === "P0002") throw new Error("这条短信记录已不存在，请刷新列表。");
-  if (code === "40001" || code === "23505") throw new Error("短信记录已发生变化，请刷新列表后再操作。");
+  if (["PT409", "40001", "23505"].includes(code)) throw new Error("短信记录已发生变化，请刷新列表后再操作。");
   throw new Error("暂时无法连接短信服务，请检查网络后重试。");
 }
 

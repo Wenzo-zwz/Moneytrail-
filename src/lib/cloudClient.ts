@@ -51,7 +51,7 @@ export class CloudConflictError extends Error {
 
 function throwCloudError(error: unknown, status?: number): never {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-  if (code === "40001" || code === "23505") throw new CloudConflictError();
+  if (code === "PT409" || code === "40001" || code === "23505") throw new CloudConflictError();
   if (["PGRST301", "PGRST302"].includes(code) || status === 401) throw new Error("登录状态已过期，请重新登录后同步。");
   if (code === "42501" || status === 403) throw new Error("没有当前账本的访问权限，请重新登录。");
   if (code === "54000") throw new Error("商户规则已达上限（200 条）。请在个人商户规则的待同步记忆列表中取消这次学习，让账目先同步，再删除不再使用的规则；本机账目与记忆选择已保留。");

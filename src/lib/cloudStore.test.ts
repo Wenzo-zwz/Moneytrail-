@@ -202,6 +202,40 @@ describe("account cloud store", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
+  it("keeps a cloud conflict blocked when another page edits the same stale local baseline", async () => {
+    seed(20000, 1, true);
+    const target = new EventTarget(); vi.stubGlobal("window", target);
+    const push = vi.fn().mockRejectedValue(new CloudConflictError());
+    const load = vi.fn(); const store = create({ load, push });
+    store.start(); await store.refresh();
+    expect(store.getState().phase).toBe("conflict");
+    for (const budget of [25000, 30000]) {
+      seed(budget, 1, true);
+      target.dispatchEvent(Object.assign(new Event("storage"), { key: cacheKey(projectUrl, userId) }));
+      await store.refresh(); await store.retry();
+      expect(store.getState()).toMatchObject({ phase: "conflict", dirty: true });
+      expect(store.loadData().data).toEqual(data(budget));
+      expect(loadAccountCache(projectUrl, userId).cache?.baseRevision).toBe(1);
+    }
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("accepts another page's newer synced snapshot after a cloud conflict", async () => {
+    seed(20000, 1, true);
+    const target = new EventTarget(); vi.stubGlobal("window", target);
+    const push = vi.fn().mockRejectedValue(new CloudConflictError());
+    const load = vi.fn().mockResolvedValue(snapshot(40000, 2));
+    const store = create({ load, push }); store.start(); await store.refresh();
+    seed(40000, 2, false);
+    target.dispatchEvent(Object.assign(new Event("storage"), { key: cacheKey(projectUrl, userId) }));
+    await store.refresh();
+    expect(store.getState()).toMatchObject({ phase: "saved", dirty: false });
+    expect(store.loadData().data).toEqual(data(40000));
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it("can explicitly adopt the cloud version after a conflict", async () => {
     seed(20000, 1, true);
     const push = vi.fn().mockRejectedValue(new CloudConflictError());

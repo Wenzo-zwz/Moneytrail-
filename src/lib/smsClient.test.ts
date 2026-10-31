@@ -143,6 +143,12 @@ describe("account-bound SMS automation transport", () => {
     await expect(task).rejects.not.toThrow("PRIVATE DIAGNOSTIC");
   });
 
+  it.each(["PT409", "40001"])("reports changed SMS records without retrying a business conflict (%s)", async (code) => {
+    fetchMock.mockResolvedValue(response({ code, message: "PRIVATE" }, 409));
+    await expect(confirmSms(client, alice, inboxId, draft())).rejects.toThrow("短信记录已发生变化");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("maps account and network errors without leaking original exceptions", async () => {
     fetchMock.mockResolvedValueOnce(response({ code: "42501", message: "PRIVATE" }, 403));
     await expect(fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).rejects.toThrow("邮箱已验证");

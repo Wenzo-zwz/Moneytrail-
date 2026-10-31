@@ -125,12 +125,14 @@ describe("authenticated ledger transport", () => {
     expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
   });
 
-  it("maps a stale revision to a conflict that preserves the caller's data", async () => {
-    fetchMock.mockResolvedValue(response({ code: "40001", message: "private internal detail" }, 409));
+  it.each(["PT409", "40001"])("maps %s stale revisions without retrying or changing the caller's data", async (code) => {
+    fetchMock.mockResolvedValue(response({ code, message: "private internal detail" }, 409));
     const data = { ...emptyData(), budgetCents: 1234 };
     const before = structuredClone(data);
     await expect(pushCloudLedger(client, data, 5, userA)).rejects.toBeInstanceOf(CloudConflictError);
     expect(data).toEqual(before);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
   });
 
   it.each([
