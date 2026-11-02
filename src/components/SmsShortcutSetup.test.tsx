@@ -16,9 +16,16 @@ describe("iPhone shortcut setup guidance", () => {
     const markup = render({ enabled: true }, SMS_SHORTCUT_TEMPLATE.projectUrl, false, bankCode);
     expect(markup).toContain(`value="${bankCode}" selected=""`);
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
-    expect(markup).toContain("手动配置发送步骤");
+    expect(markup).toContain("配置农中建通用模板");
+    expect(markup).toContain("储蓄卡和信用卡共用");
+    expect(markup).toContain("共享安装链接尚未发布");
     expect(markup).toContain("收到后先待确认");
-    expect(markup).toContain("信息包含「元」");
+    expect(markup).toContain(`信息包含「${({ abc: "农业银行", boc: "中国银行", ccb: "建设银行" })[bankCode]}」`);
+    expect(markup).toContain("复制匹配规则");
+    expect(markup).toContain("复制 iPhone 制作步骤");
+    expect(markup).toContain("复制 Mac 签名命令");
+    expect(markup).toContain("未签名源文件");
+    expect(markup).toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
   });
 
   it("lets users select all four banks while labelling the existing template as ICBC-only", () => {
@@ -71,6 +78,14 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
     expect(markup).toContain("当前部署与此模板不匹配");
     expect(markup).toContain("手动配置");
+  });
+
+  it.each(["abc", "boc", "ccb"] as const)("keeps fixed-production generic source and conversion instructions unavailable to another project (%s)", bankCode => {
+    const markup = render({ enabled: true }, "https://other.supabase.co", false, bankCode);
+    expect(markup).toContain("与当前部署不匹配");
+    expect(markup).not.toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
+    expect(markup).not.toContain("复制 iPhone 制作步骤");
+    expect(markup).not.toContain("复制 Mac 签名命令");
   });
 
   it("shows actual server receipt history without claiming installation or booking is complete", () => {

@@ -6,6 +6,8 @@
 
 支持独立账号与云端同步：邮箱注册、登录、密码重置、按账号隔离的账本，以及经确认后迁移旧本机账目。需要先配置自己的 Supabase 项目；未配置时保留本机模式，不会伪装成已登录的账户。首次打开为空账本，不会把演示消费混入真实记录。
 
+农行、中行、建行的储蓄卡与信用卡共用模板见[制作与接入说明](docs/three-bank-shortcut.md)。模板源文件需在 Apple 设备签名或分享后才能交给同事导入；三行短信仍全部先待确认。开发时使用 Python 3 标准库构建和校验 XML：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
+
 接入步骤、数据库迁移和真实账号验证见 [独立账号部署说明](docs/cloud-accounts.md)。站点地址为 <https://wenzo-zwz.github.io/Moneytrail-/>。账号版首次发布用于注册和同步测试；迁移真实账目前应先验证邮箱、换设备读取与账户隔离。
 
 项目所有者可绑定唯一管理员，在后台查看用户目录与同步概览。设置方式和权限范围见 [管理员后台说明](docs/admin.md)。
