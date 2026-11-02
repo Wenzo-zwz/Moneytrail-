@@ -10,7 +10,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "node scripts/check-bank-shortcut.cjs && vitest run",
     "test:e2e": "node scripts/smoke.cjs",
     "test:accounts": "node scripts/account-smoke.cjs",
     "test:admin": "node scripts/admin-smoke.cjs",

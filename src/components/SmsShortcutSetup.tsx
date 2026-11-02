@@ -2,6 +2,8 @@ import { useState } from "react";
 import { isShortcutTemplateCompatible, SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
 import { getSmsBank, SMS_BANKS, type SmsBankCode } from "../lib/smsBanks";
 import type { SmsConfig } from "../lib/smsClient";
+import ThreeBankShortcutGuide from "./ThreeBankShortcutGuide";
+import { THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 
 type Props = {
   projectUrl: string;
@@ -36,26 +38,24 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         <p>已保存的有效令牌可继续使用，无需为安装模板再次更换。</p>
       </li>
       <li>
-        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{bankCode === "icbc" ? "安装快捷指令" : "手动配置发送步骤"}</h4></div>
+        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{bankCode === "icbc" ? "安装快捷指令" : "配置农中建通用模板"}</h4></div>
         {bankCode === "icbc" ? <>
           <p>用 iPhone 添加「{SMS_SHORTCUT_TEMPLATE.name}」工行版模板。导入时，在令牌问题中粘贴自己的个人令牌，并保留模板名称。</p>
           {canInstall ? <a className="button primary sms-shortcut-install" href={SMS_SHORTCUT_TEMPLATE.url} target="_blank" rel="noopener noreferrer">安装 iPhone 快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装 iPhone 快捷指令</button>}
           {!compatible ? <p className="sms-shortcut-caution">当前部署与此模板不匹配，请勿把当前账户令牌填入此模板。请使用下方「iPhone 配置步骤」中的高级手动配置指南，为当前部署配置快捷指令。</p> : !config.enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌，再安装模板。</p>}
         </> : <>
-          <p className="sms-shortcut-caution">现有共享模板只适用于工行，不能直接转发{bank.name}短信。此银行暂需按下方「iPhone 配置步骤」手动配置发送操作。</p>
-          <p>已有快捷指令可先复制、另起名称，再修改银行筛选；个人令牌、接收地址、JSON 字段和中文通知分支可继续沿用。请保留原有工行自动化的配置。</p>
+          <ThreeBankShortcutGuide key={bankCode} compatible={compatible} />
           {!config.enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌。</p>}
         </>}
       </li>
       <li>
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>创建短信自动化</h4></div>
-        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码（常见示例 {bank.senderExamples.join("、")}，以真实短信为准），信息包含「{bankCode === "icbc" ? "支出" : "元"}」，选择「立即运行」。</p>
-        <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择{bankCode === "icbc" ? `「${SMS_SHORTCUT_TEMPLATE.name}」` : "自己为此银行配置的指令"}，将输入设为上一步得到的「文本」。</p>
+        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码（常见示例 {bank.senderExamples.join("、")}，以真实短信为准），信息包含「{bankCode === "icbc" ? "支出" : bank.name}」，选择「立即运行」。</p>
+        <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择{bankCode === "icbc" ? `「${SMS_SHORTCUT_TEMPLATE.name}」` : `「${THREE_BANK_TEMPLATE.name}」`}，将输入设为上一步得到的「文本」。</p>
         {bankCode === "icbc" ? <p className="sms-shortcut-note">当前模板用于工行消费短信。请保留其他设备或模板各自需要的触发与输入绑定。</p> : <>
-          <p>发送前先核对完整银行签名：{bank.signatureNames.map(name => `「【${name}】」`).join("、")}，多种写法使用「任一」匹配。支出类关键词「支出、消费、扣款、扣费、批扣、代扣、转出、支取」也使用「任一」匹配。</p>
-          <p>再用「全部」组合银行签名、支出类关键词，以及逐项不包含「验证码」「校验码」「动态码」「口令」「密码」的安全条件。正文仍需通过短信变量传入，不能使用固定样例。</p>
-          <p className="sms-shortcut-note">本版仅接收带明确银行签名的人民币支出短信。「元」触发条件可能漏掉其他写法；缺少签名、金额、商户或时间的格式仍需样本核对，不能据此视为已支持全行短信。</p>
-          <p className="sms-shortcut-note">本版要求金额紧跟「消费／扣款」等交易动作，可带「人民币」「金额为」等字样；中间夹有其他描述的格式需另行提供样本适配。</p>
+          <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份通用指令并沿用本账户令牌。</p>
+          <p>通用指令会筛选银行名称、消费或扣款等词，并排除安全验证码。短信仍需通过输入变量传入。</p>
+          <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。前后位置与写法由接收规则核对；缺少来源或格式未知时，不能据此视为已支持全部短信。</p>
         </>}
       </li>
       <li>
