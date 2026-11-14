@@ -318,8 +318,8 @@ async function entryWorkflow(browser) {
       await noOverflow(page, `${width}px overview with SMS entry`);
       await page.getByRole("button", { name: "设置", exact: true }).click();
       const firstCard = page.locator(".settings-grid > section").first();
-      await firstCard.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
-      const entry = firstCard.getByRole("button", { name: "打开短信自动记账", exact: true });
+      await firstCard.getByRole("heading", { name: "快速上手", exact: true }).waitFor();
+      const entry = firstCard.getByRole("button", { name: "开通短信自动记账", exact: true });
       const bounds = await entry.boundingBox();
       assert(bounds && bounds.y >= 0 && bounds.y + bounds.height < 750, "SMS setup entry should be visible at the top without scrolling");
       await noOverflow(page, `${width}px settings with first SMS card`);
@@ -328,7 +328,7 @@ async function entryWorkflow(browser) {
       await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
       assert.equal(new URL(page.url()).searchParams.get("view"), "sms");
       assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-      passed(`${width}px settings show SMS as the first card without scrolling and open the inbox`);
+      passed(`${width}px settings show quick start first, keep SMS setup visible and open the inbox`);
     } finally { await context.close(); }
   }
 }
