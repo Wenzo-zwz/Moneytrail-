@@ -17,6 +17,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test:sms": "node scripts/sms-smoke.cjs",
     "test:sms-install": "node scripts/sms-install-smoke.cjs",
+    "test:screenshots": "node scripts/screenshot-smoke.cjs",
     "test:update": "node scripts/update-smoke.cjs",
     "test:classification": "node scripts/classification-smoke.cjs"
   },

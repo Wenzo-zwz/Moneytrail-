@@ -4,11 +4,16 @@ import { registerSW } from "virtual:pwa-register";
 import AccountApp from "./AccountApp";
 import AppUpdateNotice from "./components/AppUpdateNotice";
 import { announceAppUpdate, appUpdater, checkRegisteredUpdate } from "./lib/appUpdate";
+import { initializeScreenshotIntake } from "./lib/screenshotIntake";
 import "./styles.css";
 import "./auth.css";
 import "./admin.css";
 import "./sms.css";
 import "./update.css";
+import "./screenshot.css";
+
+// Remove private OCR text from the address before account initialization.
+initializeScreenshotIntake();
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   let requested = false;
