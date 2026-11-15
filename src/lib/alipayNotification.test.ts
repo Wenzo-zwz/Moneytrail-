@@ -13,8 +13,8 @@ describe("Alipay automatic-payment notification preview", () => {
   });
 
   it("retains an unknown company instead of inventing its purchase purpose", () => {
-    const result = parseAlipayNotification(notification(payment("上海赫芽信息科技有限公司", "140.50")));
-    expect(result).toMatchObject({ merchant: "上海赫芽信息科技有限公司", amountCents: 14050, category: "待分类", requiresReview: true });
+    const result = parseAlipayNotification(notification(payment("上海示例信息科技有限公司", "140.50")));
+    expect(result).toMatchObject({ merchant: "上海示例信息科技有限公司", amountCents: 14050, category: "待分类", requiresReview: true });
     expect(result?.subcategory).toBeUndefined();
     expect(result?.platform).toBeUndefined();
   });

@@ -11,6 +11,7 @@ import { clearStoredData, exportBackup, loadData, readStoredRaw } from "./lib/st
 import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/adminClient";
 import { fetchSmsCategoryRules } from "./lib/smsClient";
 import type { MerchantRule } from "./lib/merchantClassification";
+import { clearScreenshotIntake, getScreenshotIntake } from "./lib/screenshotIntake";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const SmsAutomationPanel = lazy(() => import("./components/SmsAutomationPanel"));
@@ -129,6 +130,7 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
   const [error, setError] = useState("");
   const [recovery, setRecovery] = useState(false);
   const [view, setView] = useState<AccountView>(readAccountView);
+  const previousUser = useRef<string | null>(null);
   useEffect(() => {
     const sync = () => setView(readAccountView());
     window.addEventListener("popstate", sync);
@@ -147,6 +149,11 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
     const { data: { subscription } } = client.auth.onAuthStateChange((event, next) => {
       if (!active) return;
       events += 1;
+      if (previousUser.current && previousUser.current !== next?.user.id) {
+        const pending = getScreenshotIntake();
+        if (pending) clearScreenshotIntake(pending.id);
+      }
+      previousUser.current = next?.user.id ?? null;
       setSession(next); setLoading(false); setError("");
       if (event === "PASSWORD_RECOVERY") setRecovery(true);
       if (!next) setRecovery(false);
@@ -155,6 +162,7 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
     void client.auth.getSession().then(({ data, error: authError }) => {
       if (!active || events !== expectedEvents) return;
       if (authError) setError("无法读取登录状态，请重新连接账号服务。");
+      previousUser.current = authError ? null : data.session?.user.id ?? null;
       setSession(authError ? null : data.session); setLoading(false);
     }).catch(() => {
       if (active && events === expectedEvents) { setError("暂时无法连接账号服务，请检查网络后重试。"); setLoading(false); }

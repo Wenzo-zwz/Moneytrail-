@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type FormEvent,
 } from "react";
@@ -66,6 +67,10 @@ import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/T
 import { canOfferMerchantMemory } from "./components/merchantMemory";
 import AppUpdateSettings from "./components/AppUpdateSettings";
 import QuickStartSettings from "./components/QuickStartSettings";
+import AlipayScreenshotCapture from "./components/AlipayScreenshotCapture";
+import ScreenshotCaptureSettings from "./components/ScreenshotCaptureSettings";
+import { clearScreenshotIntake, getScreenshotIntake, subscribeScreenshotIntake } from "./lib/screenshotIntake";
+import type { AlipayScreenshotCandidate } from "./lib/alipayScreenshot";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
@@ -88,7 +93,7 @@ const SOURCE_NAMES: Record<Source, string> = {
   manual: "手动",
   sms: "银行短信",
   wechat: "微信账单",
-  alipay: "支付宝账单",
+  alipay: "支付宝",
   csv: "账单导入",
 };
 const COLORS = [
@@ -561,7 +566,8 @@ export default function App({
   } | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
-  const [captureMode, setCaptureMode] = useState<"sms" | "csv">("sms");
+  const [captureMode, setCaptureMode] = useState<"sms" | "csv" | "screenshot">("sms");
+  const incomingScreenshot = useSyncExternalStore(subscribeScreenshotIntake, getScreenshotIntake, () => null);
   const [smsText, setSmsText] = useState("");
   const [previews, setPreviews] = useState<Preview[]>([]);
   const [importMessages, setImportMessages] = useState<string[]>([]);
@@ -570,6 +576,11 @@ export default function App({
   const csvRef = useRef<HTMLInputElement>(null);
   const backupRef = useRef<HTMLInputElement>(null);
   const hashProcessed = useRef(false);
+  useEffect(() => {
+    if (!incomingScreenshot) return;
+    setPage("capture");
+    setCaptureMode("screenshot");
+  }, [incomingScreenshot]);
   const stats = useMemo(
     () => summarize(data.transactions, month, data.budgetCents),
     [data, month],
@@ -679,6 +690,16 @@ export default function App({
   function startBudget() {
     setBudgetInput(data.budgetCents ? (data.budgetCents / 100).toFixed(2) : "");
     setBudgetOpen(true);
+  }
+  function reviewScreenshot(candidate: AlipayScreenshotCandidate) {
+    setNotice("");
+    setEditor({ draft: {
+      kind: "expense", source: "alipay", amountCents: candidate.amountCents,
+      merchant: candidate.merchant, date: candidate.date ?? "", category: candidate.category,
+      ...(candidate.subcategory ? { subcategory: candidate.subcategory } : {}),
+      ...(candidate.platform ? { platform: candidate.platform } : {}),
+      note: "支付宝截图识别",
+    } });
   }
   function saveEditor(draft: DraftTransaction, remember: boolean, explicitChoice: boolean) {
     if (editor?.previewKey) {
@@ -1534,8 +1555,7 @@ export default function App({
                 </section>
               </div>
             )}
-            {page === "capture" && (
-              <div className="page">
+              <div className="page" hidden={page !== "capture"}>
                 <div className="capture-layout">
                   <section className="panel">
                     <div className="panel-heading">
@@ -1547,7 +1567,7 @@ export default function App({
                       </div>
                       <FileText size={21} className="text-muted" />
                     </div>
-                    <div className="tabs" role="tablist" aria-label="录入方式">
+                    <div className="tabs screenshot-capture-tabs" role="tablist" aria-label="录入方式">
                       <button
                         id="sms-tab"
                         role="tab"
@@ -1557,6 +1577,16 @@ export default function App({
                         onClick={() => setCaptureMode("sms")}
                       >
                         粘贴银行短信
+                      </button>
+                      <button
+                        id="screenshot-tab"
+                        role="tab"
+                        aria-selected={captureMode === "screenshot"}
+                        aria-controls="screenshot-panel"
+                        className={`tab ${captureMode === "screenshot" ? "active" : ""}`}
+                        onClick={() => setCaptureMode("screenshot")}
+                      >
+                        支付宝截图
                       </button>
                       <button
                         id="csv-tab"
@@ -1610,7 +1640,7 @@ export default function App({
                           </button>
                         </div>
                       </div>
-                    ) : (
+                    ) : captureMode === "csv" ? (
                       <div
                         id="csv-panel"
                         role="tabpanel"
@@ -1645,7 +1675,11 @@ export default function App({
                           下载通用导入模板
                         </button>
                       </div>
-                    )}
+                    ) : null}
+                    <div id="screenshot-panel" role="tabpanel" aria-labelledby="screenshot-tab" hidden={captureMode !== "screenshot"}>
+                      <p className="help-text">{cloudMode ? "确认保存后记入当前登录账户，可在“我的账户”核对邮箱。" : "确认保存后记入此设备的本机账本。"}</p>
+                      <AlipayScreenshotCapture incoming={incomingScreenshot} rules={merchantRules} rulesLoading={merchantRulesLoading} onReview={reviewScreenshot} onConsumeIncoming={clearScreenshotIntake} />
+                    </div>
                     {importMessages.length > 0 && (
                       <div className="notice warning" role="status">
                         <ul>
@@ -1800,10 +1834,10 @@ export default function App({
                   </section>
                 )}
               </div>
-            )}
             {page === "settings" && (
               <div className="page settings-grid">
                 <QuickStartSettings onSmsAutomation={onSmsAutomation} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
+                <ScreenshotCaptureSettings onOpenCapture={() => { navigate("capture"); setCaptureMode("screenshot"); }} />
                 {accountPanel}
                 <AppUpdateSettings />
                 <section className="setting-card">
