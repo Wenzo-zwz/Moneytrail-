@@ -65,6 +65,7 @@ import { localLedgerStore } from "./lib/ledgerStore";
 import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/TransactionMetadata";
 import { canOfferMerchantMemory } from "./components/merchantMemory";
 import AppUpdateSettings from "./components/AppUpdateSettings";
+import QuickStartSettings from "./components/QuickStartSettings";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
@@ -1802,12 +1803,7 @@ export default function App({
             )}
             {page === "settings" && (
               <div className="page settings-grid">
-                {onSmsAutomation && <section className="setting-card sms-entry-card" aria-labelledby="sms-entry-title">
-                  <div className="setting-heading"><MessageSquare size={23} /><h2 id="sms-entry-title">短信自动记账</h2></div>
-                  <p>连接 iPhone 快捷指令，让新的工行消费短信进入你的账户账本。</p>
-                  <p className="help-text">群收款每次待确认。首次使用，请在这里完成接入和手机配置。</p>
-                  <button className="button primary" onClick={onSmsAutomation}>打开短信自动记账<ArrowRight size={17} /></button>
-                </section>}
+                <QuickStartSettings onSmsAutomation={onSmsAutomation} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
                 {accountPanel}
                 <AppUpdateSettings />
                 <section className="setting-card">

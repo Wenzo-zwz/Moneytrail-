@@ -6,9 +6,11 @@
 
 支持独立账号与云端同步：邮箱注册、登录、密码重置、按账号隔离的账本，以及经确认后迁移旧本机账目。需要先配置自己的 Supabase 项目；未配置时保留本机模式，不会伪装成已登录的账户。首次打开为空账本，不会把演示消费混入真实记录。
 
-农行、中行、建行的储蓄卡与信用卡共用模板见[制作与接入说明](docs/three-bank-shortcut.md)。模板源文件需在 Apple 设备签名或分享后才能交给同事导入；三行短信仍全部先待确认。开发时使用 Python 3 标准库构建和校验 XML：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
+农行、中行、建行的储蓄卡与信用卡可安装同一份[农中建通用模板](https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d)，在导入时填写自己的个人接入令牌，再按[接入说明](docs/three-bank-shortcut.md)配置手机短信触发。三行短信仍全部先待确认；共享产物已做静态审核，真实 iPhone 导入、授权及锁屏触发尚待验收，见[交付审核记录](docs/three-bank-shortcut-audit-2026-11-15.md)。开发时使用 Python 3 标准库构建和校验模板源文件 XML：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
 
 接入步骤、数据库迁移和真实账号验证见 [独立账号部署说明](docs/cloud-accounts.md)。站点地址为 <https://wenzo-zwz.github.io/Moneytrail-/>。账号版首次发布用于注册和同步测试；迁移真实账目前应先验证邮箱、换设备读取与账户隔离。
+
+设置页提供“快速上手”，可进入短信自动记账、手动记账和月预算。向新用户交付短信自动记账前，按[首次试用验收清单](docs/automatic-bookkeeping-rollout.md)完成模板交付、独立账号接收和真实短信验证。
 
 项目所有者可绑定唯一管理员，在后台查看用户目录与同步概览。设置方式和权限范围见 [管理员后台说明](docs/admin.md)。
 
@@ -93,7 +95,7 @@ MONEYTRAIL_BASE_PATH=/Moneytrail-/ MONEYTRAIL_CHROMIUM_PATH=/usr/bin/chromium np
 
 普通根域名托管继续使用不带该变量的 `npm run build`。不同部署路径使用对应构建；不要把根路径部署包直接当作 GitHub 项目站点版本。更新时保留原站点地址，换地址前先导出 JSON 备份。
 
-普通 iPhone 网页或应用不能在后台直接读取短信、微信/支付宝通知或交易历史。账号版通过用户在“快捷指令”中配置的个人自动化，将筛选后的新工行支出短信提交到自己的云端账户；配置完成前不会自动采集，也不能补读历史短信。短信触发、内容传递和锁屏运行仍需在自己的 iPhone 上验证。开通方法、令牌管理与排查步骤见 [短信自动化说明](docs/sms-automation.md)。
+普通 iPhone 网页或应用不能在后台直接读取短信、微信/支付宝通知或交易历史。账号版通过用户在“快捷指令”中配置的个人自动化，将筛选后的新银行消费短信提交到自己的云端账户；工行明确消费可按设置自动入账，农中建全部先待确认。配置完成前不会自动采集，也不能补读历史短信。短信触发、内容传递和锁屏运行仍需在自己的 iPhone 上验证，操作以实际 iOS 版本及设备提示为准。开通方法、令牌管理与排查步骤见 [短信自动化说明](docs/sms-automation.md)。
 
 手动录入仍支持粘贴短信，或通过 URL 片段传入：`https://你的部署域名/#sms=<经过 URL 编码的短信文本>`。这是部署占位示例；打开后会填入文本并清除片段，仍需识别、核对和保存。自动接入使用专用 HTTPS 接口和请求正文，不把接入令牌或短信放进网页链接。
 

@@ -7,6 +7,7 @@ const {chromium} = require('playwright');
 const ROOT=path.resolve(__dirname,'..'), OUT=path.join(ROOT,'test-results','sms-install');
 const OFFICIAL='https://ojcgabicpjipwpvwolzn.supabase.co', CUSTOM='https://custom-install-fixture.supabase.co';
 const INSTALL='https://www.icloud.com/shortcuts/86d33de8ff704d6581c173b82f3f4f21';
+const THREE_BANK_INSTALL='https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d';
 const THREE_BANK_SOURCE='/Moneytrail-/shortcuts/moneytrail-three-bank-v1.unsigned.plist';
 const THREE_BANKS=[{code:'abc',name:'农业银行'},{code:'boc',name:'中国银行'},{code:'ccb',name:'建设银行'}];
 const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
@@ -24,7 +25,7 @@ function backend(project,origin,enabled=false){
  const requests=[],errors=[],secrets=[],external=[]; const books=new Map([A,B].map(id=>[id,empty()]));
  return{configs,requests,errors,secrets,external,books,async attach(context){await context.route('**/*',async route=>{try{
   const req=route.request(),u=new URL(req.url());if(u.origin===origin)return route.continue();
-  if(u.origin==='https://www.icloud.com'){assert.equal(req.method(),'GET');assert.equal(u.href,INSTALL);assert.equal(req.headers().referer,undefined);external.push(u.href);return route.fulfill({contentType:'text/html',body:'<title>模板测试页</title><h1>模板预览</h1>'});}
+  if(u.origin==='https://www.icloud.com'){assert.equal(req.method(),'GET');assert([INSTALL,THREE_BANK_INSTALL].includes(u.href),'only a fixed, secret-free template link may open');assert.equal(req.headers().referer,undefined);external.push(u.href);return route.fulfill({contentType:'text/html',body:'<title>模板测试页</title><h1>模板预览</h1>'});}
   assert.equal(u.origin,project,'unexpected external service');
   const headers={'access-control-allow-origin':origin,'access-control-allow-headers':'*','access-control-allow-methods':'GET,POST,OPTIONS','content-type':'application/json'};
   const respond=(x,status=200)=>route.fulfill({status,headers,body:JSON.stringify(x)});
@@ -45,7 +46,7 @@ function backend(project,origin,enabled=false){
  }catch(e){if(/Target.*closed|already handled/.test(String(e)))return;errors.push(String(e));try{await route.abort();}catch{}}});}};
 }
 async function start(project,port){const origin=`http://127.0.0.1:${port}`,base=origin+'/Moneytrail-/';let output='';const server=spawn(process.execPath,[path.join(ROOT,'node_modules/vite/bin/vite.js'),'--host','127.0.0.1','--port',String(port)],{cwd:ROOT,windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,MONEYTRAIL_BASE_PATH:'/Moneytrail-/',VITE_SUPABASE_URL:project,VITE_SUPABASE_PUBLISHABLE_KEY:'sb_publishable_install_fixture',VITE_SUPABASE_ANON_KEY:''}});server.stdout.on('data',x=>output+=x);server.stderr.on('data',x=>output+=x);await until(async()=>{if(server.exitCode!==null)throw Error(output);try{return /ready in/i.test(output)&&(await fetch(base)).ok;}catch{return false;}},'install test server failed');return{server,origin,base};}
-async function fixture(browser,app,service,width=393){const context=await browser.newContext({viewport:{width,height:950},locale:'zh-CN',timezoneId:'Asia/Shanghai'});await service.attach(context);await context.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{window.__fixtureCopied=value;}}});});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(3500);await page.goto(app.base+'?view=sms',{waitUntil:'networkidle'});return{context,page,errors};}
+async function fixture(browser,app,service,width=393){const context=await browser.newContext({viewport:{width,height:950},locale:'zh-CN',timezoneId:'Asia/Shanghai'});await service.attach(context);await context.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{window.__fixtureCopied=value;}}});});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(3500);await page.goto(app.base+'?view=sms',{waitUntil:'networkidle',timeout:20000});return{context,page,errors};}
 async function login(page,email='owner@example.test'){await page.getByLabel('邮箱',{exact:true}).fill(email);await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('heading',{name:'短信自动记账',exact:true}).waitFor();}
 async function safe(page,service,errors){assert.deepEqual(errors,[]);assert.deepEqual(service.errors,[]);const storage=await page.evaluate(()=>[...Object.values(localStorage),...Object.values(sessionStorage)].join('\n'));for(const token of service.secrets)assert(!storage.includes(token));assert.deepEqual(service.books.get(A),empty());assert.deepEqual(service.books.get(B),empty());const d=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));assert(d.scroll<=d.width+1);}
 async function officialWorkflow(browser,app,width){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,width);try{
@@ -57,7 +58,7 @@ async function officialWorkflow(browser,app,width){const service=backend(OFFICIA
  const popupPromise=context.waitForEvent('page');await link.click();const popup=await popupPromise;await popup.waitForLoadState();assert.equal(popup.url(),INSTALL);assert.equal(service.external.length,1);await popup.close();
  await modal.getByRole('button',{name:'我已保存',exact:true}).click();
  const install=guide.getByRole('link',{name:'安装 iPhone 快捷指令',exact:true});assert.equal(await install.getAttribute('href'),INSTALL);assert.equal(await install.getAttribute('target'),'_blank');assert.match(await install.getAttribute('rel'),/noreferrer/);
- if(width===393){const bank=guide.getByLabel('银行',{exact:true});const rotations=service.secrets.length;for(const item of THREE_BANKS){await bank.selectOption(item.code);assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);assert.match(await guide.innerText(),/待确认/);assert((await guide.innerText()).includes(`信息包含「${item.name}」`));assert.equal(service.secrets.length,rotations);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();await guide.waitFor();assert.equal(await bank.inputValue(),'ccb');assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);await page.screenshot({path:path.join(OUT,'install-ccb-393.png'),fullPage:true});await bank.selectOption('icbc');await install.waitFor();assert.equal(service.secrets.length,rotations);}
+ if(width===393){const bank=guide.getByLabel('银行',{exact:true});const rotations=service.secrets.length;for(const item of THREE_BANKS){await bank.selectOption(item.code);assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);assert.equal(await guide.getByRole('link',{name:'安装 iPhone 快捷指令',exact:true}).getAttribute('href'),THREE_BANK_INSTALL);assert.match(await guide.innerText(),/待确认/);assert((await guide.innerText()).includes(`信息包含「${item.name}」`));assert.equal(service.secrets.length,rotations);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();await guide.waitFor();assert.equal(await bank.inputValue(),'ccb');assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);await page.screenshot({path:path.join(OUT,'install-ccb-393.png'),fullPage:true});await bank.selectOption('icbc');await install.waitFor();assert.equal(await install.getAttribute('href'),INSTALL);assert.equal(await guide.locator(`a[href="${THREE_BANK_INSTALL}"]`).count(),0);assert.equal(service.secrets.length,rotations);}
  assert(!(await guide.innerText()).includes('自动化已完成'));service.configs.get(A).last_received_at='2026-10-31T08:30:00Z';
  await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();await guide.getByText(/16:30/).waitFor();assert.equal(service.secrets.length,1);
  assert(!service.requests.some(r=>r.path.includes('receive_sms')||r.path.includes('save_moneytrail')));
@@ -65,7 +66,31 @@ async function officialWorkflow(browser,app,width){const service=backend(OFFICIA
  if(width===393){await guide.getByLabel('银行',{exact:true}).selectOption('boc');await page.getByRole('button',{name:'返回账本',exact:true}).click();await page.getByRole('button',{name:'我的账户',exact:true}).click();await page.getByRole('button',{name:'退出登录并清除本机副本',exact:true}).click();await page.getByRole('button',{name:'登录我的账本',exact:true}).waitFor();await page.goto(app.base+'?view=sms',{waitUntil:'networkidle'});await login(page,'member@example.test');await guide.waitFor();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'icbc');assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);assert(!(await guide.innerText()).includes('16:30'));assert.equal(service.secrets.length,1);await safe(page,service,errors);}
  passed(`${width}px official template: consent gate, one-time copy, fixed secret-free link, read-only receipt refresh and layout${width===393?', account isolation':''}`);
  }finally{await context.close();}}
-async function newBankEnableWorkflow(browser,app){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,320);try{await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption('abc');await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});await modal.waitFor();assert.equal(await modal.locator(`a[href="${INSTALL}"]`).count(),0,'new-bank enable must not offer the ICBC-only installer');await modal.getByRole('button',{name:'复制令牌',exact:true}).click();assert.equal(await page.evaluate(()=>window.__fixtureCopied),service.secrets[0]);await modal.getByRole('button',{name:'我已保存',exact:true}).click();await guide.waitFor();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'abc');assert.equal(await guide.locator(`a[href="${INSTALL}"]`).count(),0);await guide.locator('details').filter({hasText:'制作与分享模板（仅需一次）'}).locator('summary').click();await safe(page,service,errors);await page.screenshot({path:path.join(OUT,'install-three-bank-320.png'),fullPage:true});passed('320px new-bank enable keeps selection, lays out the expanded maker guide and never offers the ICBC-only installer in the token dialog');}finally{await context.close();}}
+async function newBankEnableWorkflow(browser,app){
+ const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,320);
+ try{
+  await login(page);
+  const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});
+  await guide.getByLabel('银行',{exact:true}).selectOption('abc');
+  await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});
+  await modal.waitFor();
+  assert.equal(await modal.locator(`a[href="${INSTALL}"]`).count(),0,'new-bank enable must not offer the ICBC-only installer');
+  assert.equal(await modal.getByRole('link',{name:'打开模板安装页',exact:true}).getAttribute('href'),THREE_BANK_INSTALL);
+  await safe(page,service,errors);
+  await page.screenshot({path:path.join(OUT,'install-three-bank-token-320.png'),fullPage:true});
+  await modal.getByRole('button',{name:'复制令牌',exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__fixtureCopied),service.secrets[0]);
+  await modal.getByRole('button',{name:'我已保存',exact:true}).click();
+  await guide.waitFor();
+  assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'abc');
+  assert.equal(await guide.getByRole('link',{name:'安装 iPhone 快捷指令',exact:true}).getAttribute('href'),THREE_BANK_INSTALL);
+  await guide.locator('details').filter({hasText:'制作与分享模板（仅需一次）'}).locator('summary').click();
+  await safe(page,service,errors);
+  await page.screenshot({path:path.join(OUT,'install-three-bank-320.png'),fullPage:true});
+  passed('320px new-bank enable preserves bank selection, offers the matching installer in the token dialog and fits the expanded maintenance guide');
+ }finally{await context.close();}
+}
 async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,393);try{
  await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);
  await guide.getByRole('heading',{name:'配置农中建通用模板',exact:true}).waitFor();
@@ -74,11 +99,19 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
  assert.equal(await guide.getByRole('textbox').count(),0,'generic onboarding must not require an SMS sample');
  assert((await guide.innerText()).includes(`信息包含「${bank.name}」`),'native Messages trigger must match the selected bank name');
  assert(!(await guide.innerText()).includes('信息包含「元」'));
- assert.equal(await guide.locator('a[href*="icloud.com/shortcuts/"]').count(),0,'an unpublished generic template must not offer a direct installer');
+ assert.equal(await guide.locator('a[href*="icloud.com/shortcuts/"]').count(),0,'a generic installer requires personal access to be enabled');
+ assert.equal(await guide.getByRole('button',{name:'安装 iPhone 快捷指令',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});await modal.waitFor();
- assert.equal(await modal.locator('a[href*="icloud.com/shortcuts/"]').count(),0,'new-bank token dialog must not offer the ICBC donor installer');
+ assert.equal(await modal.locator(`a[href="${INSTALL}"]`).count(),0,'new-bank token dialog must not offer the ICBC donor installer');
+ const tokenLink=modal.getByRole('link',{name:'打开模板安装页',exact:true});
+ assert.equal(await tokenLink.getAttribute('href'),THREE_BANK_INSTALL);
+ const popupPromise=context.waitForEvent('page');await tokenLink.click();const popup=await popupPromise;await popup.waitForLoadState();assert.equal(popup.url(),THREE_BANK_INSTALL);await popup.close();
  await modal.getByRole('button',{name:'我已保存',exact:true}).click();await guide.waitFor();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),bank.code);
- await guide.getByRole('heading',{name:'农中建通用模板',exact:true}).waitFor();assert.match(await guide.innerText(),/共享安装链接尚未发布/);
+ await guide.getByRole('heading',{name:'农中建通用模板',exact:true}).waitFor();
+ assert(!(await guide.innerText()).includes('共享安装链接尚未发布'));
+ const installer=guide.getByRole('link',{name:'安装 iPhone 快捷指令',exact:true});
+ assert.equal(await installer.getAttribute('href'),THREE_BANK_INSTALL);
+ assert.equal(await installer.getAttribute('target'),'_blank');assert.match(await installer.getAttribute('rel'),/noreferrer/);
  const maker=guide.locator('details').filter({hasText:'制作与分享模板（仅需一次）'});assert.equal(await maker.count(),1);
  const source=guide.locator(`a[href="${THREE_BANK_SOURCE}"]`);assert.equal(await source.count(),1);assert.equal(await source.isVisible(),false,'unsigned source belongs behind the maker details');
  await maker.locator('summary').click();await source.waitFor();assert.equal(await maker.getByRole('link',{name:'下载模板源文件',exact:true}).count(),1);assert.notEqual(await source.getAttribute('download'),null,'source must be a download, not a direct Apple installer');
@@ -86,8 +119,8 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
  for(const name of ['复制匹配规则','复制 iPhone 制作步骤','复制 Mac 签名命令']){await page.evaluate(()=>{window.__fixtureCopied=null;});await guide.getByRole('button',{name,exact:true}).click();const copied=await page.evaluate(()=>window.__fixtureCopied);assert.equal(typeof copied,'string');assert(copied.length>20,`${name} must copy useful template content`);for(const token of service.secrets)assert(!copied.includes(token),`${name} must not copy the personal token`);assert(!copied.includes('owner@example.test'));assert(!copied.includes(A));if(name==='复制匹配规则')for(const item of THREE_BANKS)assert(copied.includes(item.name),'the shared rule must cover all three banks');}
  for(const token of service.secrets)assert(!sourceText.includes(token),'public source must not contain a personal token');
  await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();await guide.waitFor();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),bank.code);assert.equal(service.secrets.length,1);
- assert(!service.requests.some(r=>r.path.includes('receive_sms')||r.path.includes('save_moneytrail')));assert.deepEqual(service.external,[]);await safe(page,service,errors);
- passed(`${bank.name} ${cardKind}: shared sample-free template, bank trigger, unpublished source download, secret-free maker clipboard and selection retention`);
+ assert(!service.requests.some(r=>r.path.includes('receive_sms')||r.path.includes('save_moneytrail')));assert.deepEqual(service.external,[THREE_BANK_INSTALL]);await safe(page,service,errors);
+ passed(`${bank.name} ${cardKind}: consent-gated shared installer, matching token handoff, fixed secret-free URL, bank trigger and selection retention`);
  }finally{await context.close();}}
 async function customWorkflow(browser,app){const service=backend(CUSTOM,app.origin,true),{context,page,errors}=await fixture(browser,app,service,393);try{await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.waitFor();assert.equal(await page.locator(`a[href="${INSTALL}"]`).count(),0);for(const bank of THREE_BANKS){await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);assert.match(await guide.innerText(),/与当前部署不匹配/);assert.equal(await guide.locator(`a[href="${THREE_BANK_SOURCE}"]`).count(),0,'custom projects must not download the fixed production source');for(const name of ['复制匹配规则','复制 iPhone 制作步骤','复制 Mac 签名命令'])assert.equal(await guide.getByRole('button',{name,exact:true}).count(),0,'custom projects must not copy production template content');assert.equal(await page.locator('a[href*="icloud.com/shortcuts/"]').count(),0);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'ccb');assert.equal(service.secrets.length,0);await safe(page,service,errors);passed('custom project cannot offer a production installer, source download or template clipboard');}finally{await context.close();}}
-(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true});try{const official=await start(OFFICIAL,5191);try{for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Apple import and real SMS triggers still require iPhone verification.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});
+(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{const official=await start(OFFICIAL,5191);try{for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Apple import and real SMS triggers still require iPhone verification.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});

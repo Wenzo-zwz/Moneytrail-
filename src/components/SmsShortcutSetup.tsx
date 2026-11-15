@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { isShortcutTemplateCompatible, SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
+import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
 import { getSmsBank, SMS_BANKS, type SmsBankCode } from "../lib/smsBanks";
 import type { SmsConfig } from "../lib/smsClient";
 import ThreeBankShortcutGuide from "./ThreeBankShortcutGuide";
-import { THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
+import { getCompatibleSmsShortcutTemplate, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 
 type Props = {
   projectUrl: string;
@@ -20,8 +20,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
   const [localBankCode, setLocalBankCode] = useState<SmsBankCode>("icbc");
   const bankCode = controlledBankCode ?? localBankCode;
   const bank = getSmsBank(bankCode);
-  const compatible = isShortcutTemplateCompatible(projectUrl);
-  const canInstall = config.enabled && isShortcutTemplateCompatible(projectUrl, bankCode);
+  const template = getCompatibleSmsShortcutTemplate(projectUrl, bankCode);
   const received = config.last_received_at ? new Date(config.last_received_at) : null;
 
   return <section className="sms-shortcut-setup" aria-label="iPhone 快捷指令安装">
@@ -41,11 +40,10 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{bankCode === "icbc" ? "安装快捷指令" : "配置农中建通用模板"}</h4></div>
         {bankCode === "icbc" ? <>
           <p>用 iPhone 添加「{SMS_SHORTCUT_TEMPLATE.name}」工行版模板。导入时，在令牌问题中粘贴自己的个人令牌，并保留模板名称。</p>
-          {canInstall ? <a className="button primary sms-shortcut-install" href={SMS_SHORTCUT_TEMPLATE.url} target="_blank" rel="noopener noreferrer">安装 iPhone 快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装 iPhone 快捷指令</button>}
-          {!compatible ? <p className="sms-shortcut-caution">当前部署与此模板不匹配，请勿把当前账户令牌填入此模板。请使用下方「iPhone 配置步骤」中的高级手动配置指南，为当前部署配置快捷指令。</p> : !config.enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌，再安装模板。</p>}
+          {config.enabled && template ? <a className="button primary sms-shortcut-install" href={template.url} target="_blank" rel="noopener noreferrer">安装 iPhone 快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装 iPhone 快捷指令</button>}
+          {!template ? <p className="sms-shortcut-caution">当前部署与此模板不匹配，请勿把当前账户令牌填入此模板。请使用下方「iPhone 配置步骤」中的高级手动配置指南，为当前部署配置快捷指令。</p> : !config.enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌，再安装模板。</p>}
         </> : <>
-          <ThreeBankShortcutGuide key={bankCode} compatible={compatible} />
-          {!config.enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌。</p>}
+          <ThreeBankShortcutGuide key={bankCode} projectUrl={projectUrl} bankCode={bankCode} enabled={config.enabled} />
         </>}
       </li>
       <li>
