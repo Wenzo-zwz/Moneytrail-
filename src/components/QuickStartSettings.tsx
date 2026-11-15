@@ -15,7 +15,7 @@ export default function QuickStartSettings({ onSmsAutomation, onRecord, onBudget
     {onSmsAutomation && <>
       <div className="quick-start-support" aria-label="当前银行接入范围">
         <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；群收款和不明确的记录仍需确认。</span></p>
-        <p><strong>农行 · 中行 · 建行</strong><span>目前收到后先待确认，共享安装模板尚未发布。</span></p>
+        <p><strong>农行 · 中行 · 建行</strong><span>可安装农中建通用模板，收到后先待确认，核对后再入账。</span></p>
       </div>
       <button type="button" className="button primary" onClick={onSmsAutomation}><MessageSquare size={17} />开通短信自动记账<ArrowRight size={17} /></button>
       <details className="quick-start-checklist">

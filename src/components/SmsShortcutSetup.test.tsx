@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
+import { THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 import type { SmsConfig } from "../lib/smsClient";
 import type { SmsBankCode } from "../lib/smsBanks";
 import SmsShortcutSetup from "./SmsShortcutSetup";
@@ -18,7 +19,10 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).toContain("配置农中建通用模板");
     expect(markup).toContain("储蓄卡和信用卡共用");
-    expect(markup).toContain("共享安装链接尚未发布");
+    expect(markup).toContain(`href="${THREE_BANK_TEMPLATE.url}"`);
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('rel="noopener noreferrer"');
+    expect(markup).not.toContain("共享安装链接尚未发布");
     expect(markup).toContain("收到后先待确认");
     expect(markup).toContain(`信息包含「${({ abc: "农业银行", boc: "中国银行", ccb: "建设银行" })[bankCode]}」`);
     expect(markup).toContain("复制匹配规则");
@@ -26,6 +30,15 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("复制 Mac 签名命令");
     expect(markup).toContain("未签名源文件");
     expect(markup).toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
+  });
+
+  it.each(["abc", "boc", "ccb"] as const)("requires personal access before offering the %s installer", bankCode => {
+    const markup = render({}, SMS_SHORTCUT_TEMPLATE.projectUrl, false, bankCode);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
+    expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
+    expect(markup).toContain("请先在上方启用个人接入并保存令牌");
+    expect(markup).toContain("收到后先待确认");
   });
 
   it("lets users select all four banks while labelling the existing template as ICBC-only", () => {
@@ -59,6 +72,7 @@ describe("iPhone shortcut setup guidance", () => {
   it("offers only the fixed template link after access is enabled and explains the private token handoff", () => {
     const markup = render({ enabled: true });
     expect(markup).toContain(`href="${SMS_SHORTCUT_TEMPLATE.url}"`);
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
     expect(markup).toContain('target="_blank"');
     expect(markup).toContain('rel="noopener noreferrer"');
     expect(markup).toContain("MoneyTrail 慢慢记账");
@@ -75,6 +89,7 @@ describe("iPhone shortcut setup guidance", () => {
   it("keeps the production installer unavailable for another deployment and points to its manual guide", () => {
     const markup = render({ enabled: true }, "https://other.supabase.co");
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
     expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
     expect(markup).toContain("当前部署与此模板不匹配");
     expect(markup).toContain("手动配置");
@@ -83,6 +98,9 @@ describe("iPhone shortcut setup guidance", () => {
   it.each(["abc", "boc", "ccb"] as const)("keeps fixed-production generic source and conversion instructions unavailable to another project (%s)", bankCode => {
     const markup = render({ enabled: true }, "https://other.supabase.co", false, bankCode);
     expect(markup).toContain("与当前部署不匹配");
+    expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
     expect(markup).not.toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
     expect(markup).not.toContain("复制 iPhone 制作步骤");
     expect(markup).not.toContain("复制 Mac 签名命令");

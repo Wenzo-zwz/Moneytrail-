@@ -1,6 +1,8 @@
 {
   "name": "MoneyTrail 农中建通用记账",
   "version": 1,
+  "url": "https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d",
+  "projectUrl": "https://ojcgabicpjipwpvwolzn.supabase.co",
   "supportedBanks": [
     "abc",
     "boc",

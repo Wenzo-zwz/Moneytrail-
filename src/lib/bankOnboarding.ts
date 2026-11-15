@@ -1,7 +1,25 @@
 import profile from "../../public/shortcuts/three-bank-profile.json";
-import { SMS_SHORTCUT_TEMPLATE } from "./shortcutTemplate";
+import { isShortcutTemplateCompatible, SMS_SHORTCUT_TEMPLATE } from "./shortcutTemplate";
+import type { SmsBankCode } from "./smsBanks";
 
 export const THREE_BANK_TEMPLATE = profile;
+
+type SmsShortcutTemplate = {
+  name: string;
+  url: string;
+  projectUrl: string;
+  version: number;
+  supportedBanks: readonly string[];
+};
+
+export function getCompatibleSmsShortcutTemplate(projectUrl: string, bankCode: SmsBankCode): SmsShortcutTemplate | null {
+  if (isShortcutTemplateCompatible(projectUrl, bankCode)) return SMS_SHORTCUT_TEMPLATE;
+  // Compare the complete address without parsing away paths, credentials or ports.
+  if (projectUrl.replace(/\/$/, "").toLowerCase() === THREE_BANK_TEMPLATE.projectUrl
+    && THREE_BANK_TEMPLATE.supportedBanks.includes(bankCode)) return THREE_BANK_TEMPLATE;
+  return null;
+}
+
 export const THREE_BANK_SIGN_COMMAND = 'shortcuts sign --mode anyone --input "$HOME/Downloads/moneytrail-three-bank-v1.unsigned.plist" --output "$HOME/Downloads/MoneyTrail 农中建通用记账.shortcut"';
 export const THREE_BANK_IPHONE_STEPS = [
   `1. 在 iPhone 安装或复制原工行基础模板：${SMS_SHORTCUT_TEMPLATE.url}。将副本重命名为「${profile.name}」，保留原指令。`,

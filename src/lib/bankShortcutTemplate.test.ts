@@ -8,14 +8,16 @@ const templatePath = "shortcuts/moneytrail-three-bank.template.json";
 const load = (path: string) => JSON.parse(path === profilePath ? profileSource : templateSource);
 
 describe("three-bank shortcut source", () => {
-  it("ships a bank-scoped unsigned source without an installation claim", () => {
+  it("keeps the unsigned source separate from the audited bank-scoped installer", () => {
     const profile = load(profilePath);
     expect(profile).toMatchObject({
       name: "MoneyTrail 农中建通用记账", version: 1,
       supportedBanks: ["abc", "boc", "ccb"], cardKinds: ["debit", "credit"],
       sourcePath: "/shortcuts/moneytrail-three-bank-v1.unsigned.plist",
+      url: "https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d",
+      projectUrl: "https://ojcgabicpjipwpvwolzn.supabase.co",
     });
-    expect(profile).not.toHaveProperty("url");
+    expect(profile.url).not.toContain(profile.sourcePath);
     expect(unsignedXml.startsWith("<?xml")).toBe(true);
     expect(unsignedXml).toContain("UNSIGNED SOURCE");
     expect(unsignedXml).toContain("Apple signing");

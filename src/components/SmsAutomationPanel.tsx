@@ -1,6 +1,6 @@
 import SmsClassificationTools from "./SmsClassificationTools";
 import SmsShortcutSetup from "./SmsShortcutSetup";
-import { isShortcutTemplateCompatible, SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
+import { getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
 import { categoryText, DetailField } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -108,6 +108,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const loading = !current && !currentFailure;
   const token = secret?.owner === userId ? secret.value : "";
   const selectedSetupBank = setupBank.owner === userId ? setupBank.code : "icbc";
+  const selectedTemplate = getCompatibleSmsShortcutTemplate(projectUrl, selectedSetupBank);
   const canConfirm = syncState.ready && !syncState.dirty && syncState.phase === "saved" && !syncState.recoveryError;
   const canRefreshLedger = syncState.ready && !syncState.dirty && syncState.phase !== "conflict" && !syncState.recoveryError;
   const publicConfig = readCloudConfig(import.meta.env);
@@ -209,7 +210,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
             <div className="sms-setup-actions">{config.enabled ? <><button className="button primary" disabled={busy || mode === config.mode} onClick={() => void run(async signal => { await setSmsMode(client, userId, mode, signal); return "记录方式已更新，仅对之后收到的短信生效。"; })}>保存记录方式</button><button className="button secondary" disabled={busy} onClick={() => void createToken()}><KeyRound size={15} />更换接入令牌</button><button className="button ghost" disabled={busy} onClick={() => void run(async signal => { await revokeSmsToken(client, userId, signal); clearSecret(); return "已停用接入，手机里的旧令牌立即失效。已有待确认短信仍可处理。"; })}>停用接入</button></> : <button className="button primary" disabled={busy} onClick={() => void createToken()}><KeyRound size={16} />同意转发并启用</button>}</div>
             <SmsShortcutSetup projectUrl={projectUrl} config={config} busy={busy} bankCode={selectedSetupBank} onBankChange={code => setSetupBank({ owner: userId, code })} onRefresh={() => void refreshInbox()} />
             <details className="sms-guide"><summary><span><Smartphone size={17} />iPhone 配置步骤</span><ChevronDown size={16} /></summary><div>
-              <p className="sms-guide-intro">以下为高级手动配置。工行可使用上方现成模板；其他三行按上方对应银行的触发、筛选说明设置，以下网络字段共用。</p>
+              <p className="sms-guide-intro">以下为高级手动配置。当前生产服务可按所选银行安装上方工行版或农中建通用模板；其他部署需制作配套指令，以下网络字段共用。</p>
               <p className="sms-guide-intro">以下筛选步骤以工行为例，其他三行以所选银行说明为准。创建个人自动化后，新短信才能触发；网站无法直接读取短信历史。</p>
               <ol><li>打开 iPhone「快捷指令」→「自动化」→「＋」→「信息」。发件人选择银行短信的真实号码（工行通常为 95588，请以实际短信为准），内容包含填「支出」，选择「立即运行」。</li><li>添加「从输入中获取文本」，输入选择「快捷指令输入／信息正文」。发送前增加「如果」筛选：包含「工商银行」和「支出」，且不包含「验证码」「动态口令」「一次性密码」。</li><li>添加「获取 URL 内容」，填入下方接收地址，方法选 <strong>POST</strong>，请求体选 <strong>JSON</strong>。添加两个文本字段：<code>p_token</code> 填刚保存的接入令牌；<code>p_message</code> 选择上一步的短信文本变量。</li><li>在请求头添加 <code>apikey</code>，值填下方公开密钥；添加 <code>Content-Type</code>，值为 <code>application/json</code>。保存自动化。</li><li>下一笔真实消费短信到达后，打开这里点击「刷新收件箱」，核对最近接收时间、金额与状态。请勿为了测试通知而提交虚构消费。</li></ol>
               <div className="sms-copy-field"><span>接收地址</span><code>{endpoint}</code><button className="button secondary small" onClick={() => void copy(endpoint, "接收地址已复制。")}><Copy size={14} />复制接收地址</button></div>
@@ -228,6 +229,6 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       </>}
       <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。入账后移除原文，脱敏凭据长期保留在账本中；历史记录可能没有凭据。忽略不会新增账目或凭据。</p></footer>
     </div>
-    <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title"><div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div><p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p><h2 id="sms-token-title">接入令牌，仅显示这一次</h2><p>请先复制并保存令牌，再填写到手机快捷指令中。关闭后无法再次查看，可通过更换令牌重新生成。</p><div className="sms-token-value"><code>{revealed ? token : "mt_sms_••••••••••••••••••••••••"}</code></div><div className="sms-token-tools"><button className="button secondary" onClick={() => void copy(token, "接入令牌已复制，请粘贴到自己的快捷指令中。")}><Copy size={16} />复制令牌</button><button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button></div>{isShortcutTemplateCompatible(projectUrl, selectedSetupBank) && <p>复制后，<a className="button secondary small" href={SMS_SHORTCUT_TEMPLATE.url} target="_blank" rel="noopener noreferrer">打开模板安装页</a>，在导入问题中粘贴自己的令牌。此共享模板仅用于工行，其他三行需按对应银行的手动说明配置。</p>}<p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p><button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button></dialog>
+    <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title"><div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div><p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p><h2 id="sms-token-title">接入令牌，仅显示这一次</h2><p>请先复制并保存令牌，再填写到手机快捷指令中。关闭后无法再次查看，可通过更换令牌重新生成。</p><div className="sms-token-value"><code>{revealed ? token : "mt_sms_••••••••••••••••••••••••"}</code></div><div className="sms-token-tools"><button className="button secondary" onClick={() => void copy(token, "接入令牌已复制，请粘贴到自己的快捷指令中。")}><Copy size={16} />复制令牌</button><button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button></div>{selectedTemplate && <p>复制后，<a className="button secondary small" href={selectedTemplate.url} target="_blank" rel="noopener noreferrer">打开模板安装页</a>，安装「{selectedTemplate.name}」并在导入问题中粘贴自己的令牌。{selectedSetupBank === "icbc" ? "此模板仅用于工行。" : "农行、中行、建行共用此模板，收到后先待确认。"}</p>}<p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p><button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button></dialog>
   </main>;
 }
