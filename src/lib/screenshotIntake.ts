@@ -1,5 +1,6 @@
 export const MAX_SCREENSHOT_TEXT_LENGTH = 16_000;
-const SCREENSHOT_KEY = "alipay-screenshot";
+const SCREENSHOT_KEY = "screenshot";
+const SCREENSHOT_KEYS = new Set([SCREENSHOT_KEY, "alipay-screenshot"]);
 
 export type ScreenshotIntake = Readonly<{ id: number; text: string; error?: string }>;
 export type ScreenshotFragment = Readonly<{ text: string; error?: string }>;
@@ -25,7 +26,9 @@ export function parseScreenshotFragment(hash: string): ScreenshotFragment | null
   if (!hash.startsWith("#")) return null;
   const parts = hash.slice(1).split("&");
   const firstKey = parts[0].split("=", 1)[0];
-  if (firstKey !== SCREENSHOT_KEY) return null;
+  // Old installed shortcuts use alipay-screenshot. Both names only transport
+  // OCR text: neither is evidence of which app or payment platform it came from.
+  if (!SCREENSHOT_KEYS.has(firstKey)) return null;
 
   // A malformed mixed link must not consume the SDK's login/recovery callback.
   let malformedKey = false;
@@ -37,11 +40,11 @@ export function parseScreenshotFragment(hash: string): ScreenshotFragment | null
     }
   }
   if (malformedKey) return failure("截图链接格式不正确，请重新运行截图快捷指令。");
-  if (parts.length !== 1 || !parts[0].startsWith(`${SCREENSHOT_KEY}=`)) {
+  if (parts.length !== 1 || !parts[0].startsWith(`${firstKey}=`)) {
     return failure("截图链接参数不正确，请每次传入一份截图文字。");
   }
 
-  const encoded = parts[0].slice(SCREENSHOT_KEY.length + 1);
+  const encoded = parts[0].slice(firstKey.length + 1);
   // One UTF-16 code unit needs at most 12 URL characters when percent encoded.
   if (encoded.length > MAX_SCREENSHOT_TEXT_LENGTH * 12) {
     return failure("截图文字过长，请只截取一笔付款详情后重试。");

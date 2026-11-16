@@ -70,7 +70,7 @@ import QuickStartSettings from "./components/QuickStartSettings";
 import AlipayScreenshotCapture from "./components/AlipayScreenshotCapture";
 import ScreenshotCaptureSettings from "./components/ScreenshotCaptureSettings";
 import { clearScreenshotIntake, getScreenshotIntake, subscribeScreenshotIntake } from "./lib/screenshotIntake";
-import type { AlipayScreenshotCandidate } from "./lib/alipayScreenshot";
+import type { PaymentScreenshotCandidate } from "./lib/paymentScreenshot";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
@@ -92,7 +92,7 @@ const KIND_NAMES: Record<TransactionKind, string> = {
 const SOURCE_NAMES: Record<Source, string> = {
   manual: "手动",
   sms: "银行短信",
-  wechat: "微信账单",
+  wechat: "微信支付",
   alipay: "支付宝",
   csv: "账单导入",
 };
@@ -691,14 +691,14 @@ export default function App({
     setBudgetInput(data.budgetCents ? (data.budgetCents / 100).toFixed(2) : "");
     setBudgetOpen(true);
   }
-  function reviewScreenshot(candidate: AlipayScreenshotCandidate) {
+  function reviewScreenshot(candidate: PaymentScreenshotCandidate) {
     setNotice("");
     setEditor({ draft: {
-      kind: "expense", source: "alipay", amountCents: candidate.amountCents,
+      kind: candidate.kind, source: candidate.source, amountCents: candidate.amountCents,
       merchant: candidate.merchant, date: candidate.date ?? "", category: candidate.category,
       ...(candidate.subcategory ? { subcategory: candidate.subcategory } : {}),
       ...(candidate.platform ? { platform: candidate.platform } : {}),
-      note: "支付宝截图识别",
+      note: "截图识别",
     } });
   }
   function saveEditor(draft: DraftTransaction, remember: boolean, explicitChoice: boolean) {
@@ -1586,7 +1586,7 @@ export default function App({
                         className={`tab ${captureMode === "screenshot" ? "active" : ""}`}
                         onClick={() => setCaptureMode("screenshot")}
                       >
-                        支付宝截图
+                        截图记账
                       </button>
                       <button
                         id="csv-tab"

@@ -12,6 +12,7 @@ const B = '22222222-2222-4222-8222-222222222222';
 const DATE = '2026-11-16T09:10';
 const MARKER = 'private-ocr-fixture-marker';
 const TEXT = `支付宝\n交易提醒\n你在滴滴出行有一笔38.40元的免密/自动扣款支付，点此查看详情。\n${MARKER}`;
+const WECHAT = '微信支付\n付款详情\n支付成功\n商户全称：示例咖啡店\n支付金额：￥18.60\n支付时间：2026年11月16日09:10';
 const clone = value => JSON.parse(JSON.stringify(value));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const empty = () => ({version:1,transactions:[],budgetCents:0,billCheckedMonths:[]});
@@ -71,7 +72,7 @@ async function context(browser,app,width=393,service){
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(8000);
   return{context,page,errors};
 }
-async function open(page,base,text=TEXT){await page.goto(base+'#alipay-screenshot='+encodeURIComponent(text),{waitUntil:'networkidle',timeout:20000});}
+async function open(page,base,text=TEXT,key='screenshot'){await page.goto(base+'#'+key+'='+encodeURIComponent(text),{waitUntil:'networkidle',timeout:20000});}
 async function privacy(page){
   assert.equal(new URL(page.url()).hash,'');
   const stored=await page.evaluate(()=>[...Object.values(localStorage),...Object.values(sessionStorage)].join('\n'));
@@ -85,19 +86,19 @@ async function localWorkflow(browser,app,width){const {context:ctx,page,errors}=
   const text=page.getByLabel('截图提取的文字',{exact:true});assert.equal(await text.inputValue(),TEXT);
   await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('heading',{name:'轻点背面，截图记账',exact:true}).waitFor();
   await page.getByText('配置 iPhone 截图快捷指令',{exact:true}).click();
-  assert((await page.locator('.screenshot-settings').innerText()).includes(app.base+'#alipay-screenshot='));await privacy(page);
+  assert((await page.locator('.screenshot-settings').innerText()).includes(app.base+'#screenshot='));await privacy(page);
   await page.getByRole('button',{name:'打开截图识别',exact:true}).click();assert.equal(await text.inputValue(),TEXT,'navigation must preserve the capture draft');
-  await page.getByRole('tab',{name:'粘贴银行短信',exact:true}).click();await page.getByRole('tab',{name:'支付宝截图',exact:true}).click();assert.equal(await text.inputValue(),TEXT);
+  await page.getByRole('tab',{name:'粘贴银行短信',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await text.inputValue(),TEXT);
   await page.getByRole('button',{name:'核对并记账',exact:true}).click();let modal=page.getByRole('dialog',{name:'记下一笔',exact:true});await modal.waitFor();
   assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),'','missing date stays blank');
   await modal.getByRole('button',{name:'确认保存',exact:true}).click();assert.equal((await localBook(page)).transactions.length,0);
   await modal.getByLabel('发生时间',{exact:true}).fill(DATE);await modal.getByRole('button',{name:'确认保存',exact:true}).click();
   const book=await localBook(page);assert.equal(book.transactions.length,1);assert.equal(book.transactions[0].source,'alipay');assert.equal(book.transactions[0].amountCents,3840);assert.equal(book.transactions[0].date,DATE);assert.equal(book.transactions[0].sourceRef,undefined);assert.equal(book.transactions[0].smsEvidence,undefined);
-  await page.evaluate(value=>{location.hash='alipay-screenshot='+encodeURIComponent(value);},TEXT);
+  await page.evaluate(value=>{location.hash='screenshot='+encodeURIComponent(value);},TEXT);
   await page.getByText('收到新的截图文字',{exact:true}).waitFor();assert.equal(await text.inputValue(),TEXT);
   await page.getByRole('button',{name:'使用新截图',exact:true}).click();await page.getByRole('button',{name:'核对并记账',exact:true}).click();modal=page.getByRole('dialog',{name:'记下一笔',exact:true});await modal.getByLabel('发生时间',{exact:true}).fill(DATE);
   page.once('dialog',dialog=>dialog.dismiss());await modal.getByRole('button',{name:'确认保存',exact:true}).click();assert.equal((await localBook(page)).transactions.length,1,'duplicate rejection preserves ledger');await modal.getByRole('button',{name:'取消',exact:true}).click();
-  await page.evaluate(()=>{location.hash='alipay-screenshot='+encodeURIComponent('x'.repeat(16001));});await page.getByText(/截图文字过长/).first().waitFor();assert.equal(await text.inputValue(),TEXT,'invalid incoming capture preserves prior draft');
+  await page.evaluate(()=>{location.hash='screenshot='+encodeURIComponent('x'.repeat(16001));});await page.getByText(/截图文字过长/).first().waitFor();assert.equal(await text.inputValue(),TEXT,'invalid incoming capture preserves prior draft');
   await privacy(page);assert.deepEqual(errors,[]);await page.screenshot({path:path.join(OUT,`capture-${width}.png`),fullPage:true});
   pass(`${width}px local handoff, private URL cleanup, automatic preview, draft preservation, required date and explicit duplicate rejection`);
 }finally{await ctx.close();}}
@@ -109,12 +110,34 @@ async function cloudWorkflow(browser,app){const service=backend(app),{context:ct
   page.once('dialog',dialog=>dialog.dismiss());await modal.getByRole('button',{name:'确认保存',exact:true}).click();assert.equal(service.accepted.length,0,'cross-source duplicate can be rejected');
   page.once('dialog',dialog=>dialog.accept());await modal.getByRole('button',{name:'确认保存',exact:true}).click();await until(()=>service.accepted.length===1,'confirmed screenshot sync');
   assert.equal(service.books.get(A).transactions.length,2);assert.equal(service.books.get(B).transactions.length,0);assert.equal(service.accepted[0].id,A);assert.equal(service.books.get(A).transactions[1].source,'alipay');
+  await page.evaluate(value=>{location.hash='screenshot='+encodeURIComponent(value);},WECHAT);
+  await page.getByRole('button',{name:'使用新截图',exact:true}).click();
+  assert.equal(await page.getByLabel('支付来源：示例咖啡店',{exact:true}).inputValue(),'wechat');
+  await page.getByRole('button',{name:'核对并记账',exact:true}).click();
+  const wechatModal=page.getByRole('dialog',{name:'记下一笔',exact:true});assert.equal(await wechatModal.getByLabel('发生时间',{exact:true}).inputValue(),DATE);
+  await wechatModal.getByRole('button',{name:'确认保存',exact:true}).click();await until(()=>service.accepted.length===2,'WeChat screenshot sync');
+  assert.equal(service.books.get(A).transactions[2].source,'wechat');assert.equal(service.books.get(B).transactions.length,0);
   await page.getByRole('button',{name:'我的账户',exact:true}).click();await page.getByRole('button',{name:'退出登录并清除本机副本',exact:true}).click();await page.getByRole('button',{name:'登录我的账本',exact:true}).waitFor();
-  await page.getByLabel('邮箱',{exact:true}).fill('b@example.test');await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('button',{name:'录入',exact:true}).click();await page.getByRole('tab',{name:'支付宝截图',exact:true}).click();assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).inputValue(),'','capture must not cross account switch');
+  await page.getByLabel('邮箱',{exact:true}).fill('b@example.test');await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('button',{name:'录入',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).inputValue(),'','capture must not cross account switch');
   await privacy(page);assert.deepEqual(errors,[]);assert.deepEqual(service.errors,[]);
-  pass('account handoff survives login, waits for explicit save, checks bank duplicates, syncs only to its owner and clears on account switch');
+  pass('account handoff survives login, confirms Alipay/WeChat sources, checks bank duplicates, syncs only to its owner and clears on account switch');
+}finally{await ctx.close();}}
+async function platformWorkflow(browser,app,source,override){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  const text=source==='wechat'?WECHAT:WECHAT.replace('微信支付\n','');
+  // A legacy Alipay-named link must carry WeChat text without assigning Alipay.
+  await open(page,app.base,text,source==='wechat'?'alipay-screenshot':'screenshot');
+  await page.getByRole('heading',{name:'示例咖啡店',exact:true}).waitFor();
+  const selected=page.getByLabel('支付来源：示例咖啡店',{exact:true});assert.equal(await selected.inputValue(),source);
+  if(override)await selected.selectOption(override);
+  assert.equal((await localBook(page)).transactions.length,0);
+  await page.getByRole('button',{name:'核对并记账',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'记下一笔',exact:true});assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),DATE);
+  await modal.getByRole('button',{name:'确认保存',exact:true}).click();
+  const book=await localBook(page);assert.equal(book.transactions.length,1);assert.equal(book.transactions[0].source,override||source);assert.equal(book.transactions[0].note,'截图识别');
+  await privacy(page);assert.deepEqual(errors,[]);
+  pass(`payment source ${source}${override?' explicitly corrected to '+override:''}, including legacy-link compatibility, is preserved on save`);
 }finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
-  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);}finally{local.server.kill();}
+  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');}finally{local.server.kill();}
   const cloud=await start(true,5194);try{await cloudWorkflow(browser,cloud);}finally{cloud.server.kill();}
 }finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Real iPhone capture, OCR and Back Tap remain to be verified.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});
