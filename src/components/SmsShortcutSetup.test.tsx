@@ -121,7 +121,10 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("复制匹配规则");
     expect(markup).toContain("将已有“匹配文本”的规则整体替换");
     expect(markup).toContain(`「${GENERAL_BANK_TEMPLATE.name}」`);
-    expect(markup).toContain("信息包含「招商银行」");
+    expect(markup).toContain("“信息包含”留空");
+    expect(markup).not.toContain("信息包含「招商银行」");
+    expect(markup).toContain("〖招商银行〗");
+    expect(markup).toContain("完整的「您尾号…的招行信用卡于…消费人民币…元」短信");
     expect(markup).toContain("95555、1065795555、106941995555");
     expect(markup).toContain("此银行收到后先待确认，不会自动增加消费");
   });

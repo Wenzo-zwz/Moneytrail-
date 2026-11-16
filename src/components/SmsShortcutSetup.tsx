@@ -48,12 +48,12 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
       </li>
       <li>
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>创建短信自动化</h4></div>
-        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码{bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : "（以真实短信发件人为准）"}，信息包含「{bankCode === "icbc" ? "支出" : bank.name}」，选择「立即运行」。</p>
+        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码{bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : "（以真实短信发件人为准）"}，{bankCode === "cmb" ? "“信息包含”留空，避免漏掉正文只写“招行信用卡”的消费短信" : `信息包含「${bankCode === "icbc" ? "支出" : bank.name}」`}，选择「立即运行」。</p>
         <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择{bankCode === "icbc" ? `「${SMS_SHORTCUT_TEMPLATE.name}」` : `「${getGenericSmsShortcutSource(bankCode).name}」`}，将输入设为上一步得到的「文本」。</p>
         {bankCode === "icbc" ? <p className="sms-shortcut-note">当前模板用于工行消费短信。请保留其他设备或模板各自需要的触发与输入绑定。</p> : <>
           <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份通用指令并沿用本账户令牌。</p>
-          <p>通用指令会筛选银行名称、消费或扣款等词，并排除安全验证码。短信仍需通过输入变量传入。</p>
-          <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。前后位置与写法由接收规则核对；缺少来源或格式未知时，不能据此视为已支持全部短信。</p>
+          <p>通用指令会筛选银行来源与消费、扣款等交易描述，并排除安全验证码。短信仍需通过输入变量传入。</p>
+          {bankCode === "cmb" ? <p className="sms-shortcut-note">招商银行支持「〖招商银行〗」等独立银行签名，或完整的「您尾号…的招行信用卡于…消费人民币…元」短信。请传入完整正文；任意招行文案或缺失交易字段的短信不能据此视为已适配。</p> : <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。前后位置与写法由接收规则核对；缺少来源或格式未知时，不能据此视为已支持全部短信。</p>}
         </>}
       </li>
       <li>

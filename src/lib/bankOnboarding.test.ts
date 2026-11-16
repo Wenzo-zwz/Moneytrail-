@@ -58,6 +58,7 @@ describe("shareable three-bank setup instructions", () => {
     expect(steps).toContain(GENERAL_BANK_TEMPLATE.name);
     expect(steps).toContain("整体替换");
     expect(steps).toContain("默认答案也留空");
+    expect(steps).toContain("“信息包含”留空");
     expect(steps).not.toMatch(/mt_sms_|owner_id|user_id/);
     expect(getGenericSmsShortcutSignCommand("cmb")).toContain('moneytrail-general-bank-v2.unsigned.plist');
     expect(getGenericSmsShortcutSignCommand("cmb")).toContain('MoneyTrail 通用银行记账.shortcut');
