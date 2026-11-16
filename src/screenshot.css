@@ -27,6 +27,10 @@
 .screenshot-candidate dt { margin: 0 0 3px; color: #92908c; }
 .screenshot-candidate dd { margin: 0; color: #c4beb5; overflow-wrap: anywhere; }
 .screenshot-candidate dd.screenshot-missing { color: #d9b68b; }
+.screenshot-source-field { display: grid; gap: 7px; margin: 0 0 14px; }
+.screenshot-source-field label { color: #aaa299; font-size: 12px; line-height: 1.8; }
+.screenshot-source-field select { width: 100%; min-width: 0; min-height: 44px; }
+.screenshot-source-field > p { margin: 0; color: #d1b48f; font-size: 12px; line-height: 1.8; }
 .screenshot-candidate > p, .screenshot-empty { margin: 0 0 14px; color: #a6a099; font-size: 12px; line-height: 1.9; }
 .screenshot-candidate > .button { min-width: 140px; }
 .screenshot-settings .setting-heading { margin-bottom: 12px; }
