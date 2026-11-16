@@ -88,6 +88,8 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
     requestAnimationFrame(() => textField.current?.focus());
   }
 
+  const partial = result?.partial;
+
   return <div className="screenshot-capture" aria-labelledby={`${id}-title`}>
     <div className="screenshot-capture-heading">
       <ScanText size={22} aria-hidden="true" />
@@ -102,17 +104,29 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
     {result && <div className="screenshot-results" aria-labelledby={`${id}-results`}>
       <h3 ref={resultsHeading} id={`${id}-results`} tabIndex={-1}>截图识别结果{result.candidates.length > 0 && ` · ${result.candidates.length} 笔待核对`}</h3>
       {result.error && result.candidates.length > 0 && <p className="notice warning" role="alert">{result.error}</p>}
-      {result.candidates.length === 0 && <div className="screenshot-failure">
+      {partial && result.candidates.length === 0 && <div className="screenshot-partial">
+        <div className="screenshot-partial-heading"><h4>仅识别到金额</h4><strong>{formatMoney(partial.amountCents)}</strong></div>
+        <p>尚未确认交易类型或付款完成状态。请确认这是已完成的消费支出，再补充商户和付款时间。</p>
+        {result.error && <p role="alert">{result.error}</p>}
+        <div className="screenshot-actions">
+          <button type="button" className="button secondary" onClick={() => onReview({
+            key: "payment-screenshot-partial", kind: "expense", source: partial.source,
+            merchant: "", amountCents: partial.amountCents, category: "待分类",
+          })}>确认是支出并补全<ArrowRight size={17} /></button>
+          <button type="button" className="button ghost small" onClick={editText}>检查识别文字</button>
+        </div>
+      </div>}
+      {result.candidates.length === 0 && !partial && <div className="screenshot-failure">
         <h4>暂未识别出可核对的账目</h4>
         <p role="alert">{result.error || "请检查付款详情是否完整，或展开识别文字进行补充。"}</p>
         <button type="button" className="button secondary small" onClick={editText}>检查识别文字</button>
       </div>}
       <div className="screenshot-candidates">{result.candidates.map((candidate, index) => <article className="screenshot-candidate" key={candidate.key}>
-        <div className="screenshot-candidate-heading"><h4>{candidate.merchant}</h4><strong>{formatMoney(candidate.amountCents)}</strong></div>
+        <div className="screenshot-candidate-heading"><h4 className={candidate.merchant.trim() ? undefined : "screenshot-missing"}>{candidate.merchant.trim() ? candidate.merchant : "商户待填写"}</h4><strong>{formatMoney(candidate.amountCents)}</strong></div>
         <dl><div><dt>交易时间</dt><dd className={candidate.date ? undefined : "screenshot-missing"}>{candidate.date ? candidate.date.replace("T", " ") : "需填写"}</dd></div><div><dt>分类</dt><dd>{candidate.category}{candidate.subcategory && ` · ${candidate.subcategory}`}</dd></div></dl>
         <div className="screenshot-source-field">
           <label htmlFor={`${id}-source-${index}`}>支付来源</label>
-          <select id={`${id}-source-${index}`} aria-label={`支付来源：${candidate.merchant}`}
+          <select id={`${id}-source-${index}`} aria-label={candidate.merchant.trim() ? `支付来源：${candidate.merchant}` : `支付来源：第 ${index + 1} 笔待核对账目`}
             value={sourceChoices[candidate.key] ?? paymentSource(candidate.source)}
             onChange={event => setSourceChoices(previous => ({ ...previous, [candidate.key]: paymentSource(event.target.value) }))}>
             <option value="alipay">支付宝</option>
@@ -121,6 +135,7 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
           </select>
           {(sourceChoices[candidate.key] ?? paymentSource(candidate.source)) === "manual" && <p>请根据原付款页面选择支付来源，也可以保留“其他或未确认”。</p>}
         </div>
+        {(!candidate.merchant.trim() || !candidate.date) && <p className="screenshot-missing-fields">还需填写：{[!candidate.merchant.trim() && "商户", !candidate.date && "交易时间"].filter(Boolean).join("、")}。</p>}
         <p>请与原画面核对；相近消费会在保存时提示疑似重复。</p>
         <button type="button" className="button secondary" onClick={() => onReview({ ...candidate, source: sourceChoices[candidate.key] ?? paymentSource(candidate.source) })}>核对并记账<ArrowRight size={17} /></button>
       </article>)}</div>
