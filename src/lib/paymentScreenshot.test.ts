@@ -3,6 +3,12 @@ import { parsePaymentScreenshot } from "./paymentScreenshot";
 
 const details = (heading = "微信支付", extra: string[] = []) => [heading, "支付成功", "商户全称：示例便利店", "支付金额：￥29.80", ...extra].join("\n");
 const notification = "交易提醒\n你在滴滴出行有一笔38.40元的免密/自动扣款支付，点此查看详情。";
+// Structural transcription of a real domestic-wallet bill; merchant and item
+// names are synthetic. Reward points and item counts are not extra money.
+const walletBill = ["13:55", "5G", "75", "账单详情", "全部账单", "示例云南小吃店", "-28.70", "交易成功",
+  "管理极速付款", "极速付款", "支付时间", "2026-11-16 12:32:04", "付款方式", "余额宝 >", "支付奖励", "立即领取15积分",
+  "收单机构", "北京示例支付技术有限公司", "清算机构", "中国银联股份有限公司", "交易详情", "美团点餐", "已完成",
+  "示例米线", "共1件", "更多", "账单管理", "账单分类", "餐饮美食", "标签", "请选择"].join("\n");
 
 describe("universal payment screenshot review", () => {
   it("recognizes WeChat without changing it into an Alipay source", () => {
@@ -112,5 +118,99 @@ describe("universal payment screenshot review", () => {
   it("does not create order IDs or SMS evidence", () => {
     const result = parsePaymentScreenshot(details("微信支付", ["交易单号：123456789"]));
     for (const key of ["id", "sourceRef", "smsEvidence", "orderId", "receivedAt"]) expect(result.candidates[0]).not.toHaveProperty(key);
+  });
+});
+
+describe("observed domestic-wallet bill summary", () => {
+  it("reads the unlabeled adjacent merchant, negative expense and full payment time for review", () => {
+    const result = parsePaymentScreenshot(walletBill);
+    expect(result.error).toBeUndefined();
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({ source: "manual", kind: "expense", merchant: "示例云南小吃店", amountCents: 2870, date: "2026-11-16T12:32" });
+    expect(result.warnings.join(" ")).toContain("未确认支付平台");
+    expect(result.warnings.join(" ")).toContain("截图未显示币种");
+    for (const key of ["id", "sourceRef", "smsEvidence", "orderId", "receivedAt"]) expect(result.candidates[0]).not.toHaveProperty(key);
+  });
+  it("supports inline fields, a combined navigation heading and an explicit CNY field", () => {
+    const text = walletBill.replace("账单详情\n全部账单", "账单详情 全部账单")
+      .replace("付款方式\n余额宝 >", "付款方式：支付宝余额")
+      .replace("支付时间\n2026-11-16 12:32:04", "支付时间：2026–11–16 12:32:04")
+      .replace("收单机构\n", "收单机构：").replace("清算机构\n", "清算机构：") + "\n币种：人民币";
+    const result = parsePaymentScreenshot(text);
+    expect(result.candidates[0]).toMatchObject({ source: "manual", amountCents: 2870, date: "2026-11-16T12:32" });
+    expect(result.warnings.join(" ")).not.toContain("截图未显示币种");
+  });
+  it("keeps the exact merchant text and uses existing personal classification rules", () => {
+    const result = parsePaymentScreenshot(walletBill.replace("示例云南小吃店", "ＡＢＣ·示例小吃店").replace("-28.70", "−２８．７０"),
+      [{ merchant: "ＡＢＣ·示例小吃店", category: "本地生活", subcategory: "餐饮" }]);
+    expect(result.candidates[0]).toMatchObject({ merchant: "ＡＢＣ·示例小吃店", amountCents: 2870, category: "本地生活", subcategory: "餐饮" });
+  });
+  it("only suggests Alipay with explicit page branding, never from a wallet method alone", () => {
+    expect(parsePaymentScreenshot(walletBill).candidates[0]?.source).toBe("manual");
+    expect(parsePaymentScreenshot("支付宝\n" + walletBill).candidates[0]?.source).toBe("alipay");
+  });
+  it.each([
+    walletBill.replace("账单详情\n", ""),
+    walletBill.replace("全部账单\n", ""),
+    walletBill.replace("示例云南小吃店\n", ""),
+    walletBill.replace("示例云南小吃店", "交易详情"),
+    walletBill.replace("示例云南小吃店", "全部账单"),
+    walletBill.replace("示例云南小吃店", "账单管理"),
+    walletBill.replace("示例云南小吃店", "极速付款"),
+    walletBill.replace("示例云南小吃店", "管理极速付款"),
+    walletBill.replace("示例云南小吃店", "标签"),
+    walletBill.replace("示例云南小吃店", "请选择"),
+    walletBill.replace("示例云南小吃店", "商户名称第一行\n商户名称第二行"),
+    walletBill.replace("示例云南小吃店", "第一家商店\n第二家商店"),
+    walletBill.replace("示例云南小吃店", "商户编号：123456"),
+    walletBill.replace("示例云南小吃店", "123456"),
+    walletBill.replace("-28.70", "28.70"),
+    walletBill.replace("-28.70", "+28.70"),
+    walletBill.replace("-28.70", "-0.00"),
+    walletBill.replace("-28.70", "-28.701"),
+    walletBill.replace("-28.70", "-1,23.45"),
+    walletBill.replace("交易成功", "支付中"),
+    walletBill.replace("交易成功", "收款成功"),
+    walletBill.replace("交易成功", "退款成功"),
+    walletBill.replace("交易成功", "转账成功"),
+    walletBill.replace("余额宝 >", "银行卡 >"),
+    walletBill.replace("付款方式\n余额宝 >", "支付方式\n余额宝 >"),
+    walletBill.replace("收单机构\n北京示例支付技术有限公司\n", ""),
+    walletBill.replace("北京示例支付技术有限公司", "待确认"),
+    walletBill.replace("清算机构\n中国银联股份有限公司\n", ""),
+    walletBill.replace("中国银联股份有限公司", "其他清算机构"),
+    walletBill.replace("支付时间\n2026-11-16 12:32:04\n", ""),
+    walletBill.replace("2026-11-16 12:32:04", "2026-02-29 12:32:04"),
+    walletBill.replace("2026-11-16 12:32:04", "2026-11-16 12:32:60"),
+    walletBill.replace("2026-11-16 12:32:04", "11月16日 12:32"),
+    walletBill + "\n账单详情",
+    walletBill + "\n交易成功",
+    walletBill + "\n支付时间：2026-11-16 12:33:04",
+    walletBill + "\n收支类型：收入",
+    walletBill + "\n交易类型：未知",
+    walletBill + "\n退款说明",
+    walletBill + "\n付款方式：支付宝余额",
+    walletBill + "\n清算机构：中国银联股份有限公司",
+    walletBill + "\n收款方：另一商店",
+    walletBill + "\n商户名称：另一商店",
+    walletBill + "\n金额：28.70元",
+    walletBill + "\n订单金额：30.00元",
+    walletBill + "\n余额：100.00",
+    walletBill + "\n另一项20元",
+    walletBill + "\n其他支出 20.00",
+    walletBill + "\n其他支出+20.00",
+    walletBill + "\n其他支出−20.00",
+    walletBill + "\n其他支出—20.00",
+    walletBill + "\n+20.00",
+    walletBill + "\n−20.00",
+    walletBill + "\n—20.00",
+    walletBill + "\n币种：未知币种",
+    walletBill + "\n币种：USD",
+    walletBill + "\n验证码123456",
+    "微信支付\n" + walletBill,
+    "支付宝\n微信支付\n" + walletBill,
+  ])("refuses a partial, ambiguous, non-purchase or conflicting wallet bill %#", text => {
+    expect(parsePaymentScreenshot(text).candidates).toEqual([]);
+    expect(parsePaymentScreenshot(text).error).toBeTruthy();
   });
 });
