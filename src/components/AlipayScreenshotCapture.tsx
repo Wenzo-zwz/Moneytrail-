@@ -47,6 +47,7 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
       setSourceChoices({});
       setNotice("已收到截图文字。");
       setEditorOpen(false);
+      requestAnimationFrame(() => resultsHeading.current?.focus());
       onConsumeIncoming(incoming.id);
     } else {
       setWaiting(previous => [...previous, incoming]);
@@ -61,6 +62,7 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
     setSourceChoices({});
     setNotice("已使用新截图文字。");
     setEditorOpen(false);
+    requestAnimationFrame(() => resultsHeading.current?.focus());
     setWaiting(previous => previous.filter(item => item.id !== next.id));
     onConsumeIncoming(next.id);
   }
