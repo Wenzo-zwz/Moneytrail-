@@ -14,6 +14,8 @@ const MARKER = 'private-ocr-fixture-marker';
 const TEXT = `支付宝\n交易提醒\n你在滴滴出行有一笔38.40元的免密/自动扣款支付，点此查看详情。\n${MARKER}`;
 const WECHAT = '微信支付\n付款详情\n支付成功\n商户全称：示例咖啡店\n支付金额：￥18.60\n支付时间：2026年11月16日09:10';
 const BILL = '13:55\n账单详情\n全部账单\n示例云南小吃店\n-28.70\n交易成功\n管理极速付款\n极速付款\n支付时间\n2026-11-16 12:32:04\n付款方式\n余额宝\n支付奖励\n立即领取15积分\n收单机构\n北京钱袋宝支付技术有限公司\n清算机构\n中国银联股份有限公司\n交易详情\n美团点餐\n已完成\n排骨米线\n共1件\n更多\n账单管理\n账单分类\n餐饮美食\n标签\n请选择';
+// Preserve the phone's observed column order and OCR noise; names are synthetic.
+const BILL_COLUMNS = '14:141\n账单详情\n:!!! 4G 72\n全部账单\n管理极速付款\n支付时间\n付款方式\n支付奖励\n收单机构\n清算机构\n交易详情\n英國 美团点餐＞\n示例米线\n示例云南小吃店\n-28.70\n交易成功\n极速付款\n2026-11-16 12:32:04\n余额宝＞\nv 立即领取15积分\n京示例玉支付技不有限公司\n中国银联股份有限公司\n已完成\n共1件\n更多～\n账单管理\n账单分类\n标签\n已解锁“吃顿饭“贴纸，去兑换好礼。\n餐饮美食＞\n请选择＞';
 const clone = value => JSON.parse(JSON.stringify(value));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const empty = () => ({version:1,transactions:[],budgetCents:0,billCheckedMonths:[]});
@@ -138,9 +140,11 @@ async function platformWorkflow(browser,app,source,override){const {context:ctx,
   await privacy(page);assert.deepEqual(errors,[]);
   pass(`payment source ${source}${override?' explicitly corrected to '+override:''}, including legacy-link compatibility, is preserved on save`);
 }finally{await ctx.close();}}
-async function billWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
-  await open(page,app.base,BILL);
+async function billWorkflow(browser,app,columns=false){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,columns?BILL_COLUMNS:BILL);
   await page.getByRole('heading',{name:'示例云南小吃店',exact:true}).waitFor();
+  await until(()=>page.getByRole('heading',{name:'截图识别结果 · 1 笔待核对',exact:true}).evaluate(el=>el===document.activeElement),'incoming screenshot should focus its review result');
+  assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).isVisible(),false,'raw OCR is collapsed after automatic recognition');
   const source=page.getByLabel('支付来源：示例云南小吃店',{exact:true});
   assert.equal(await source.inputValue(),'manual','an unbranded bill needs source confirmation');
   assert.equal((await localBook(page)).transactions.length,0,'a real bill layout must remain a preview');
@@ -154,10 +158,21 @@ async function billWorkflow(browser,app){const {context:ctx,page,errors}=await c
   assert.equal(book.transactions[0].merchant,'示例云南小吃店');assert.equal(book.transactions[0].amountCents,2870);
   assert.equal(book.transactions[0].source,'alipay');assert.equal(book.transactions[0].date,'2026-11-16T12:32');
   await privacy(page);assert.deepEqual(errors,[]);
-  await page.screenshot({path:path.join(OUT,'alipay-detail-bill.png'),fullPage:true});
-  pass('unlabeled domestic bill layout previews the exact amount and payment time, requires source confirmation and saves only after review');
+  await page.screenshot({path:path.join(OUT,columns?'alipay-column-bill.png':'alipay-detail-bill.png'),fullPage:true});
+  pass(`${columns?'actual phone column order and OCR noise':'unlabeled domestic bill layout'} previews the exact amount and payment time with raw text collapsed, requires source confirmation and saves only after review`);
+}finally{await ctx.close();}}
+async function editWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,'账单详情\n全部账单\n支付时间\n付款方式');
+  await page.getByText('暂未识别出可核对的账目',{exact:true}).waitFor();
+  const text=page.getByLabel('截图提取的文字',{exact:true});assert.equal(await text.isVisible(),false);
+  await page.getByRole('button',{name:'检查识别文字',exact:true}).click();
+  await text.fill(WECHAT);await page.getByRole('button',{name:'识别截图文字',exact:true}).click();
+  await page.getByRole('heading',{name:'示例咖啡店',exact:true}).waitFor();
+  assert.equal(await text.isVisible(),false,'successful correction returns focus to candidate review');
+  assert.equal((await localBook(page)).transactions.length,0);await privacy(page);assert.deepEqual(errors,[]);
+  pass('an unsuccessful capture shows an actionable error, can be edited and recognized, and keeps raw text out of the candidate review');
 }finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
-  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);}finally{local.server.kill();}
+  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await editWorkflow(browser,local);}finally{local.server.kill();}
   const cloud=await start(true,5194);try{await cloudWorkflow(browser,cloud);}finally{cloud.server.kill();}
-}finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Real iPhone capture, OCR and Back Tap remain to be verified.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});
+}finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Browser fixtures do not run iPhone capture or OCR; final save on the user's device still needs verification.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});
