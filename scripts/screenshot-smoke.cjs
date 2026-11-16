@@ -140,8 +140,9 @@ async function platformWorkflow(browser,app,source,override){const {context:ctx,
   await privacy(page);assert.deepEqual(errors,[]);
   pass(`payment source ${source}${override?' explicitly corrected to '+override:''}, including legacy-link compatibility, is preserved on save`);
 }finally{await ctx.close();}}
-async function billWorkflow(browser,app,columns=false){const {context:ctx,page,errors}=await context(browser,app,393);try{
-  await open(page,app.base,columns?BILL_COLUMNS:BILL);
+async function billWorkflow(browser,app,columns=false,missingHeading=false){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  const input=columns?BILL_COLUMNS:BILL;
+  await open(page,app.base,missingHeading?input.replace('14:141\n账单详情\n:!!! 4G 72','14:56\n<'):input);
   await page.getByRole('heading',{name:'示例云南小吃店',exact:true}).waitFor();
   await until(()=>page.getByRole('heading',{name:'截图识别结果 · 1 笔待核对',exact:true}).evaluate(el=>el===document.activeElement),'incoming screenshot should focus its review result');
   assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).isVisible(),false,'raw OCR is collapsed after automatic recognition');
@@ -158,8 +159,8 @@ async function billWorkflow(browser,app,columns=false){const {context:ctx,page,e
   assert.equal(book.transactions[0].merchant,'示例云南小吃店');assert.equal(book.transactions[0].amountCents,2870);
   assert.equal(book.transactions[0].source,'alipay');assert.equal(book.transactions[0].date,'2026-11-16T12:32');
   await privacy(page);assert.deepEqual(errors,[]);
-  await page.screenshot({path:path.join(OUT,columns?'alipay-column-bill.png':'alipay-detail-bill.png'),fullPage:true});
-  pass(`${columns?'actual phone column order and OCR noise':'unlabeled domestic bill layout'} previews the exact amount and payment time with raw text collapsed, requires source confirmation and saves only after review`);
+  await page.screenshot({path:path.join(OUT,missingHeading?'alipay-missing-heading.png':columns?'alipay-column-bill.png':'alipay-detail-bill.png'),fullPage:true,animations:'disabled'});
+  pass(`${missingHeading?'a real OCR capture with no page heading':columns?'actual phone column order and OCR noise':'unlabeled domestic bill layout'} previews the exact amount and payment time with raw text collapsed, requires source confirmation and saves only after review`);
 }finally{await ctx.close();}}
 async function editWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
   await open(page,app.base,'账单详情\n全部账单\n支付时间\n付款方式');
@@ -172,7 +173,43 @@ async function editWorkflow(browser,app){const {context:ctx,page,errors}=await c
   assert.equal((await localBook(page)).transactions.length,0);await privacy(page);assert.deepEqual(errors,[]);
   pass('an unsuccessful capture shows an actionable error, can be edited and recognized, and keeps raw text out of the candidate review');
 }finally{await ctx.close();}}
+async function incompleteMerchantWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,'微信支付\n支付成功\n-28.70\n支付时间：2026-11-16 12:32:04');
+  await page.getByRole('heading',{name:'商户待填写',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('支付来源：第 1 笔待核对账目',{exact:true}).inputValue(),'wechat');
+  assert.equal((await localBook(page)).transactions.length,0);
+  await page.getByRole('button',{name:'核对并记账',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'记下一笔',exact:true});
+  assert.equal(await modal.getByLabel('商户 / 对方',{exact:true}).inputValue(),'');
+  assert.equal(await modal.getByLabel('金额（元）',{exact:true}).inputValue(),'28.70');
+  assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),'2026-11-16T12:32');
+  await modal.getByRole('button',{name:'确认保存',exact:true}).click();assert.equal((await localBook(page)).transactions.length,0,'missing merchant must block saving');
+  await modal.getByLabel('商户 / 对方',{exact:true}).fill('示例补填商户');await modal.getByRole('button',{name:'确认保存',exact:true}).click();
+  const book=await localBook(page);assert.equal(book.transactions.length,1);assert.equal(book.transactions[0].merchant,'示例补填商户');assert.equal(book.transactions[0].amountCents,2870);
+  await privacy(page);assert.deepEqual(errors,[]);pass('a clear negative payment preserves its amount and date with merchant blank, and requires the user to supply a merchant before saving');
+}finally{await ctx.close();}}
+async function amountHintWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,'14:56\n-28.70');
+  await page.getByRole('heading',{name:'仅识别到金额',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'核对并记账',exact:true}).count(),0,'unconfirmed direction is not a normal expense candidate');
+  assert.equal((await localBook(page)).transactions.length,0);
+  const source=page.getByLabel('支付来源：待确认金额',{exact:true});assert.equal(await source.inputValue(),'manual');await source.selectOption('alipay');
+  await page.getByRole('button',{name:'确认是支出并补全',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'记下一笔',exact:true});
+  assert.equal(await modal.getByLabel('金额（元）',{exact:true}).inputValue(),'28.70');
+  assert.equal(await modal.getByLabel('商户 / 对方',{exact:true}).inputValue(),'');assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),'');
+  await modal.getByRole('button',{name:'确认保存',exact:true}).click();assert.equal((await localBook(page)).transactions.length,0);
+  await modal.getByLabel('商户 / 对方',{exact:true}).fill('人工核对的示例支出');await modal.getByLabel('发生时间',{exact:true}).fill(DATE);
+  await modal.getByRole('button',{name:'确认保存',exact:true}).click();const book=await localBook(page);assert.equal(book.transactions.length,1);assert.equal(book.transactions[0].kind,'expense');assert.equal(book.transactions[0].source,'alipay');assert.equal(book.transactions[0].amountCents,2870);
+  await privacy(page);assert.deepEqual(errors,[]);pass('a negative amount alone remains an amount hint, needs explicit expense confirmation, and still requires merchant and date before saving');
+}finally{await ctx.close();}}
+async function balanceWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,'账户余额\n-28.70\n交易成功\n付款方式\n余额宝');
+  await page.getByRole('heading',{name:'暂未识别出可核对的账目',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'核对并记账',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'确认是支出并补全',exact:true}).count(),0);
+  assert.equal((await localBook(page)).transactions.length,0);await privacy(page);assert.deepEqual(errors,[]);pass('a negative account balance cannot become an expense candidate or an adoptable amount hint');
+}finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
-  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await editWorkflow(browser,local);}finally{local.server.kill();}
+  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await billWorkflow(browser,local,true,true);await editWorkflow(browser,local);await incompleteMerchantWorkflow(browser,local);await amountHintWorkflow(browser,local);await balanceWorkflow(browser,local);}finally{local.server.kill();}
   const cloud=await start(true,5194);try{await cloudWorkflow(browser,cloud);}finally{cloud.server.kill();}
 }finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Browser fixtures do not run iPhone capture or OCR; final save on the user's device still needs verification.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});

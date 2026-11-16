@@ -108,9 +108,19 @@ export default function AlipayScreenshotCapture({ incoming, rules = [], rulesLoa
         <div className="screenshot-partial-heading"><h4>仅识别到金额</h4><strong>{formatMoney(partial.amountCents)}</strong></div>
         <p>尚未确认交易类型或付款完成状态。请确认这是已完成的消费支出，再补充商户和付款时间。</p>
         {result.error && <p role="alert">{result.error}</p>}
+        <div className="screenshot-source-field">
+          <label htmlFor={`${id}-partial-source`}>支付来源</label>
+          <select id={`${id}-partial-source`} aria-label="支付来源：待确认金额"
+            value={sourceChoices["payment-screenshot-partial"] ?? paymentSource(partial.source)}
+            onChange={event => setSourceChoices(previous => ({ ...previous, "payment-screenshot-partial": paymentSource(event.target.value) }))}>
+            <option value="alipay">支付宝</option>
+            <option value="wechat">微信支付</option>
+            <option value="manual">其他或未确认</option>
+          </select>
+        </div>
         <div className="screenshot-actions">
           <button type="button" className="button secondary" onClick={() => onReview({
-            key: "payment-screenshot-partial", kind: "expense", source: partial.source,
+            key: "payment-screenshot-partial", kind: "expense", source: sourceChoices["payment-screenshot-partial"] ?? paymentSource(partial.source),
             merchant: "", amountCents: partial.amountCents, category: "待分类",
           })}>确认是支出并补全<ArrowRight size={17} /></button>
           <button type="button" className="button ghost small" onClick={editText}>检查识别文字</button>

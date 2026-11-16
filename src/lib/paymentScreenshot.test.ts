@@ -159,66 +159,51 @@ describe("observed domestic-wallet bill summary", () => {
   it.each([
     walletBill.replace("账单详情\n", ""),
     walletBill.replace("全部账单\n", ""),
-    walletBill.replace("示例云南小吃店\n", ""),
-    walletBill.replace("示例云南小吃店", "交易详情"),
-    walletBill.replace("示例云南小吃店", "全部账单"),
-    walletBill.replace("示例云南小吃店", "账单管理"),
-    walletBill.replace("示例云南小吃店", "极速付款"),
-    walletBill.replace("示例云南小吃店", "管理极速付款"),
-    walletBill.replace("示例云南小吃店", "标签"),
-    walletBill.replace("示例云南小吃店", "请选择"),
-    walletBill.replace("示例云南小吃店", "商户名称第一行\n商户名称第二行"),
-    walletBill.replace("示例云南小吃店", "第一家商店\n第二家商店"),
-    walletBill.replace("示例云南小吃店", "商户编号：123456"),
-    walletBill.replace("示例云南小吃店", "123456"),
-    walletBill.replace("-28.70", "28.70"),
-    walletBill.replace("-28.70", "+28.70"),
-    walletBill.replace("-28.70", "-0.00"),
-    walletBill.replace("-28.70", "-28.701"),
-    walletBill.replace("-28.70", "-1,23.45"),
-    walletBill.replace("交易成功", "支付中"),
-    walletBill.replace("交易成功", "收款成功"),
-    walletBill.replace("交易成功", "退款成功"),
-    walletBill.replace("交易成功", "转账成功"),
     walletBill.replace("余额宝 >", "银行卡 >"),
-    walletBill.replace("付款方式\n余额宝 >", "支付方式\n余额宝 >"),
+    walletBill.replace("付款方式\n余额宝 >", "支付方式\n银行卡 >"),
     walletBill.replace("收单机构\n北京示例支付技术有限公司\n", ""),
-    walletBill.replace("北京示例支付技术有限公司", "待确认"),
     walletBill.replace("清算机构\n中国银联股份有限公司\n", ""),
     walletBill.replace("中国银联股份有限公司", "其他清算机构"),
-    walletBill.replace("支付时间\n2026-11-16 12:32:04\n", ""),
-    walletBill.replace("2026-11-16 12:32:04", "2026-02-29 12:32:04"),
-    walletBill.replace("2026-11-16 12:32:04", "2026-11-16 12:32:60"),
-    walletBill.replace("2026-11-16 12:32:04", "11月16日 12:32"),
     walletBill + "\n账单详情",
     walletBill + "\n交易成功",
-    walletBill + "\n支付时间：2026-11-16 12:33:04",
-    walletBill + "\n收支类型：收入",
-    walletBill + "\n交易类型：未知",
-    walletBill + "\n退款说明",
     walletBill + "\n付款方式：支付宝余额",
     walletBill + "\n清算机构：中国银联股份有限公司",
+  ])("retains the payment when optional navigation or settlement text changes %#", text => {
+    expect(parsePaymentScreenshot(text).candidates[0]).toMatchObject({ amountCents: 2870, date: "2026-11-16T12:32" });
+  });
+  it.each([
+    walletBill.replace("示例云南小吃店\n", ""),
+    ...["交易详情", "全部账单", "账单管理", "极速付款", "管理极速付款", "标签", "请选择", "123456",
+      "商户名称第一行\n商户名称第二行", "第一家商店\n第二家商店"].map(value => walletBill.replace("示例云南小吃店", value)),
     walletBill + "\n收款方：另一商店",
     walletBill + "\n商户名称：另一商店",
-    walletBill + "\n金额：28.70元",
-    walletBill + "\n订单金额：30.00元",
-    walletBill + "\n余额：100.00",
-    walletBill + "\n另一项20元",
-    walletBill + "\n其他支出 20.00",
-    walletBill + "\n其他支出+20.00",
-    walletBill + "\n其他支出−20.00",
-    walletBill + "\n其他支出—20.00",
-    walletBill + "\n+20.00",
-    walletBill + "\n−20.00",
-    walletBill + "\n—20.00",
-    walletBill + "\n币种：未知币种",
-    walletBill + "\n币种：USD",
-    walletBill + "\n验证码123456",
+  ])("keeps a reliable amount while leaving an uncertain merchant blank %#", text => {
+    expect(parsePaymentScreenshot(text).candidates[0]).toMatchObject({ amountCents: 2870, merchant: "" });
+  });
+  it.each([
+    walletBill.replace("支付时间\n2026-11-16 12:32:04\n", ""),
+    ...["2026-02-29 12:32:04", "2026-11-16 12:32:60", "11月16日 12:32"].map(value => walletBill.replace("2026-11-16 12:32:04", value)),
+    walletBill + "\n支付时间：2026-11-16 12:33:04",
+  ])("preserves the amount with an empty date when payment time cannot be established %#", text => {
+    const candidate = parsePaymentScreenshot(text).candidates[0];
+    expect(candidate?.amountCents).toBe(2870);
+    expect(candidate?.date).toBeUndefined();
+  });
+  it.each([
+    walletBill.replace("示例云南小吃店", "商户编号：123456"),
+    walletBill.replace("北京示例支付技术有限公司", "待确认"),
+    ...["28.70", "+28.70", "-0.00", "-28.701", "-1,23.45"].map(value => walletBill.replace("-28.70", value)),
+    ...["支付中", "收款成功", "退款成功", "转账成功"].map(value => walletBill.replace("交易成功", value)),
+    ...["收支类型：收入", "交易类型：未知", "退款说明", "金额：28.70元", "订单金额：30.00元", "余额：100.00",
+      "另一项20元", "其他支出 20.00", "其他支出+20.00", "其他支出−20.00", "其他支出—20.00", "+20.00", "−20.00", "—20.00",
+      "币种：未知币种", "币种：USD", "验证码123456"].map(value => walletBill + "\n" + value),
     "微信支付\n" + walletBill,
     "支付宝\n微信支付\n" + walletBill,
-  ])("refuses a partial, ambiguous, non-purchase or conflicting wallet bill %#", text => {
-    expect(parsePaymentScreenshot(text).candidates).toEqual([]);
-    expect(parsePaymentScreenshot(text).error).toBeTruthy();
+  ])("rejects a non-purchase, malformed or ambiguous amount without offering an adoptable hint %#", text => {
+    const result = parsePaymentScreenshot(text);
+    expect(result.candidates).toEqual([]);
+    expect(result.partial).toBeUndefined();
+    expect(result.error).toBeTruthy();
   });
 });
 
@@ -240,53 +225,51 @@ describe("iPhone column-ordered wallet bill OCR", () => {
     expect(result.candidates[0]).toMatchObject({ merchant: "ＡＢＣ・示例云南伙食", amountCents: 2870 });
   });
   it.each([
+    columnBill.replace("账单详情\n", ""),
     columnBill.replace("支付时间\n付款方式\n支付奖励\n收单机构\n清算机构\n交易详情\n", "")
       .replace("交易成功\n", "交易成功\n支付时间\n付款方式\n支付奖励\n收单机构\n清算机构\n交易详情\n"),
-    columnBill.replace("支付时间\n", "创建时间\n"),
-    columnBill.replace("2026-11-16 12:32:04\n", "") + "\n创建时间\n2026-11-16 12:32:04",
-    columnBill.replace("2026-11-16 12:32:04", "2026-02-29 12:32:04"),
-    columnBill.replace("2026-11-16 12:32:04", "2026-11-16 12:32:60"),
-    columnBill.replace("2026-11-16 12:32:04", "11月16日 12:32"),
-    columnBill + "\n2026-11-16 12:33:04",
     columnBill.replace("余额宝＞", "银行卡＞") + "\n余额宝＞",
     columnBill.replace("京示例支付技不有限公司\n", ""),
-    columnBill.replace("京示例支付技不有限公司\n", "").replace("示例一碗・云南伙食", "示例商户有限公司"),
     columnBill.replace("中国银联股份有限公司", "其他清算机构"),
     columnBill.replace("支付时间\n付款方式", "付款方式\n支付时间"),
     columnBill.replace("收单机构\n", ""),
-    columnBill + "\n支付时间",
     columnBill + "\n付款方式：支付宝余额",
     columnBill + "\n收单机构：北京另一支付有限公司",
     columnBill.replace("交易详情\n", ""),
-    columnBill.replace("示例一碗・云南伙食\n", ""),
-    columnBill.replace("示例一碗・云南伙食", "商户第一行\n商户第二行"),
-    columnBill.replace("示例一碗・云南伙食", "账单管理"),
-    columnBill.replace("示例一碗・云南伙食", "请选择＞"),
-    columnBill.replace("示例一碗・云南伙食", "更多～"),
-    columnBill.replace("示例一碗・云南伙食", "交易详情＞"),
-    columnBill.replace("示例一碗・云南伙食", "商户编号：123456"),
-    columnBill.replace("示例一碗・云南伙食", "123456"),
-    columnBill.replace("英國 美团点餐＞", "未知商品平台"),
-    columnBill.replace("-28.70", "28.70"),
-    columnBill.replace("-28.70", "+28.70"),
-    columnBill.replace("-28.70", "-0.00"),
-    columnBill.replace("-28.70", "-28.701"),
-    columnBill.replace("交易成功", "收款成功"),
-    columnBill.replace("交易成功", "退款成功"),
-    columnBill.replace("交易成功", "转账成功"),
-    columnBill.replace("交易成功", "处理中"),
     columnBill + "\n交易成功",
-    columnBill + "\n另一项20元",
-    columnBill + "\n其他支出20.00",
-    columnBill + "\n−20.00",
-    columnBill + "\n币种：USD",
-    columnBill + "\n验证码123456",
     columnBill + "\n交易类型\n支出",
+  ])("recovers the amount across omitted headings and rearranged ancillary fields %#", text => {
+    expect(parsePaymentScreenshot(text).candidates[0]?.amountCents).toBe(2870);
+  });
+  it.each([
+    columnBill.replace("支付时间\n", "创建时间\n"),
+    columnBill.replace("2026-11-16 12:32:04\n", "") + "\n创建时间\n2026-11-16 12:32:04",
+    ...["2026-02-29 12:32:04", "2026-11-16 12:32:60", "11月16日 12:32"].map(value => columnBill.replace("2026-11-16 12:32:04", value)),
+    columnBill + "\n2026-11-16 12:33:04",
+    columnBill + "\n支付时间",
+  ])("never fills an uncertain column date even when its amount remains usable %#", text => {
+    const candidate = parsePaymentScreenshot(text).candidates[0];
+    expect(candidate?.amountCents).toBe(2870);
+    expect(candidate?.date).toBeUndefined();
+  });
+  it.each([
+    columnBill.replace("示例一碗・云南伙食\n", ""),
+    ...["商户第一行\n商户第二行", "账单管理", "请选择＞", "更多～", "交易详情＞", "123456"].map(value => columnBill.replace("示例一碗・云南伙食", value)),
+    columnBill.replace("英國 美团点餐＞", "未知商品平台"),
+  ])("does not substitute products or navigation for a missing merchant %#", text => {
+    expect(parsePaymentScreenshot(text).candidates[0]).toMatchObject({ amountCents: 2870, merchant: "" });
+  });
+  it.each([
+    columnBill.replace("示例一碗・云南伙食", "商户编号：123456"),
+    ...["28.70", "+28.70", "-0.00", "-28.701"].map(value => columnBill.replace("-28.70", value)),
+    ...["收款成功", "退款成功", "转账成功", "处理中"].map(value => columnBill.replace("交易成功", value)),
+    ...["另一项20元", "其他支出20.00", "−20.00", "币种：USD", "验证码123456"].map(value => columnBill + "\n" + value),
     "微信支付\n" + columnBill,
     "支付宝\n微信支付\n" + columnBill,
-  ])("refuses to assemble unrelated, incomplete or conflicting column values %#", text => {
+  ])("rejects unsafe or ambiguous column amounts without a fallback hint %#", text => {
     const result = parsePaymentScreenshot(text);
     expect(result.candidates).toEqual([]);
+    expect(result.partial).toBeUndefined();
     expect(result.error).toBeTruthy();
   });
 });

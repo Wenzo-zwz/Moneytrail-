@@ -13,7 +13,12 @@ export type PaymentScreenshotCandidate = {
   subcategory?: string;
   platform?: Platform;
 };
-export type PaymentScreenshotResult = { candidates: PaymentScreenshotCandidate[]; warnings: string[]; error?: string };
+export type PaymentScreenshotResult = {
+  candidates: PaymentScreenshotCandidate[];
+  warnings: string[];
+  error?: string;
+  partial?: { amountCents: number; source: PaymentScreenshotCandidate["source"] };
+};
 
 const alipayHeading = /^(?:支付宝|支付宝(?:账单|付款|支付|交易)(?:详情)?|支付宝详情)$/;
 const wechatHeading = /^(?:微信|微信支付|微信支付(?:账单|付款|支付|交易)(?:详情)?|微信支付凭证)$/;
@@ -161,7 +166,7 @@ function columnWalletBill(lines: string[], normalizedLines: string[]): WalletBil
 }
 
 /** One screenshot entry point, with source-aware adapters and explicit user review. */
-export function parsePaymentScreenshot(text: unknown, rules: MerchantRule[] = []): PaymentScreenshotResult {
+function parseStructuredPaymentScreenshot(text: unknown, rules: MerchantRule[] = []): PaymentScreenshotResult {
   if (typeof text !== "string" || !text.trim() || text.length > 16000 || controls.test(text)) {
     return fail("截图文字为空、过长或含不可识别字符，请重新提取或手动录入。");
   }
@@ -249,4 +254,122 @@ export function parsePaymentScreenshot(text: unknown, rules: MerchantRule[] = []
       duplicateWarning,
     ],
   };
+}
+
+/** Recover reliable fields even when OCR drops titles or changes column order. */
+function negativePaymentScreenshot(text: unknown, rules: MerchantRule[]): PaymentScreenshotResult | null {
+  if (typeof text !== "string" || !text.trim() || text.length > 16000 || controls.test(text)) return null;
+  const lines = text.replace(/\r\n?|\u2028|\u2029/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
+  const normalizedLines = lines.map(line => line.normalize("NFKC").replace(/[−–—﹣]/g, "-"));
+  const normalized = normalizedLines.join("\n");
+  const negative: { index: number; amountCents: number }[] = [];
+  for (let index = 0; index < normalizedLines.length; index++) {
+    let value = normalizedLines[index];
+    const label = fieldLabel(value);
+    if (label && amountLabels.includes(label)) value = value.slice(label.length).replace(/^[\s:：]+/, "");
+    const match = /^(?:(?:人民币|CNY|RMB|[¥￥])\s*)?-\s*(?:(?:人民币|CNY|RMB|[¥￥])\s*)?(\d[\d,]*(?:\.\d{1,2})?)(?:\s*(?:元|CNY|RMB))?$/i.exec(value);
+    // Bare integers can be IDs or other counters. A bare monetary value needs
+    // decimals; explicit currency also permits a whole-yuan amount.
+    if (!match || (!match[1].includes(".") && !/人民币|CNY|RMB|[¥￥元]/i.test(value))) continue;
+    const amountCents = parseAmount(match[1]);
+    if (amountCents !== null) negative.push({ index, amountCents });
+  }
+  if (!negative.length) return null;
+  if (security.test(normalized) || foreign.test(normalized) || nonPurchase.test(normalized)) {
+    return fail("截图涉及安全口令、外币、收款、退款、转账或未完成交易，请核对交易类型后手动录入。");
+  }
+  if (negative.length !== 1) return fail("识别到多个金额，请保留一笔付款详情后重试，或手动确定实际支出。");
+  const selected = negative[0];
+  const nonPaymentLabels = [...otherAmounts, "可用余额", "剩余余额", "余额变动", "余额变化", "账户欠款", "负债"];
+  if (normalizedLines.some(line => nonPaymentLabels.some(label => line === label
+    || (line.startsWith(label) && /^[\s:：+\-\d¥￥]/.test(line.slice(label.length)))))) {
+    return fail("金额可能属于余额、优惠或其他账单字段，无法确定实际支出，请手动核对。");
+  }
+  const previousLabel = fieldLabel(normalizedLines[selected.index - 1] ?? "");
+  if (previousLabel && ["商家订单号", "商户订单号", "交易单号", "交易号", "订单编号", "订单号", "商户编号", "商户号", "对方账户", "收款方账号", "收款方账户"].includes(previousLabel)) {
+    return fail("负数紧邻其他字段，无法确认它是付款金额，请手动核对。");
+  }
+  // Count each currency/decimal token once, including inline extra amounts.
+  // Dates are identified by their shape here and validated separately below.
+  let monetaryTokens = 0;
+  for (const line of normalizedLines) {
+    const label = fieldLabel(line);
+    const value = label && [...dateLabels, "创建时间", "到账时间"].includes(label)
+      ? line.slice(label.length).replace(/^[\s:：]+/, "") : line;
+    if (/^\d{4}[年/.\-]\d{1,2}[月/.\-]\d{1,2}(?:日\s*|[ T]+)\d{1,2}:\d{2}(?::\d{2})?$/.test(value)) continue;
+    monetaryTokens += [...line.matchAll(/(?:人民币|\bCNY\b|\bRMB\b|[¥￥])\s*[+-]?\s*\d[\d,]*(?:\.\d+)?|[+-]?\s*\d[\d,]*(?:\.\d+)?\s*(?:元|\bCNY\b|\bRMB\b)|[+-]?\s*\d[\d,]*\.\d+/gi)].length;
+  }
+  if (monetaryTokens !== 1) return fail("截图包含多个金额或金额格式不明确，请手动确定实际支出。");
+
+  const headings = normalizedLines.slice(0, 8).filter((_line, index) => index === 0
+    || !knownLabels.some(label => normalizedLines[index - 1].replace(/[\s:：]+$/, "") === label));
+  const alipay = headings.some(line => alipayHeading.test(line));
+  const wechat = headings.some(line => wechatHeading.test(line));
+  if (alipay && wechat) return fail("截图含多个支付平台，请分开截图或手动核对支付来源。");
+  if (wechat && (fields(normalizedLines, ["付款方式", "支付方式"]).some(value => value && walletMethod.test(value))
+    || normalizedLines.some(line => walletMethod.test(line)))) return fail("页面平台和付款方式存在冲突，请手动核对支付来源。");
+  const source: PaymentScreenshotCandidate["source"] = alipay ? "alipay" : wechat ? "wechat" : "manual";
+  const currencies = fields(normalizedLines, ["币种"]);
+  if (currencies.some(value => !value || !/^(?:人民币|CNY|RMB)$/i.test(value))) return fail("截图币种不明确，请手动核对。");
+  const explicitYuan = currencies.length > 0 || /人民币|CNY|RMB|[¥￥元]/i.test(normalizedLines[selected.index]);
+  const directions = fields(normalizedLines, directionLabels);
+  if (directions.some(value => value !== null && !["支出", "消费支出", "消费", "付款", "支付", "商户消费"].includes(value))) {
+    return fail("截图的交易方向或类型不明确，请手动核对录入。");
+  }
+  const stateValues = [...normalizedLines, ...fields(normalizedLines, ["支付状态", "交易状态", "订单状态"]).filter((value): value is string => value !== null)];
+  const completed = stateValues.some(value => /^(?:支付成功|付款成功|支付完成|付款完成)$/.test(value));
+  const paymentContext = normalizedLines.some(line => [...dateLabels, "付款方式", "支付方式"].includes(fieldLabel(line) ?? ""));
+  const outgoing = directions.some(value => value !== null && ["支出", "消费支出", "消费", "付款", "支付", "商户消费"].includes(value));
+  const warnings = [
+    ...(!explicitYuan ? ["截图未显示币种，暂按人民币金额展示，请核对实际币种。"] : []),
+    ...(source === "manual" ? ["未确认支付平台，请根据原画面选择支付来源。"] : []),
+  ];
+  if (!completed && !(stateValues.includes("交易成功") && (paymentContext || outgoing))) {
+    return { candidates: [], partial: { amountCents: selected.amountCents, source }, warnings,
+      error: "仅识别到一个负数金额，尚不能确认它是已完成的消费支出，请先核对交易类型和状态。" };
+  }
+
+  let merchant = "";
+  const explicitMerchants = fields(lines, merchantLabels);
+  let summaryMerchant = "";
+  if (stateValues.includes("交易成功")) {
+    const index = selected.index, before = normalizedLines[index - 2] ?? "";
+    const meituan = normalizedLines.slice(0, index).map(line => /^(?:\S{1,4}\s+)?美团点餐\s*[>›〉]?$/.test(line)).lastIndexOf(true);
+    const summary = normalizedLines[index + 1] === "交易成功" && walletMerchant(lines[index - 1] ?? "");
+    if (summary && (meituan === index - 3 || (meituan < 0 && /^(?:全部账单|账单详情(?:\s*全部账单)?)$/.test(before)))) summaryMerchant = lines[index - 1];
+  }
+  if (explicitMerchants.length === 1 && explicitMerchants[0] && walletMerchant(explicitMerchants[0])
+    && (!summaryMerchant || explicitMerchants[0] === summaryMerchant)) merchant = explicitMerchants[0];
+  else if (!explicitMerchants.length) merchant = summaryMerchant;
+  if (merchant.length > 150 || /^(?:[¥￥]|人民币|CNY|RMB)?[+\-]?\d[\d,.]*(?:元)?$/i.test(merchant.normalize("NFKC"))) merchant = "";
+  let classification = merchant ? classifyMerchant(merchant, rules) : undefined;
+  if (classification?.requiresReview) { merchant = ""; classification = undefined; }
+
+  let date: string | undefined;
+  const dateFields = fields(normalizedLines, dateLabels);
+  const parsedDates = dateFields.map(value => value ? dateValue(value) : undefined);
+  if (dateFields.length && parsedDates.every(Boolean) && new Set(parsedDates).size === 1) date = parsedDates[0];
+  else if (dateFields.length === 1 && dateFields[0] === null
+    && !normalizedLines.some(line => /^(?:创建时间|到账时间|入账时间|下单时间|订单时间|退款时间|结算时间)(?:[\s:：\d]|$)/.test(line))) {
+    const dateLines = normalizedLines.filter(line => /^\d{4}[年/.\-]\d{1,2}[月/.\-]\d{1,2}(?:日\s*|[ T]+)\d{1,2}:\d{2}(?::\d{2})?$/.test(line));
+    if (dateLines.length === 1) date = dateValue(dateLines[0]);
+  }
+  return {
+    candidates: [{ key: "payment-screenshot-0", kind: "expense", source, merchant, amountCents: selected.amountCents,
+      ...(date ? { date } : {}), category: classification?.category ?? "待分类",
+      ...(classification?.subcategory ? { subcategory: classification.subcategory } : {}),
+      ...(classification?.platform ? { platform: classification.platform } : {}) }],
+    warnings: [...warnings, ...(!merchant ? ["未确认商户，请在核对表单中补充；不会使用商品名或界面按钮代替商户。"] : []),
+      ...(!date ? ["未确认完整付款时间，请填写实际交易日期。"] : []), duplicateWarning],
+  };
+}
+
+export function parsePaymentScreenshot(text: unknown, rules: MerchantRule[] = []): PaymentScreenshotResult {
+  const structured = parseStructuredPaymentScreenshot(text, rules);
+  const recovered = negativePaymentScreenshot(text, rules);
+  // Ambiguous amounts or non-purchase evidence also invalidate an otherwise
+  // complete structured result. Missing optional layout information does not.
+  if (recovered?.error && !recovered.partial && !recovered.candidates.length) return recovered;
+  if (structured.candidates.length) return structured;
+  return recovered ?? structured;
 }
