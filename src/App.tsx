@@ -565,6 +565,7 @@ export default function App({
     previewKey?: string;
   } | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [screenshotSetupOpen, setScreenshotSetupOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [captureMode, setCaptureMode] = useState<"sms" | "csv" | "screenshot">("sms");
   const incomingScreenshot = useSyncExternalStore(subscribeScreenshotIntake, getScreenshotIntake, () => null);
@@ -578,6 +579,7 @@ export default function App({
   const hashProcessed = useRef(false);
   useEffect(() => {
     if (!incomingScreenshot) return;
+    setScreenshotSetupOpen(false);
     setPage("capture");
     setCaptureMode("screenshot");
   }, [incomingScreenshot]);
@@ -1836,8 +1838,7 @@ export default function App({
               </div>
             {page === "settings" && (
               <div className="page settings-grid">
-                <QuickStartSettings onSmsAutomation={onSmsAutomation} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
-                <ScreenshotCaptureSettings onOpenCapture={() => { navigate("capture"); setCaptureMode("screenshot"); }} />
+                <QuickStartSettings onSmsAutomation={onSmsAutomation} onScreenshotSetup={() => setScreenshotSetupOpen(true)} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
                 {accountPanel}
                 <AppUpdateSettings />
                 <section className="setting-card">
@@ -2022,6 +2023,13 @@ export default function App({
           saveError={notice}
           onClose={() => setEditor(null)}
         />
+      )}
+      {screenshotSetupOpen && (
+        <Modal title="设置截图记账" onClose={() => setScreenshotSetupOpen(false)}>
+          <div className="modal-body">
+            <ScreenshotCaptureSettings onOpenCapture={() => { setScreenshotSetupOpen(false); navigate("capture"); setCaptureMode("screenshot"); }} />
+          </div>
+        </Modal>
       )}
       {budgetOpen && (
         <Modal title="设置月预算" onClose={() => setBudgetOpen(false)}>

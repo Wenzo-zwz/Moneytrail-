@@ -87,10 +87,13 @@ async function localWorkflow(browser,app,width){const {context:ctx,page,errors}=
   await open(page,app.base);await page.getByRole('heading',{name:'滴滴出行',exact:true}).waitFor();
   assert.equal((await localBook(page)).transactions.length,0,'recognition must not write');await privacy(page);
   const text=page.getByLabel('截图提取的文字',{exact:true});assert.equal(await text.inputValue(),TEXT);
-  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('heading',{name:'轻点背面，截图记账',exact:true}).waitFor();
+  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('heading',{name:'快速上手',exact:true}).waitFor();
+  await page.getByRole('button',{name:'设置截图记账',exact:true}).click();
+  const setup=page.getByRole('dialog',{name:'设置截图记账',exact:true});await setup.getByRole('heading',{name:'轻点背面，截图记账',exact:true}).waitFor();
   await page.getByText('配置 iPhone 截图快捷指令',{exact:true}).click();
   assert((await page.locator('.screenshot-settings').innerText()).includes(app.base+'#screenshot='));await privacy(page);
-  await page.getByRole('button',{name:'打开截图识别',exact:true}).click();assert.equal(await text.inputValue(),TEXT,'navigation must preserve the capture draft');
+  assert.equal(await setup.locator('a[href*="icloud.com/shortcuts/"]').count(),0,'a custom deployment cannot offer a production-bound installer');
+  await setup.getByRole('button',{name:'打开截图识别',exact:true}).click();assert.equal(await setup.count(),0);assert.equal(await text.inputValue(),TEXT,'navigation must preserve the capture draft');
   await page.getByRole('tab',{name:'粘贴银行短信',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await text.inputValue(),TEXT);
   await page.getByRole('button',{name:'核对并记账',exact:true}).click();let modal=page.getByRole('dialog',{name:'记下一笔',exact:true});await modal.waitFor();
   assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),'','missing date stays blank');
@@ -122,6 +125,8 @@ async function cloudWorkflow(browser,app){const service=backend(app),{context:ct
   assert.equal(service.books.get(A).transactions[2].source,'wechat');assert.equal(service.books.get(B).transactions.length,0);
   await page.getByRole('button',{name:'我的账户',exact:true}).click();await page.getByRole('button',{name:'退出登录并清除本机副本',exact:true}).click();await page.getByRole('button',{name:'登录我的账本',exact:true}).waitFor();
   await page.getByLabel('邮箱',{exact:true}).fill('b@example.test');await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('button',{name:'录入',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).inputValue(),'','capture must not cross account switch');
+  await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'开通短信自动记账',exact:true}).waitFor();
+  await page.getByRole('button',{name:'设置截图记账',exact:true}).click();const setup=page.getByRole('dialog',{name:'设置截图记账',exact:true});await setup.getByRole('heading',{name:'3. 试记并保存第一笔',exact:true}).waitFor();await setup.getByRole('button',{name:'关闭弹窗',exact:true}).click();
   await privacy(page);assert.deepEqual(errors,[]);assert.deepEqual(service.errors,[]);
   pass('account handoff survives login, confirms Alipay/WeChat sources, checks bank duplicates, syncs only to its owner and clears on account switch');
 }finally{await ctx.close();}}
@@ -209,7 +214,26 @@ async function balanceWorkflow(browser,app){const {context:ctx,page,errors}=awai
   assert.equal(await page.getByRole('button',{name:'核对并记账',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'确认是支出并补全',exact:true}).count(),0);
   assert.equal((await localBook(page)).transactions.length,0);await privacy(page);assert.deepEqual(errors,[]);pass('a negative account balance cannot become an expense candidate or an adoptable amount hint');
 }finally{await ctx.close();}}
+async function quickStartWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,320);try{
+  await ctx.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.__quickStartCopied=value;}}});});
+  await page.goto(app.base,{waitUntil:'networkidle'});await page.getByRole('button',{name:'设置',exact:true}).click();
+  const quick=page.getByRole('region',{name:'快速上手',exact:true});await quick.getByRole('heading',{name:'截图记账',exact:true}).waitFor();
+  assert.equal(await quick.getByRole('button',{name:'开通短信自动记账',exact:true}).count(),0,'device-only quick start does not pretend SMS intake is configured');
+  await quick.getByRole('button',{name:'设置截图记账',exact:true}).click();const setup=page.getByRole('dialog',{name:'设置截图记账',exact:true});
+  for(const name of ['1. 安装通用快捷指令','2. 绑定轻点背面两下','3. 试记并保存第一笔'])await setup.getByRole('heading',{name,exact:true}).waitFor();
+  await setup.getByText('配置 iPhone 截图快捷指令',{exact:true}).click();await setup.getByRole('button',{name:'复制地址前缀',exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__quickStartCopied),app.base+'#screenshot=');
+  assert((await setup.innerText()).includes('上方候选卡显示金额，表示提取成功'));
+  assert(await setup.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'320px setup dialog must fit without horizontal scrolling');
+  assert.equal((await localBook(page)).transactions.length,0);await privacy(page);await page.screenshot({path:path.join(OUT,'quick-start-screenshot-320.png'),fullPage:true,animations:'disabled'});
+  await page.evaluate(value=>{location.hash='screenshot='+encodeURIComponent(value);},WECHAT);
+  await setup.waitFor({state:'detached'});await page.getByRole('heading',{name:'示例咖啡店',exact:true}).waitFor();
+  assert.equal((await localBook(page)).transactions.length,0,'a first capture closes setup and previews without writing');
+  await page.getByRole('button',{name:'设置',exact:true}).click();await quick.getByRole('button',{name:'手动记一笔',exact:true}).click();await page.getByRole('dialog',{name:'记下一笔',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
+  await quick.getByRole('button',{name:'设置月预算',exact:true}).click();await page.getByRole('dialog',{name:'设置月预算',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
+  assert.equal((await localBook(page)).transactions.length,0);assert.deepEqual(errors,[]);pass('quick start offers screenshot setup in device mode, explains all three stages, copies the exact deployment address, fits 320px and preserves manual/budget actions');
+}finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
-  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await billWorkflow(browser,local,true,true);await editWorkflow(browser,local);await incompleteMerchantWorkflow(browser,local);await amountHintWorkflow(browser,local);await balanceWorkflow(browser,local);}finally{local.server.kill();}
+  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await quickStartWorkflow(browser,local);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await billWorkflow(browser,local,true,true);await editWorkflow(browser,local);await incompleteMerchantWorkflow(browser,local);await amountHintWorkflow(browser,local);await balanceWorkflow(browser,local);}finally{local.server.kill();}
   const cloud=await start(true,5194);try{await cloudWorkflow(browser,cloud);}finally{cloud.server.kill();}
 }finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Browser fixtures do not run iPhone capture or OCR; final save on the user's device still needs verification.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});

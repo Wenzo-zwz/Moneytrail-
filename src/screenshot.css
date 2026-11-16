@@ -53,6 +53,13 @@
 .screenshot-candidate > p, .screenshot-empty { margin: 0 0 14px; color: #a6a099; font-size: 12px; line-height: 1.9; }
 .screenshot-candidate > .button { min-width: 140px; }
 .screenshot-settings .setting-heading { margin-bottom: 12px; }
+.screenshot-settings { min-width: 0; }
+.screenshot-settings p { color: #adacab; font-size: 12px; line-height: 1.95; }
+.screenshot-setup-step { margin-top: 23px; padding-top: 20px; border-top: 1px solid #3c3935; }
+.screenshot-setup-step > h3 { margin: 0 0 13px; color: #ded3c3; font-size: 15px; font-weight: 500; line-height: 1.8; }
+.screenshot-setup-step > .button { max-width: 100%; white-space: normal; }
+.screenshot-first-record { display: grid; gap: 10px; padding-left: 21px; color: #b9b0a4; font-size: 12px; line-height: 1.9; }
+.screenshot-settings .screenshot-result-tip { padding: 13px 15px; border: 1px solid #514638; border-radius: 10px; color: #d3c1a4; background: #231f19; }
 .screenshot-settings > .button { margin-top: 2px; }
 .screenshot-setup-guide { margin-top: 17px; padding-top: 6px; border-top: 1px solid #3c3935; }
 .screenshot-setup-guide summary { display: list-item; min-height: 44px; padding: 12px 0; color: #d1c3ad; font-size: 12px; line-height: 1.8; cursor: pointer; }
