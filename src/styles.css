@@ -375,13 +375,23 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .quick-start-card .setting-heading { margin-bottom: 12px; }
 .quick-start-card .setting-heading h2 { color: #ebe5dc; font-size: 18px; }
 .quick-start-card .setting-heading svg { color: #d2c5b2; }
-.quick-start-support { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
-.quick-start-support p { margin: 0; padding: 14px 16px; border: 1px solid #45403a; border-radius: 10px; background: rgb(0 0 0 / 12%); }
+.quick-start-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; margin-top: 18px; }
+.quick-start-method { min-width: 0; padding: 20px; border: 1px solid #45403a; border-radius: 12px; background: rgb(0 0 0 / 12%); }
+.quick-start-method-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: #d8ccba; }
+.quick-start-method-heading svg { flex: 0 0 auto; stroke-width: 1.5; }
+.quick-start-method-heading h3 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.8; }
+.quick-start-method > .button { max-width: 100%; white-space: normal; }
+.quick-start-screenshot-steps { display: grid; gap: 11px; margin: 17px 0; padding-left: 21px; color: #adacab; font-size: 12px; line-height: 1.9; }
+.quick-start-screenshot-steps li { padding-left: 3px; }
+.quick-start-screenshot-steps strong, .quick-start-screenshot-steps span { display: block; }
+.quick-start-screenshot-steps strong { color: #d1d0cf; font-weight: 500; }
+.quick-start-support { display: grid; gap: 12px; margin: 15px 0 18px; }
+.quick-start-support p { margin: 0; padding-bottom: 12px; border-bottom: 1px solid #3b3834; }
 .quick-start-support strong, .quick-start-support span { display: block; }
 .quick-start-support strong { margin-bottom: 5px; }
 .quick-start-checklist { margin-top: 14px; border-bottom: 1px solid #45403a; }
 .quick-start-checklist summary { display: list-item; min-height: 44px; padding: 12px 0; color: #d2c5b2; font-size: 12px; cursor: pointer; }
-.quick-start-checklist ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 32px; margin: 6px 0 18px; padding-left: 22px; color: #adacab; font-size: 12px; line-height: 1.9; }
+.quick-start-checklist ol { display: grid; gap: 14px; margin: 6px 0 18px; padding-left: 22px; color: #adacab; font-size: 12px; line-height: 1.9; }
 .quick-start-checklist li { padding-left: 3px; }
 .quick-start-checklist li strong, .quick-start-checklist li span { display: block; }
 .quick-start-checklist li strong { color: #d1d0cf; font-weight: 500; }
@@ -559,7 +569,8 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
   .setting-heading, .setting-heading h2 { font-size: 15px; }
   .setting-card p { font-size: 12px; }
   .setting-card .button + .button { margin-left: 0; }
-  .quick-start-support, .quick-start-checklist ol { grid-template-columns: 1fr; }
+  .quick-start-methods { grid-template-columns: 1fr; }
+  .quick-start-method { padding: 17px; }
   .quick-start-support { gap: 10px; }
   .quick-start-actions .button { flex: 1; }
   .onboarding-banner { align-items: flex-start; flex-direction: column; gap: 13px; padding: 18px 20px; margin-bottom: 20px; border-radius: 12px; }
