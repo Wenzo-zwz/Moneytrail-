@@ -9,6 +9,13 @@ const walletBill = ["13:55", "5G", "75", "账单详情", "全部账单", "示例
   "管理极速付款", "极速付款", "支付时间", "2026-11-16 12:32:04", "付款方式", "余额宝 >", "支付奖励", "立即领取15积分",
   "收单机构", "北京示例支付技术有限公司", "清算机构", "中国银联股份有限公司", "交易详情", "美团点餐", "已完成",
   "示例米线", "共1件", "更多", "账单管理", "账单分类", "餐饮美食", "标签", "请选择"].join("\n");
+// Actual iPhone OCR ordering: left-column labels first, then the merchant
+// summary and right-column values. Merchant and product names are synthetic;
+// status-bar noise and OCR substitutions retain the observed structure.
+const columnBill = ["14:141", "账单详情", ":!!! 4G 72", "全部账单", "管理极速付款", "支付时间", "付款方式", "支付奖励",
+  "收单机构", "清算机构", "交易详情", "英國 美团点餐＞", "示例米线", "示例一碗・云南伙食", "-28.70", "交易成功",
+  "极速付款", "2026-11-16 12:32:04", "余额宝＞", "v 立即领取15积分", "京示例支付技不有限公司", "中国银联股份有限公司",
+  "已完成", "共1件", "更多～", "账单管理", "账单分类", "标签", "已解锁“吃顿饭“贴纸，去兑换好礼。", "餐饮美食＞", "请选择＞"].join("\n");
 
 describe("universal payment screenshot review", () => {
   it("recognizes WeChat without changing it into an Alipay source", () => {
@@ -212,5 +219,74 @@ describe("observed domestic-wallet bill summary", () => {
   ])("refuses a partial, ambiguous, non-purchase or conflicting wallet bill %#", text => {
     expect(parsePaymentScreenshot(text).candidates).toEqual([]);
     expect(parsePaymentScreenshot(text).error).toBeTruthy();
+  });
+});
+
+describe("iPhone column-ordered wallet bill OCR", () => {
+  it("restores the observed label/value columns without using status-bar digits or reward points", () => {
+    const result = parsePaymentScreenshot(columnBill);
+    expect(result.error).toBeUndefined();
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({ source: "manual", kind: "expense", merchant: "示例一碗・云南伙食", amountCents: 2870, date: "2026-11-16T12:32" });
+    expect(result.warnings.join(" ")).toContain("未确认支付平台");
+    expect(result.warnings.join(" ")).toContain("截图未显示币种");
+  });
+  it("accepts a column-ordered bill without an embedded Meituan product block", () => {
+    const result = parsePaymentScreenshot(columnBill.replace("英國 美团点餐＞\n示例米线\n", ""));
+    expect(result.candidates[0]).toMatchObject({ merchant: "示例一碗・云南伙食", amountCents: 2870, date: "2026-11-16T12:32" });
+  });
+  it("preserves original merchant characters and recognizes normalized wallet arrows and minus signs", () => {
+    const result = parsePaymentScreenshot(columnBill.replace("示例一碗・云南伙食", "ＡＢＣ・示例云南伙食").replace("-28.70", "−２８．７０"));
+    expect(result.candidates[0]).toMatchObject({ merchant: "ＡＢＣ・示例云南伙食", amountCents: 2870 });
+  });
+  it.each([
+    columnBill.replace("支付时间\n付款方式\n支付奖励\n收单机构\n清算机构\n交易详情\n", "")
+      .replace("交易成功\n", "交易成功\n支付时间\n付款方式\n支付奖励\n收单机构\n清算机构\n交易详情\n"),
+    columnBill.replace("支付时间\n", "创建时间\n"),
+    columnBill.replace("2026-11-16 12:32:04\n", "") + "\n创建时间\n2026-11-16 12:32:04",
+    columnBill.replace("2026-11-16 12:32:04", "2026-02-29 12:32:04"),
+    columnBill.replace("2026-11-16 12:32:04", "2026-11-16 12:32:60"),
+    columnBill.replace("2026-11-16 12:32:04", "11月16日 12:32"),
+    columnBill + "\n2026-11-16 12:33:04",
+    columnBill.replace("余额宝＞", "银行卡＞") + "\n余额宝＞",
+    columnBill.replace("京示例支付技不有限公司\n", ""),
+    columnBill.replace("京示例支付技不有限公司\n", "").replace("示例一碗・云南伙食", "示例商户有限公司"),
+    columnBill.replace("中国银联股份有限公司", "其他清算机构"),
+    columnBill.replace("支付时间\n付款方式", "付款方式\n支付时间"),
+    columnBill.replace("收单机构\n", ""),
+    columnBill + "\n支付时间",
+    columnBill + "\n付款方式：支付宝余额",
+    columnBill + "\n收单机构：北京另一支付有限公司",
+    columnBill.replace("交易详情\n", ""),
+    columnBill.replace("示例一碗・云南伙食\n", ""),
+    columnBill.replace("示例一碗・云南伙食", "商户第一行\n商户第二行"),
+    columnBill.replace("示例一碗・云南伙食", "账单管理"),
+    columnBill.replace("示例一碗・云南伙食", "请选择＞"),
+    columnBill.replace("示例一碗・云南伙食", "更多～"),
+    columnBill.replace("示例一碗・云南伙食", "交易详情＞"),
+    columnBill.replace("示例一碗・云南伙食", "商户编号：123456"),
+    columnBill.replace("示例一碗・云南伙食", "123456"),
+    columnBill.replace("英國 美团点餐＞", "未知商品平台"),
+    columnBill.replace("-28.70", "28.70"),
+    columnBill.replace("-28.70", "+28.70"),
+    columnBill.replace("-28.70", "-0.00"),
+    columnBill.replace("-28.70", "-28.701"),
+    columnBill.replace("交易成功", "收款成功"),
+    columnBill.replace("交易成功", "退款成功"),
+    columnBill.replace("交易成功", "转账成功"),
+    columnBill.replace("交易成功", "处理中"),
+    columnBill + "\n交易成功",
+    columnBill + "\n另一项20元",
+    columnBill + "\n其他支出20.00",
+    columnBill + "\n−20.00",
+    columnBill + "\n币种：USD",
+    columnBill + "\n验证码123456",
+    columnBill + "\n交易类型\n支出",
+    "微信支付\n" + columnBill,
+    "支付宝\n微信支付\n" + columnBill,
+  ])("refuses to assemble unrelated, incomplete or conflicting column values %#", text => {
+    const result = parsePaymentScreenshot(text);
+    expect(result.candidates).toEqual([]);
+    expect(result.error).toBeTruthy();
   });
 });

@@ -67,7 +67,21 @@ function dateValue(value: string): string | undefined {
  * spending. All of the surrounding bill and settlement fields must agree.
  * These layout clues do not authenticate a payment platform or its currency.
  */
-function domesticWalletBill(lines: string[], normalizedLines: string[]): { merchant: string; amount: string } | undefined {
+type WalletBill = { merchant: string; amount: string; date: string };
+const billNavigation = /^(?:全部账单|极速付款|管理极速付款|账单管理|更多|标签|请选择|支付宝|微信支付)$/;
+function walletMerchant(value: string): boolean {
+  const normalized = value.normalize("NFKC");
+  const navigation = normalized.replace(/[\s>›〉~]+$/, "");
+  return /[\p{L}]/u.test(value) && !fieldLabel(navigation) && !status.test(navigation) && !billNavigation.test(navigation);
+}
+function walletAmount(value: string): string | undefined {
+  const normalized = value.replace(/−/g, "-");
+  return /^-(?:\d+|\d{1,3}(?:,\d{3})+)\.\d{2}$/.test(normalized) ? normalized : undefined;
+}
+const walletMethod = /^(?:余额宝|支付宝余额)(?:\s*[>›〉])?$/;
+const settlementCompany = /^[\p{Script=Han}（）()·\s]{2,100}有限公司$/u;
+
+function domesticWalletBill(lines: string[], normalizedLines: string[]): WalletBill | undefined {
   const heading = normalizedLines.findIndex(line => /^账单详情(?:\s*全部账单)?$/.test(line));
   const success = normalizedLines.indexOf("交易成功");
   if (heading < 0 || heading > 7 || success < heading + 3 || success > 12
@@ -76,18 +90,15 @@ function domesticWalletBill(lines: string[], normalizedLines: string[]): { merch
   const navigation = normalizedLines.slice(heading + 1, success - 2);
   if (/全部账单$/.test(normalizedLines[heading]) ? navigation.length !== 0
     : navigation.length !== 1 || navigation[0] !== "全部账单") return undefined;
-  const amount = normalizedLines[success - 1].replace(/−/g, "-");
+  const amount = walletAmount(normalizedLines[success - 1]);
   const merchant = lines[success - 2];
-  if (!/^-(?:\d+|\d{1,3}(?:,\d{3})+)\.\d{2}$/.test(amount)
-    || !merchant || !/[\p{L}]/u.test(merchant) || fieldLabel(merchant.normalize("NFKC"))
-    || status.test(merchant.normalize("NFKC"))
-    || /^(?:全部账单|极速付款|管理极速付款|账单管理|更多|标签|请选择|支付宝|微信支付)$/.test(merchant.normalize("NFKC"))) return undefined;
+  if (!amount || !merchant || !walletMerchant(merchant)) return undefined;
   const methods = fields(normalizedLines, ["付款方式"]);
   const collectors = fields(normalizedLines, ["收单机构"]);
   const clearing = fields(normalizedLines, ["清算机构"]);
   const dates = fields(normalizedLines, dateLabels);
-  if (methods.length !== 1 || !methods[0] || !/^(?:余额宝|支付宝余额)(?:\s*[>›〉])?$/.test(methods[0])
-    || collectors.length !== 1 || !collectors[0] || !/^[\p{Script=Han}（）()·\s]{2,100}有限公司$/u.test(collectors[0])
+  if (methods.length !== 1 || !methods[0] || !walletMethod.test(methods[0])
+    || collectors.length !== 1 || !collectors[0] || !settlementCompany.test(collectors[0])
     || clearing.length !== 1 || clearing[0] !== "中国银联股份有限公司"
     || dates.length !== 1 || !dates[0] || !dateValue(dates[0])
     || fields(normalizedLines, merchantLabels).length
@@ -98,7 +109,55 @@ function domesticWalletBill(lines: string[], normalizedLines: string[]): { merch
   if (normalizedLines.some((line, index) => index !== success - 1 && index !== success - 2
     && line !== dates[0] && !dateLabels.includes(fieldLabel(line) ?? "")
     && /[+\-−–—]?\d[\d,]*\.\d{1,2}(?!\d)/.test(line))) return undefined;
-  return { merchant, amount };
+  return { merchant, amount, date: dateValue(dates[0])! };
+}
+
+/**
+ * Apple OCR can serialize the labels down the left column before the centered
+ * summary and right-column values. Restore only this observed bill structure;
+ * do not find unrelated dates, wallet names and company names across the text.
+ */
+function columnWalletBill(lines: string[], normalizedLines: string[]): WalletBill | undefined {
+  const heading = normalizedLines.findIndex(line => line === "账单详情");
+  const success = normalizedLines.indexOf("交易成功");
+  const labelGroup = ["支付时间", "付款方式", "支付奖励", "收单机构", "清算机构", "交易详情"];
+  const labelStart = normalizedLines.indexOf(labelGroup[0]);
+  if (heading < 0 || heading > 7 || success < 2 || labelStart <= heading
+    || normalizedLines.filter(line => line === "账单详情").length !== 1
+    || normalizedLines.filter(line => line === "全部账单").length !== 1
+    || normalizedLines.filter(line => line === "交易成功").length !== 1
+    || !normalizedLines.slice(heading + 1, labelStart).includes("全部账单")
+    || !labelGroup.every((label, offset) => normalizedLines[labelStart + offset] === label
+      && normalizedLines.filter(line => fieldLabel(line) === label || line === label).length === 1)
+    || fields(normalizedLines, dateLabels).length !== 1
+    || fields(normalizedLines, [...merchantLabels, ...amountLabels, ...otherAmounts, ...directionLabels]).length
+    || normalizedLines.some(line => wechatHeading.test(line))) return undefined;
+
+  const merchantIndex = success - 2, merchant = lines[merchantIndex];
+  const amount = walletAmount(normalizedLines[success - 1]);
+  if (merchantIndex < labelStart + labelGroup.length || !merchant || !walletMerchant(merchant) || !amount) return undefined;
+  const summaryPrefix = normalizedLines.slice(labelStart + labelGroup.length, merchantIndex);
+  // In the observed order a product can precede the merchant. Recognize that
+  // two-line Meituan item block explicitly, so a missing merchant cannot cause
+  // its product name (or half a wrapped merchant name) to be used as a merchant.
+  if (summaryPrefix.length !== 0 && (summaryPrefix.length !== 2
+    || !/^(?:\S{1,4}\s+)?美团点餐\s*[>›〉]?$/.test(summaryPrefix[0])
+    || !walletMerchant(summaryPrefix[1]))) return undefined;
+
+  const dateIndex = success + 2, date = dateValue(normalizedLines[dateIndex] ?? "");
+  const method = normalizedLines[dateIndex + 1] ?? "";
+  const reward = normalizedLines[dateIndex + 2] ?? "";
+  const collector = normalizedLines[dateIndex + 3] ?? "";
+  const clearing = normalizedLines[dateIndex + 4];
+  if (normalizedLines[success + 1] !== "极速付款" || !date || !walletMethod.test(method)
+    || !/^(?:[vV✓√]\s*)?立即领取\d+积分$/.test(reward)
+    || !settlementCompany.test(collector) || clearing !== "中国银联股份有限公司"
+    || normalizedLines.filter(line => dateValue(line)).length !== 1
+    || normalizedLines.filter(line => walletMethod.test(line)).length !== 1
+    || normalizedLines.filter(line => line === "中国银联股份有限公司").length !== 1
+    || normalizedLines.some((line, index) => index !== dateIndex && index !== success - 1 && index !== merchantIndex
+      && /[+\-−–—]?\d[\d,]*\.\d{1,2}(?!\d)/.test(line))) return undefined;
+  return { merchant, amount, date };
 }
 
 /** One screenshot entry point, with source-aware adapters and explicit user review. */
@@ -135,7 +194,7 @@ export function parsePaymentScreenshot(text: unknown, rules: MerchantRule[] = []
   if (foreign.test(normalized) || nonPurchase.test(normalized)) {
     return fail("截图涉及外币、收款、退款、转账或未完成交易，不能直接作为普通支出，请核对交易类型后手动录入。");
   }
-  const walletBill = wechat ? undefined : domesticWalletBill(lines, normalizedLines);
+  const walletBill = wechat ? undefined : domesticWalletBill(lines, normalizedLines) ?? columnWalletBill(lines, normalizedLines);
   // A generic "交易成功" can describe incoming money too; require a payment
   // outcome or an explicit outgoing type rather than treating every success as spending.
   const completed = normalizedLines.some(line => /^(?:支付成功|付款成功|支付完成|付款完成)$/.test(line));
@@ -176,7 +235,7 @@ export function parsePaymentScreenshot(text: unknown, rules: MerchantRule[] = []
   const classification = classifyMerchant(merchant, rules);
   if (classification.requiresReview) return fail("商户或交易性质不明确，请手动核对录入。");
   const dates = fields(normalizedLines, dateLabels), parsedDates = dates.map(value => value ? dateValue(value) : undefined);
-  const date = dates.length && parsedDates.every(Boolean) && new Set(parsedDates).size === 1 ? parsedDates[0] : undefined;
+  const date = walletBill?.date ?? (dates.length && parsedDates.every(Boolean) && new Set(parsedDates).size === 1 ? parsedDates[0] : undefined);
   return {
     candidates: [{ key: "payment-screenshot-0", kind: "expense", source, merchant, amountCents,
       ...(date ? { date } : {}), category: classification.category,
