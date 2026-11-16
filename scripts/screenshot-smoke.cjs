@@ -13,6 +13,7 @@ const DATE = '2026-11-16T09:10';
 const MARKER = 'private-ocr-fixture-marker';
 const TEXT = `支付宝\n交易提醒\n你在滴滴出行有一笔38.40元的免密/自动扣款支付，点此查看详情。\n${MARKER}`;
 const WECHAT = '微信支付\n付款详情\n支付成功\n商户全称：示例咖啡店\n支付金额：￥18.60\n支付时间：2026年11月16日09:10';
+const BILL = '13:55\n账单详情\n全部账单\n示例云南小吃店\n-28.70\n交易成功\n管理极速付款\n极速付款\n支付时间\n2026-11-16 12:32:04\n付款方式\n余额宝\n支付奖励\n立即领取15积分\n收单机构\n北京钱袋宝支付技术有限公司\n清算机构\n中国银联股份有限公司\n交易详情\n美团点餐\n已完成\n排骨米线\n共1件\n更多\n账单管理\n账单分类\n餐饮美食\n标签\n请选择';
 const clone = value => JSON.parse(JSON.stringify(value));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const empty = () => ({version:1,transactions:[],budgetCents:0,billCheckedMonths:[]});
@@ -137,7 +138,26 @@ async function platformWorkflow(browser,app,source,override){const {context:ctx,
   await privacy(page);assert.deepEqual(errors,[]);
   pass(`payment source ${source}${override?' explicitly corrected to '+override:''}, including legacy-link compatibility, is preserved on save`);
 }finally{await ctx.close();}}
+async function billWorkflow(browser,app){const {context:ctx,page,errors}=await context(browser,app,393);try{
+  await open(page,app.base,BILL);
+  await page.getByRole('heading',{name:'示例云南小吃店',exact:true}).waitFor();
+  const source=page.getByLabel('支付来源：示例云南小吃店',{exact:true});
+  assert.equal(await source.inputValue(),'manual','an unbranded bill needs source confirmation');
+  assert.equal((await localBook(page)).transactions.length,0,'a real bill layout must remain a preview');
+  await source.selectOption('alipay');
+  await page.getByRole('button',{name:'核对并记账',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'记下一笔',exact:true});
+  assert.equal(await modal.getByLabel('发生时间',{exact:true}).inputValue(),'2026-11-16T12:32');
+  assert.equal(await modal.getByLabel('金额（元）',{exact:true}).inputValue(),'28.70');
+  await modal.getByRole('button',{name:'确认保存',exact:true}).click();
+  const book=await localBook(page);assert.equal(book.transactions.length,1);
+  assert.equal(book.transactions[0].merchant,'示例云南小吃店');assert.equal(book.transactions[0].amountCents,2870);
+  assert.equal(book.transactions[0].source,'alipay');assert.equal(book.transactions[0].date,'2026-11-16T12:32');
+  await privacy(page);assert.deepEqual(errors,[]);
+  await page.screenshot({path:path.join(OUT,'alipay-detail-bill.png'),fullPage:true});
+  pass('unlabeled domestic bill layout previews the exact amount and payment time, requires source confirmation and saves only after review');
+}finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
-  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');}finally{local.server.kill();}
+  const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);}finally{local.server.kill();}
   const cloud=await start(true,5194);try{await cloudWorkflow(browser,cloud);}finally{cloud.server.kill();}
 }finally{await browser.close();}process.stdout.write(`\n${checks} screenshot browser workflows passed. Real iPhone capture, OCR and Back Tap remain to be verified.\n`);})().catch(error=>{process.stderr.write(`${error.stack||error}\n`);process.exitCode=1;});
