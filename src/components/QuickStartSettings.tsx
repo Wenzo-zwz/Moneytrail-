@@ -1,4 +1,5 @@
 import { ArrowRight, MessageSquare, Pencil, ScanText, Smartphone, Wallet } from "lucide-react";
+import { SCREENSHOT_SHORTCUT_TEMPLATE } from "../lib/screenshotShortcutTemplate";
 
 type Props = {
   onSmsAutomation?: () => void;
@@ -16,7 +17,7 @@ export default function QuickStartSettings({ onSmsAutomation, onScreenshotSetup,
         <div className="quick-start-method-heading"><ScanText size={20} aria-hidden="true" /><h3 id="quick-start-screenshot-title">截图记账</h3></div>
         <p>适合支付宝、微信支付等单笔付款详情。轻点手机背面两下，识别金额、商户和时间，再由你核对保存。</p>
         <ol className="quick-start-screenshot-steps">
-          <li><strong>添加通用快捷指令</strong><span>按指引添加“MoneyTrail 截图记账”。</span></li>
+          <li><strong>添加通用快捷指令</strong><span>按指引添加“{SCREENSHOT_SHORTCUT_TEMPLATE.name}”。</span></li>
           <li><strong>绑定轻点背面两下</strong><span>在付款详情页主动触发整条指令。</span></li>
           <li><strong>核对并保存第一笔</strong><span>查看候选账目，补齐缺项后确认保存。</span></li>
         </ol>
