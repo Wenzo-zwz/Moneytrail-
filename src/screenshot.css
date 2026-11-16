@@ -14,14 +14,26 @@
 .screenshot-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .screenshot-capture .screenshot-actions .button { margin-left: 0; white-space: normal; }
 .screenshot-notice { line-height: 1.9; }
-.screenshot-results { margin-top: 25px; padding-top: 21px; border-top: 1px solid #393735; }
+.screenshot-results { margin-top: 20px; }
 .screenshot-results > h3 { margin: 0 0 16px; color: #d5c9b8; font-size: 14px; font-weight: 500; line-height: 1.8; }
 .screenshot-results .notice ul { padding-left: 18px; }
+.screenshot-review-warnings { margin-top: 16px; font-size: 12px; line-height: 1.9; }
+.screenshot-failure { margin-bottom: 16px; padding: 17px; border: 1px solid #5a4936; border-radius: 12px; background: #262018; }
+.screenshot-failure h4 { margin: 0 0 8px; color: #e1cdb1; font-size: 14px; font-weight: 500; line-height: 1.8; }
+.screenshot-failure p { margin: 0 0 14px; color: #c4b098; font-size: 12px; line-height: 1.9; }
+.screenshot-failure .button { max-width: 100%; white-space: normal; }
+.screenshot-text-editor { margin-top: 20px; border: 1px solid #393735; border-radius: 12px; background: #161517; }
+.screenshot-text-editor summary { min-height: 48px; padding: 13px 16px; color: #c8bba8; font-size: 12px; line-height: 1.8; list-style-position: inside; cursor: pointer; }
+.screenshot-text-editor[open] > summary { margin-bottom: 15px; border-bottom: 1px solid #393735; }
+.screenshot-text-editor > .form-field { margin-top: 0; padding: 0 16px; }
+.screenshot-text-editor > .form-actions { padding: 0 16px 16px; }
+.screenshot-text-editor textarea { max-height: 360px; }
+.screenshot-empty p { margin: 0 0 12px; }
 .screenshot-candidates { display: grid; gap: 14px; }
 .screenshot-candidate { min-width: 0; padding: 18px; border: 1px solid #454039; border-radius: 12px; background: #191819; }
 .screenshot-candidate-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 9px 16px; }
-.screenshot-candidate-heading h4 { flex: 1 1 160px; min-width: 0; margin: 0; color: #ddd6cc; font-size: 14px; font-weight: 500; line-height: 1.7; overflow-wrap: anywhere; }
-.screenshot-candidate-heading > strong { color: #e7dac5; font-size: 18px; font-weight: 500; white-space: nowrap; }
+.screenshot-candidate-heading h4 { flex: 1 1 160px; min-width: 0; margin: 0; color: #ddd6cc; font-size: 16px; font-weight: 500; line-height: 1.7; overflow-wrap: anywhere; }
+.screenshot-candidate-heading > strong { color: #e7dac5; font-size: 22px; font-weight: 500; white-space: nowrap; }
 .screenshot-candidate dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 15px 0; font-size: 12px; line-height: 1.8; }
 .screenshot-candidate dl > div { min-width: 0; }
 .screenshot-candidate dt { margin: 0 0 3px; color: #92908c; }
