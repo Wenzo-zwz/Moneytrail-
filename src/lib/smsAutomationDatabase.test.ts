@@ -287,10 +287,15 @@ describe("PostgreSQL scoped SMS automation", () => {
 
   it("does not flag equal amounts outside the 10-minute duplicate window", async () => {
     const { token } = await rotate();
-    const earlier = (await db.query<{ date: string }>(`select to_char((now() at time zone 'Asia/Shanghai')-interval '11 minutes','YYYY-MM-DD\"T\"HH24:MI') as date`)).rows[0].date;
-    const initial = { ...emptyData(), transactions: [{ ...draft, id: "csv-earlier", source: "csv", date: earlier }] };
+    // Both transaction times must share one clock snapshot. The suite-level
+    // SMS timestamp can be a minute older if execution crosses a minute edge.
+    const times = (await db.query<{ sms: string; earlier: string }>(`select
+      to_char(stamp,'FMMM月FMDD日HH24:MI') sms,
+      to_char(stamp-interval '11 minutes','YYYY-MM-DD"T"HH24:MI') earlier
+      from (select date_trunc('minute',now() at time zone 'Asia/Shanghai') stamp) fixture`)).rows[0];
+    const initial = { ...emptyData(), transactions: [{ ...draft, id: "csv-earlier", source: "csv", date: times.earlier }] };
     await asUser(ALICE, () => rpc("save_moneytrail_ledger", [initial, 0]));
-    expect((await receive(token)).status).toBe("recorded");
+    expect((await receive(token, message().replace(date, times.sms))).status).toBe("recorded");
     expect((await ledger()).data.transactions).toHaveLength(2);
   });
 
