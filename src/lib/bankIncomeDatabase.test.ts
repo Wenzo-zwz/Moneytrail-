@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 const migrations = import.meta.glob('../../supabase/migrations/*.sql', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
-const income = '尾号1329卡11月10日14:50工商银行收入(2026年10月工资)18,123.45元，余额1xxx元。【工商银行】';
+const income = '尾号0000卡11月10日14:50工商银行收入(2026年10月工资)18,123.45元，余额1xxx元。【工商银行】';
 const otherBanks = ['农业银行', '中国银行', '建设银行', '招商银行'];
 let db: PGlite;
 let existingDefinitions: unknown[];
@@ -50,7 +50,7 @@ it('extracts the independent salary amount and transaction date, preserving the 
   } });
   expect(result.warnings.join('')).toContain('本人确认');
   expect(result.draft.smsEvidence.text).toContain('2026年10月工资');
-  expect(result.draft.smsEvidence.text).not.toMatch(/1329|1xxx/);
+  expect(result.draft.smsEvidence.text).not.toMatch(/0000|1xxx/);
   expect(result.draft.smsEvidence.receivedAt).toBe('2026-11-10T07:00:00.000000Z');
 });
 

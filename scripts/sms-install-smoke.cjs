@@ -88,7 +88,7 @@ async function newBankEnableWorkflow(browser,app){
   await guide.waitFor();
   assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'abc');
   assert.equal(await guide.getByRole('link',{name:'安装支出快捷指令',exact:true}).getAttribute('href'),THREE_BANK_INSTALL);
-  await guide.locator('details').filter({hasText:'制作与分享模板（仅需一次）'}).locator('summary').click();
+  await guide.getByText('制作与分享模板（仅需一次）',{exact:true}).click();
   await safe(page,service,errors);
   await page.screenshot({path:path.join(OUT,'install-three-bank-320.png'),fullPage:true});
   passed('320px new-bank enable preserves bank selection, offers the matching installer in the token dialog and fits the expanded maintenance guide');
@@ -96,7 +96,7 @@ async function newBankEnableWorkflow(browser,app){
 }
 async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,393);try{
  await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);await openLegacy(guide);
- await guide.getByRole('heading',{name:'配置农中建通用模板',exact:true}).waitFor();
+ await guide.getByRole('heading',{name:'农中建通用模板',exact:true}).waitFor();
  assert((await guide.innerText()).includes('储蓄卡和信用卡共用'),`${bank.name} ${cardKind} must use the shared card template`);
  assert.equal(await guide.getByRole('combobox').count(),1,'card type must not require another selection');
  assert.equal(await guide.getByRole('textbox').count(),0,'generic onboarding must not require an SMS sample');
@@ -111,11 +111,11 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
  const popupPromise=context.waitForEvent('page');await tokenLink.click();const popup=await popupPromise;await popup.waitForLoadState();assert.equal(popup.url(),THREE_BANK_INSTALL);await popup.close();
  await modal.getByRole('button',{name:'我已保存',exact:true}).click();await guide.waitFor();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),bank.code);
  await guide.getByRole('heading',{name:'农中建通用模板',exact:true}).waitFor();
- assert(!(await guide.innerText()).includes('共享安装链接尚未发布'));
+ assert(!(await guide.getByText('仅接收支出：旧版模板与配置',{exact:true}).locator('..').innerText()).includes('共享安装链接尚未发布'));
  const installer=guide.getByRole('link',{name:'安装支出快捷指令',exact:true});
  assert.equal(await installer.getAttribute('href'),THREE_BANK_INSTALL);
  assert.equal(await installer.getAttribute('target'),'_blank');assert.match(await installer.getAttribute('rel'),/noreferrer/);
- const maker=guide.locator('details').filter({hasText:'制作与分享模板（仅需一次）'});assert.equal(await maker.count(),1);
+ const maker=guide.getByText('制作与分享模板（仅需一次）',{exact:true}).locator('..');assert.equal(await maker.count(),1);
  const source=guide.locator(`a[href="${THREE_BANK_SOURCE}"]`);assert.equal(await source.count(),1);assert.equal(await source.isVisible(),false,'unsigned source belongs behind the maker details');
  await maker.locator('summary').click();await source.waitFor();assert.equal(await maker.getByRole('link',{name:'下载模板源文件',exact:true}).count(),1);assert.notEqual(await source.getAttribute('download'),null,'source must be a download, not a direct Apple installer');
  const sourceResponse=await page.request.get(app.origin+THREE_BANK_SOURCE);assert.equal(sourceResponse.status(),200);const sourceText=await sourceResponse.text();assert.match(sourceText,/<plist\b/);assert.match(sourceText,/WFWorkflowActions/);
@@ -127,7 +127,7 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
  }finally{await context.close();}}
 async function cmbTemplateWorkflow(browser,app){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,320);try{
  await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption('cmb');await openLegacy(guide);
- await guide.getByRole('heading',{name:'配置含招商银行的通用模板',exact:true}).waitFor();
+ await guide.getByRole('heading',{name:'通用银行模板（含招商银行）',exact:true}).waitFor();
  assert((await guide.innerText()).includes('“信息包含”留空'));assert((await guide.innerText()).includes('MoneyTrail 通用银行记账'));
  assert((await guide.innerText()).includes('95555'));assert((await guide.innerText()).includes('以真实短信为准'));
  assert((await guide.innerText()).includes('旧农中建模板不会转发招商银行短信'));
