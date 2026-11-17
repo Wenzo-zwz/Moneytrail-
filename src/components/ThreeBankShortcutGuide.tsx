@@ -17,7 +17,7 @@ export default function ThreeBankShortcutGuide({ projectUrl, bankCode, enabled }
   return <section className="three-bank-guide" aria-label={title}>
     <h5>{title}</h5>
     <p>{source.version === 1 ? "农业银行、中国银行、建设银行" : "农业银行、中国银行、建设银行、招商银行"}的储蓄卡和信用卡共用一份「{source.name}」，每个人在安装时填写自己的令牌，并保留模板名称。</p>
-    {enabled && template ? <a className="button primary sms-shortcut-install" href={template.url} target="_blank" rel="noopener noreferrer">安装 iPhone 快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装 iPhone 快捷指令</button>}
+    {enabled && template ? <a className="button primary sms-shortcut-install" href={template.url} target="_blank" rel="noopener noreferrer">安装支出快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装支出快捷指令</button>}
     <p>收到后先待确认。请核对金额、日期、商户及消费或转账性质，确认后才计入首页金额；未知格式可能需要手动补齐字段。</p>
     {!compatible ? <p className="sms-shortcut-caution">通用模板固定连接慢慢记账生产服务，与当前部署不匹配。请勿把当前账户令牌填入此模板，请使用下方高级配置中的当前项目地址与公开密钥制作配套指令。</p> : <>
       {!enabled && <p className="sms-shortcut-caution">请先在上方启用个人接入并保存令牌，再安装模板。</p>}

@@ -1,6 +1,6 @@
 import { ArrowRight, MessageSquare, Pencil, ScanText, Smartphone, Wallet } from "lucide-react";
 import { SCREENSHOT_SHORTCUT_TEMPLATE } from "../lib/screenshotShortcutTemplate";
-import { GENERAL_BANK_TEMPLATE } from "../lib/bankOnboarding";
+import { BANK_ACTIVITY_TEMPLATE } from "../lib/bankOnboarding";
 
 type Props = {
   onSmsAutomation?: () => void;
@@ -28,20 +28,20 @@ export default function QuickStartSettings({ onSmsAutomation, onScreenshotSetup,
       <article className="quick-start-method" aria-labelledby="quick-start-sms-title">
         <div className="quick-start-method-heading"><MessageSquare size={20} aria-hidden="true" /><h3 id="quick-start-sms-title">短信自动记账</h3></div>
         {onSmsAutomation ? <>
-          <p>连接 iPhone 短信自动化，让新收到的银行消费短信进入你的账户账本。</p>
+          <p>连接 iPhone 短信自动化，接收新收到的银行收入与支出短信。工资等收入先待确认，核对后再入账。</p>
           <div className="quick-start-support" aria-label="当前银行接入范围">
-            <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；群收款和不明确的记录仍需确认。</span></p>
-            <p><strong>农行 · 中行 · 建行</strong><span>可安装{GENERAL_BANK_TEMPLATE.url ? "通用银行模板" : "农中建通用模板"}，收到后先待确认，核对后再入账。</span></p>
-            <p><strong>招商银行</strong><span>{GENERAL_BANK_TEMPLATE.url ? "可安装通用银行模板，收到后先待确认，核对后再入账。" : "已登记接收后待确认，需使用包含招商银行筛选的新版通用指令；分享模板待更新。"}</span></p>
+            <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；收入、群收款和不明确的记录仍需确认。</span></p>
+            <p><strong>农行 · 中行 · 建行 · 招商银行</strong><span>新收入与支出收到后先待确认，核对后再入账；未知格式或遮罩金额需补填。</span></p>
+            <p><strong>收入与支出快捷指令</strong><span>{BANK_ACTIVITY_TEMPLATE.url ? "安装收支新版，并更新短信自动化触发条件。" : "收支新版共享安装链接待发布，可按指引更新匹配规则；已发布的旧工行、农中建安装模板仅筛选支出。"}</span></p>
           </div>
           <button type="button" className="button secondary" onClick={onSmsAutomation}>开通短信自动记账<ArrowRight size={17} /></button>
           <details className="quick-start-checklist">
             <summary>查看开通步骤</summary>
             <ol>
               <li><strong>启用自己的接入</strong><span>同意转发后，复制并保存个人令牌。不要使用别人的令牌。</span></li>
-              <li><strong>安装对应模板</strong><span>在安装时填写自己的令牌；根据银行查看可用模板与接收范围。</span></li>
-              <li><strong>设置手机触发</strong><span>按 iPhone 中的指引选择银行发件人，将新短信正文传给快捷指令。</span></li>
-              <li><strong>核对第一条真实短信</strong><span>等待新的消费短信，在收件箱核对接收时间、金额和“已入账／待确认”状态。</span></li>
+              <li><strong>配置收支新版</strong><span>按指引安装或更新收支指令，填写自己的令牌。网页更新不会升级手机上已安装的旧模板。</span></li>
+              <li><strong>设置手机触发</strong><span>选择真实银行短信发件人，“信息包含”留空，将新短信正文传给收支指令。</span></li>
+              <li><strong>核对第一条真实短信</strong><span>等待新的收入或支出短信，在收件箱核对接收时间、金额和“已入账／待确认”状态。</span></li>
             </ol>
             <p className="help-text">启用接入不代表手机已配置完成。历史短信不会自动导入，收到短信也不等于已经入账。</p>
           </details>
