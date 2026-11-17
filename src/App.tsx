@@ -1232,6 +1232,10 @@ export default function App({
                       支出 {formatMoney(stats.expenseCents)}
                       <span> · </span>退款 {formatMoney(stats.refundCents)}
                     </div>
+                    <dl className="hero-income">
+                      <dt>本月收入</dt>
+                      <dd>{formatMoney(stats.incomeCents)}</dd>
+                    </dl>
                     <div className="hero-footer">
                       <span>
                         <span className="status-dot" />

@@ -37,7 +37,7 @@ function receivedTime(value: string | null) {
 
 function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; merchantRules: MerchantRule[]; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
-  const [kind, setKind] = useState<SmsDraft["kind"]>(item.draft?.kind ?? "expense");
+  const [kind, setKind] = useState<SmsDraft["kind"] | "">(item.draft?.kind ?? "");
   const [amount, setAmount] = useState(item.draft ? (item.draft.amountCents / 100).toFixed(2) : "");
   const [date, setDate] = useState(item.draft?.date ?? "");
   const [merchant, setMerchant] = useState(item.draft?.merchant ?? "");
@@ -47,11 +47,15 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
   const [error, setError] = useState("");
   const [explicitChoice, setExplicitChoice] = useState(false);
   const [remember, setRemember] = useState(true);
-  const canRemember = Boolean(item.draft && item.warnings.length === 0 && canOfferMerchantMemory(item.draft, { ...item.draft, kind, merchant, category, subcategory }, explicitChoice, merchantRules));
+  const canRemember = Boolean(item.draft && kind !== "" && item.warnings.length === 0 && canOfferMerchantMemory(item.draft, { ...item.draft, kind, merchant, category, subcategory }, explicitChoice, merchantRules));
   const pending = item.status === "pending";
+  const kindLabel = kinds.find(option => option.value === item.draft?.kind)?.label ?? "交易类型待核对";
+  const amountPrefix = item.draft?.kind === "expense" ? "−" : item.draft?.kind === "income" || item.draft?.kind === "refund" ? "+" : "";
+  const amountClass = item.draft?.kind === "income" || item.draft?.kind === "refund" ? "text-success" : item.draft?.kind === "transfer" ? "text-muted" : undefined;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !canConfirm) return;
+    if (!kind) { setError("请选择交易类型。"); return; }
     const cents = parseAmount(amount);
     if (!cents || !isValidLocalDateTime(date) || !merchant.trim() || merchant.length > 200) { setError("请填写有效的金额、时间和商户。"); return; }
     setError("");
@@ -59,7 +63,7 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
   }
   return <article className={`sms-message ${item.status}`}>
     <div className="sms-message-heading"><span className={`sms-status ${item.status}`}>{pending ? "待确认" : item.status === "recorded" ? "已入账" : "已忽略"}</span><time dateTime={item.received_at}>{receivedTime(item.received_at)}</time></div>
-    <div className="sms-message-summary"><div><h3>{item.draft?.merchant || "需要手动核对的银行短信"}</h3><p>{item.draft?.date.replace("T", " ") || "尚未识别消费时间"}</p></div><strong>{item.draft ? formatMoney(item.draft.amountCents) : "待核对"}</strong></div>
+    <div className="sms-message-summary"><div><h3>{item.draft?.merchant || "需要手动核对的银行短信"}</h3><p>{item.draft?.date.replace("T", " ") || "尚未识别交易时间"}</p><p className="sms-message-kind">{kindLabel}</p></div><strong className={amountClass}>{item.draft ? `${amountPrefix}${formatMoney(item.draft.amountCents)}` : "待核对"}</strong></div>
     {item.draft && <p className="sms-form-hint">{categoryText(item.draft)}</p>}
     {pending ? <>
       {item.reason && <p className="sms-review-reason">{item.reason}</p>}
@@ -67,7 +71,7 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
       {item.raw_text && <details className="sms-original"><summary>查看短信原文<ChevronDown size={14} /></summary><p>{item.raw_text}</p></details>}
       <button className="sms-edit-toggle" type="button" aria-expanded={editing} aria-controls={`sms-form-${item.id}`} onClick={() => setEditing(value => !value)}>{editing ? "收起核对" : "核对并记录"}<ChevronDown size={16} className={editing ? "expanded" : undefined} /></button>
       {editing && <form className="sms-review-form" id={`sms-form-${item.id}`} onSubmit={submit}>
-        <label>交易类型<select value={kind} onChange={event => setKind(event.target.value as SmsDraft["kind"])} disabled={busy}>{kinds.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>交易类型<select required value={kind} onChange={event => setKind(event.target.value as SmsDraft["kind"] | "")} disabled={busy}>{!item.draft && <option value="" disabled>请选择交易类型</option>}{kinds.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>金额（元）<input type="text" inputMode="decimal" required autoComplete="off" maxLength={20} value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label>
         <label>交易时间<input type="datetime-local" required value={date} onChange={event => setDate(event.target.value)} disabled={busy} /></label>
         <label>商户或用途<input type="text" required autoComplete="off" maxLength={200} value={merchant} onChange={event => setMerchant(event.target.value)} disabled={busy} /></label>

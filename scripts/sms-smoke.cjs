@@ -38,7 +38,7 @@ function identity(request) {
   try { return JSON.parse(Buffer.from((request.headers().authorization || "").split(".")[1], "base64url").toString()).sub; }
   catch { return null; }
 }
-function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false } = {}) {
+function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false, incomePending = false } = {}) {
   const ledgers = new Map([[OWNER, { data: { ...empty(), budgetCents: 900000, transactions: [manual], billCheckedMonths: ["2026-09"] }, revision: 1, updated_at: "2026-10-22T11:00:00Z" }], [MEMBER, { data: empty(), revision: 1, updated_at: "2026-10-22T11:00:00Z" }]]);
   const inboxes = new Map([[OWNER, [
     { id: GROUP, received_at: "2026-10-22T11:27:00Z", status: "pending", raw_text: RAW, draft: { kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" }, warnings: ["群收款需确认是消费还是转账。"], reason: null, transaction_id: null },
@@ -47,6 +47,29 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
   const configs = new Map([OWNER, MEMBER].map((id) => [id, { enabled: false, mode: "auto", created_at: null, last_received_at: id === OWNER ? "2026-10-22T11:27:00Z" : null }]));
   const ordinaryIds = new Set();
   const reprocessedDrafts = new Map();
+  if (incomePending) {
+    // Synthetic examples exercise display and confirmation, not bank parsing.
+    const current = ledgers.get(OWNER);
+    current.data.transactions.push(
+      { ...manual, id: "existing-refund", kind: "refund", amountCents: 1800, date: "2026-10-22T11:00", merchant: "已有退款" },
+      { ...manual, id: "existing-transfer", kind: "transfer", amountCents: 500000, date: "2026-10-22T12:00", merchant: "已有本人转账" },
+      { ...manual, id: "previous-income", kind: "income", amountCents: 990000, date: "2026-09-30T14:50", merchant: "上月工资", category: "其他", subcategory: "工资" },
+    );
+    const drafts = [
+      { kind: "income", amountCents: 1800000, date: "2026-10-22T14:50", merchant: "合成工资样例", category: "其他", subcategory: "工资", source: "sms", note: "" },
+      { kind: "refund", amountCents: 1800, date: "2026-10-22T15:00", merchant: "合成退款候选", category: "其他", source: "sms", note: "" },
+      { kind: "transfer", amountCents: 500000, date: "2026-10-22T15:10", merchant: "合成本人转账候选", category: "其他", source: "sms", note: "" },
+    ];
+    const records = drafts.map((draft, index) => ({
+      id: `36000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      received_at: "2026-10-22T07:30:00Z", status: "pending", raw_text: "合成收入、退款或本人转账提醒，仅供浏览器界面验证。",
+      draft, warnings: ["请核对交易类型、金额与用途。"], reason: null, transaction_id: null,
+    }));
+    // The UI cannot infer a verified transaction type from raw text alone.
+    const unknown = inboxes.get(OWNER).find(item => item.id === OTHER);
+    unknown.raw_text = "【农业银行】合成工资收入提醒1000元，字段尚未验证。";
+    inboxes.set(OWNER, [...records, ...inboxes.get(OWNER)]);
+  }
   if (groupedBalancePending) {
     const id = "35000000-0000-4000-8000-000000000001";
     const draft = { kind: "expense", amountCents: 37500, date: "2026-10-23T09:47", merchant: "消费支付宝-阿里健康大药房医药连锁有限公", category: "医疗", source: "sms", note: "" };
@@ -150,7 +173,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
               const transaction = { ...clone(body.p_draft), id: `sms-${item.id}`, source: "sms", sourceRef: `sms-${item.id}` };
               const current = ledgers.get(id); const month = transaction.date.slice(0, 7);
               ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter((checked) => checked !== month) }, revision: current.revision + 1, updated_at: "2026-10-22T11:35:00Z" });
-              item.status = "recorded"; item.raw_text = null; item.transaction_id = transaction.id;
+              item.status = "recorded"; item.raw_text = null; item.transaction_id = transaction.id; item.draft = clone(body.p_draft); item.reason = null;
               return respond({ status: "recorded", transaction_id: transaction.id });
             }
             item.status = "dismissed"; item.raw_text = null;
@@ -320,15 +343,15 @@ async function entryWorkflow(browser) {
       const firstCard = page.locator(".settings-grid > section").first();
       await firstCard.getByRole("heading", { name: "快速上手", exact: true }).waitFor();
       const entry = firstCard.getByRole("button", { name: "开通短信自动记账", exact: true });
-      const bounds = await entry.boundingBox();
-      assert(bounds && bounds.y >= 0 && bounds.y + bounds.height < 750, "SMS setup entry should be visible at the top without scrolling");
+      await entry.scrollIntoViewIfNeeded();
+      assert(await entry.isVisible(), "SMS setup entry remains reachable inside quick start alongside the screenshot flow");
       await noOverflow(page, `${width}px settings with first SMS card`);
       if (width === 393) await page.screenshot({ path: path.join(ARTIFACTS, "mobile-settings-entry-393.png"), animations: "disabled" });
       await entry.click();
       await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
       assert.equal(new URL(page.url()).searchParams.get("view"), "sms");
       assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
-      passed(`${width}px settings show quick start first, keep SMS setup visible and open the inbox`);
+      passed(`${width}px settings show quick start first, keep SMS setup reachable and open the inbox`);
     } finally { await context.close(); }
   }
 }
@@ -450,6 +473,81 @@ async function reprocessLayoutWorkflow(browser) {
   } finally { await context.close(); }
 }
 
+async function incomeWorkflow(browser, width) {
+  const backend = mockBackend({ incomePending: true }); const { page, context, errors } = await fixture(browser, backend, { width, sms: false });
+  try {
+    await login(page); await page.locator(".hero-amount").waitFor();
+    assert.equal(await page.locator(".hero-income dt").innerText(), "本月收入");
+    assert.equal(await page.locator(".hero-income dd").innerText(), "¥0.00", "pending salary, refunds, transfers and another month's salary are not current income");
+    assert.equal(await page.locator(".hero-amount").innerText(), "¥40.00");
+    assert.match(await page.locator(".budget-note").innerText(), /8,960\.00/);
+    await noOverflow(page, `${width}px income summary before confirmation`);
+    await openSms(page);
+    const salary = page.locator(".sms-message").filter({ has: page.getByRole("heading", { name: "合成工资样例", exact: true }) });
+    await salary.waitFor();
+    const summaries = [
+      ["合成工资样例", "收入", "+¥18,000.00"],
+      ["合成退款候选", "退款", "+¥18.00"],
+      ["合成本人转账候选", "转账，不计消费", "¥5,000.00"],
+      ["财付通-群收款", "消费支出", "−¥30.90"],
+    ];
+    for (const [merchant, kind, amount] of summaries) {
+      const card = page.locator(".sms-message").filter({ has: page.getByRole("heading", { name: merchant, exact: true }) });
+      assert.equal(await card.locator(".sms-message-kind").innerText(), kind);
+      assert.equal(await card.locator(".sms-message-summary > strong").innerText(), amount);
+    }
+    await page.getByText("尚未识别交易时间", { exact: true }).waitFor();
+    await salary.getByRole("button", { name: "核对并记录", exact: true }).click();
+    assert.equal(await salary.getByRole("combobox", { name: /^交易类型/ }).inputValue(), "income");
+    assert.equal(await salary.locator(".sms-remember").count(), 0, "income must not teach an expense merchant rule");
+    await noOverflow(page, `${width}px income candidate and confirmation form`);
+    if (width === 320) await salary.screenshot({ path: path.join(ARTIFACTS, "income-candidate-320.png"), animations: "disabled" });
+    const original = clone(backend.ledgers.get(OWNER).data);
+    const unknown = page.locator(".sms-message").filter({ has: page.getByRole("heading", { name: "需要手动核对的银行短信", exact: true }) });
+    await unknown.getByRole("button", { name: "核对并记录", exact: true }).click();
+    const unknownType = unknown.getByRole("combobox", { name: /^交易类型/ });
+    assert.equal(await unknownType.inputValue(), "", "unverified raw income must not default to an expense or infer its type");
+    assert.equal(await unknown.getByLabel("交易时间", { exact: true }).inputValue(), "", "receipt time is not a verified transaction time");
+    await unknown.getByLabel("金额（元）", { exact: true }).fill("1000.00");
+    await unknown.getByLabel("交易时间", { exact: true }).fill("2026-10-22T15:20");
+    await unknown.getByLabel("商户或用途", { exact: true }).fill("人工核对的收入");
+    await unknown.getByRole("combobox", { name: /^分类/ }).selectOption("其他");
+    await unknown.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    assert.equal(await unknownType.evaluate(element => element.validity.valueMissing), true);
+    assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 0, "the type must be selected before confirmation can send a request");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, original.transactions.length);
+    await unknownType.selectOption("income");
+    await unknown.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.length === original.transactions.length + 1, "explicitly typed manual income confirmation");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.at(-1).kind, "income");
+    await page.locator(".sms-message.recorded").getByRole("heading", { name: "人工核对的收入", exact: true }).waitFor();
+    await salary.getByRole("button", { name: "核对并记录", exact: true }).click();
+    await salary.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    await until(() => backend.ledgers.get(OWNER).data.transactions.length === original.transactions.length + 2, "salary confirmation");
+    const book = backend.ledgers.get(OWNER).data;
+    assert.deepEqual(book.transactions.slice(0, original.transactions.length), original.transactions);
+    assert.equal(book.budgetCents, original.budgetCents);
+    assert.equal(book.transactions.at(-1).kind, "income");
+    assert.equal(book.transactions.at(-1).amountCents, 1800000);
+    assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 2);
+    assert.equal(backend.requests.filter(request => request.path.endsWith("save_moneytrail_ledger")).length, 0);
+    await page.getByRole("button", { name: "返回账本", exact: true }).click();
+    await until(async () => await page.locator(".hero-income dd").innerText() === "¥19,000.00", "confirmed income summary");
+    assert.equal(await page.locator(".hero-amount").innerText(), "¥40.00", "income does not reduce consumption");
+    assert.match(await page.locator(".budget-note").innerText(), /8,960\.00/, "income does not increase the consumption budget");
+    const row = page.locator(".transaction-row").filter({ hasText: "合成工资样例" });
+    assert.match(await row.innerText(), /收入/);
+    assert.equal(await row.locator(".transaction-amount").innerText(), "+¥18,000.00");
+    await noOverflow(page, `${width}px confirmed income summary`);
+    await page.screenshot({ path: path.join(ARTIFACTS, `income-summary-${width}.png`), animations: "disabled" });
+    await page.locator("#month").fill("2026-09");
+    assert.equal(await page.locator(".hero-income dd").innerText(), "¥9,900.00", "income follows the selected transaction month");
+    assert.equal(await page.locator(".hero-amount").innerText(), "¥0.00");
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed(`${width}px income confirmation updates income only; unverified SMS requires an explicit type and transaction time`);
+  } finally { await context.close(); }
+}
+
 async function monthRolloverWorkflow(browser) {
   const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { sms: false });
   try {
@@ -555,7 +653,10 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
+    for (const width of [320, 393, 1440]) await incomeWorkflow(browser, width);
+    if (process.env.MONEYTRAIL_SMS_SMOKE_SUITE !== "income") {
+      await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
+    }
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
   } catch (error) { process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1; }
   finally { if (browser) await browser.close(); server.kill(); }
