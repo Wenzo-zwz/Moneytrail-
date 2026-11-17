@@ -11,6 +11,13 @@ begin
  if claims<>1 or t ~ '您尾号[0-9xX*×•]{4}的招行信用卡于' then return null; end if;
  bank:=moneytrail_private.sms_bank_code(t);
  if bank is null then bank:=moneytrail_private.sms_review_bank_source(t); end if;
+ if bank is null then return null; end if;
+ -- A terminal signature must not hide another bank named in the body. Remove
+ -- only this source bank's own names; ICBC legitimately repeats its name there.
+ if pg_catalog.regexp_replace(t,case bank
+  when 'icbc' then '(?:中国)?工商银行' when 'abc' then '(?:中国)?农业银行'
+  when 'boc' then '中国银行' when 'ccb' then '(?:中国)?建设银行'
+  when 'cmb' then '招商银行' end,'','g') ~ '银行' then return null; end if;
  return bank;
 end; $$;
 

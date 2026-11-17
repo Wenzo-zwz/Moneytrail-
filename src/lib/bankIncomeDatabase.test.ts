@@ -133,6 +133,27 @@ it.each([
   expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ draft: null, reason: expect.stringContaining('金额已打码') });
 });
 
+it.each(['工商银行', ...otherBanks].flatMap(bank => ['工商银行', ...otherBanks]
+  .filter(other => other !== bank).map(other => `${other}账户收入100元。【${bank}】`)))('rejects a bare conflicting bank in the body before retaining or counting it: %s', async raw => {
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  const before = await rows('moneytrail_private.sms_settings');
+  expect(await candidate(raw)).toBe(false);
+  await expect(receive(token, raw)).rejects.toMatchObject({ code: '22023' });
+  expect((await rpc('moneytrail_sms_inbox')).total).toBe(0);
+  expect(await rows('moneytrail_private.sms_settings')).toEqual(before);
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+});
+
+it.each([
+  income, income.replace('【工商银行】', '【中国工商银行】'), income.replace('工商银行收入', '中国工商银行收入'),
+])('keeps ICBC own-name body repetitions distinct from a conflicting bank claim: %s', async raw => {
+  expect(await candidate(raw)).toBe(true);
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  expect(await receive(token, raw)).toMatchObject({ status: 'pending' });
+  if (!raw.includes('中国工商银行收入')) expect((await parse(raw)).draft).toMatchObject({ kind: 'income', amountCents: 1812345 });
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+});
+
 it.each([
   ...['验证码123456', '驗證碼123456', '校驗碼123456', '動態碼123456', '密碼123456', 'OTP123456', 'verification123456', '优惠券', '抽奖', '最低还款', '预计', '未到账', '待入账', '处理中'].map(value => income.replace('2026年10月工资', value)),
   income.replace('18,123.45元', '18,123.45美元'), income.replace('18,123.45元', 'USD18123.45元'),
