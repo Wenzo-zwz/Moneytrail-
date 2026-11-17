@@ -33,6 +33,15 @@ export type SmsInboxItem = {
 export type SmsInbox = { items: SmsInboxItem[]; total: number; page: number; page_size: number };
 export type SmsInboxOptions = { page: number; pageSize: number };
 export type SmsReprocessResult = { recorded_count: number; pending_count: number };
+export type SmsActivitySummary = {
+  period_start: string;
+  period_end: string;
+  time_zone: "Asia/Shanghai";
+  received_count: number;
+  recorded_count: number;
+  pending_count: number;
+  dismissed_count: number;
+};
 
 export class SmsUpgradeError extends Error {
   constructor() {
@@ -152,6 +161,18 @@ function readInbox(value: unknown, options: SmsInboxOptions): SmsInbox {
   return { items, total, page, page_size: pageSize };
 }
 
+function readActivitySummary(value: unknown): SmsActivitySummary {
+  const data = record(value, ["period_start", "period_end", "time_zone", "received_count", "recorded_count", "pending_count", "dismissed_count"]);
+  const periodStart = timestamp(data.period_start), periodEnd = timestamp(data.period_end);
+  const received = count(data.received_count), recorded = count(data.recorded_count);
+  const pending = count(data.pending_count), dismissed = count(data.dismissed_count);
+  const classified = recorded + pending + dismissed;
+  if (data.time_zone !== "Asia/Shanghai" || Date.parse(periodEnd) - Date.parse(periodStart) !== 168 * 60 * 60 * 1000
+    || !Number.isSafeInteger(classified) || received !== classified) return failFormat();
+  return { period_start: periodStart, period_end: periodEnd, time_zone: "Asia/Shanghai",
+    received_count: received, recorded_count: recorded, pending_count: pending, dismissed_count: dismissed };
+}
+
 function checkMode(mode: SmsMode): void {
   if (mode !== "review" && mode !== "auto") throw new Error("请选择有效的短信记账方式。");
 }
@@ -192,6 +213,10 @@ async function rpc(client: SupabaseClient, userId: string, name: string, args: R
 
 export async function fetchSmsConfig(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsConfig> {
   return readConfig(await rpc(client, userId, "moneytrail_sms_config", {}, signal));
+}
+
+export async function fetchSmsActivitySummary(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsActivitySummary> {
+  return readActivitySummary(await rpc(client, userId, "moneytrail_sms_activity_summary", {}, signal));
 }
 
 /** A new capability is returned exactly once; callers keep it in component memory only. */

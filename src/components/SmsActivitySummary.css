@@ -1,0 +1,11 @@
+.sms-activity-summary { margin-block: 1rem; padding: 1.25rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); }
+.sms-activity-summary h2 { margin: 0 0 .65rem; font-size: 1.05rem; }
+.sms-activity-scope, .sms-activity-period, .sms-activity-note { margin: .5rem 0; color: var(--muted); font-size: .85rem; line-height: 1.65; }
+.sms-activity-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 1rem 0; }
+.sms-activity-counts > div { min-width: 0; }
+.sms-activity-counts dt { color: var(--muted); font-size: .85rem; }
+.sms-activity-counts dd { margin: .3rem 0 0; font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.sms-activity-counts small { margin-left: .3rem; color: var(--muted); font-size: .75rem; font-weight: 400; }
+.sms-activity-loading, .sms-activity-unavailable p { color: var(--muted); font-size: .9rem; line-height: 1.6; }
+.sms-activity-unavailable .button { margin-top: .25rem; }
+@media (max-width: 540px) { .sms-activity-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 1rem; } }
