@@ -9,6 +9,7 @@ const body = '您尾号1234的一卡通于11月16日12:32消费人民币28.70元
 const raw = '【招商银行】' + body;
 let db: PGlite;
 let definitionsBeforeMigration: unknown[];
+let basicDefinitionsUnchanged: boolean;
 
 async function rpc(name: string, args: unknown[] = []): Promise<any> {
   return (await db.query<{ r: any }>(`select to_jsonb(public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')})) r`, args)).rows[0].r;
@@ -32,7 +33,9 @@ beforeAll(async () => {
   for (const file of Object.keys(migrations).sort()) {
     if (file.endsWith('_cmb_review_intake.sql')) definitionsBeforeMigration = await definitions();
     await db.exec(migrations[file]);
+    if (file.endsWith('_cmb_review_intake.sql')) basicDefinitionsUnchanged = JSON.stringify(await definitions()) === JSON.stringify(definitionsBeforeMigration);
   }
+  definitionsBeforeMigration = await definitions();
 }, 30000);
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -122,6 +125,7 @@ it('preserves token validity and the existing daily and pending limits', async (
 });
 
 it('keeps the new helper private and preserves all parser, receiver and business state', async () => {
+  expect(basicDefinitionsUnchanged).toBe(true);
   for (const role of ['anon', 'authenticated']) expect((await db.query<{ allowed: boolean }>("select has_function_privilege($1,'moneytrail_private.sms_review_bank_source(text)','EXECUTE') allowed", [role])).rows[0].allowed).toBe(false);
   expect((await db.query("select provolatile,prosecdef,proconfig from pg_proc where oid='moneytrail_private.sms_review_bank_source(text)'::regprocedure")).rows[0]).toMatchObject({ provolatile: 'i', prosecdef: false, proconfig: ['search_path=""'] });
   await rpc('save_moneytrail_ledger', [{ version: 1, budgetCents: 50000, transactions: [], billCheckedMonths: [] }, 0]);

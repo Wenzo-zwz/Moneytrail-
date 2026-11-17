@@ -126,7 +126,7 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
 async function cmbTemplateWorkflow(browser,app){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,320);try{
  await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption('cmb');
  await guide.getByRole('heading',{name:'配置含招商银行的通用模板',exact:true}).waitFor();
- assert((await guide.innerText()).includes('信息包含「招商银行」'));assert((await guide.innerText()).includes('MoneyTrail 通用银行记账'));
+ assert((await guide.innerText()).includes('“信息包含”留空'));assert((await guide.innerText()).includes('MoneyTrail 通用银行记账'));
  assert((await guide.innerText()).includes('95555'));assert((await guide.innerText()).includes('以真实短信为准'));
  assert((await guide.innerText()).includes('旧农中建模板不会转发招商银行短信'));
  assert.equal(await guide.getByRole('button',{name:'安装 iPhone 快捷指令',exact:true}).isDisabled(),true);
@@ -138,8 +138,13 @@ async function cmbTemplateWorkflow(browser,app){const service=backend(OFFICIAL,a
  const source=guide.locator(`a[href="${GENERAL_BANK_SOURCE}"]`);await source.waitFor();assert.notEqual(await source.getAttribute('download'),null);
  const sourceText=await (await page.request.get(app.origin+GENERAL_BANK_SOURCE)).text();assert.match(sourceText,/<plist\b/);assert(sourceText.includes('招商银行'));
  await guide.getByRole('button',{name:'复制匹配规则',exact:true}).click();const pattern=await page.evaluate(()=>window.__fixtureCopied);
- assert(new RegExp(pattern,'i').test('【招商银行】您尾号1234卡消费人民币28.70元。'));
- assert(!new RegExp(pattern,'i').test('【招商银行】您尾号1234卡消费人民币28.70元，验证码123456。'));
+ const matcher=new RegExp(pattern,'iu');
+ assert(matcher.test('【招商银行】您尾号1234卡消费人民币28.70元。'));
+ assert(matcher.test('〖招商银行〗您账户0000于04月09日06:43在〖支付宝-payee〗快捷支付114.15元，余额9999.99元\u200c\ufffc'));
+ assert(matcher.test('您尾号3436的招行信用卡于12月24日18时4分消费人民币256.05元'));
+ assert(!matcher.test('【招商银行】您尾号1234卡消费人民币28.70元，验证码123456。'));
+ assert(!matcher.test('〖招商银行〗您账户0000快捷支付114.15元，验\u200c证码123456'));
+ assert(!matcher.test('您尾号3436的招行信用卡于12月24日18时4分消费人民币256.05元【中国银行】'));
  await guide.getByRole('button',{name:'复制 iPhone 制作步骤',exact:true}).click();const steps=await page.evaluate(()=>window.__fixtureCopied);
  assert(steps.includes(THREE_BANK_INSTALL));assert(steps.includes('整体替换'));assert(steps.includes('令牌文本留空'));
  await guide.getByRole('button',{name:'复制 Mac 签名命令',exact:true}).click();assert((await page.evaluate(()=>window.__fixtureCopied)).includes('moneytrail-general-bank-v2.unsigned.plist'));

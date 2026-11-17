@@ -8,6 +8,8 @@
 
 农行、中行、建行的储蓄卡与信用卡可安装同一份[农中建通用模板](https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d)，在导入时填写自己的个人接入令牌，再按[接入说明](docs/three-bank-shortcut.md)配置手机短信触发。三行短信仍全部先待确认；共享产物已做静态审核，真实 iPhone 导入、授权及锁屏触发尚待验收，见[交付审核记录](docs/three-bank-shortcut-audit-2026-11-15.md)。开发时使用 Python 3 标准库构建和校验模板源文件 XML：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
 
+招商银行已加入[通用银行 v2](docs/general-bank-shortcut.md)接收及制作流程，收到后先待确认。v2 源和匹配规则已准备，新的 iCloud 产物仍需分享审核；旧农中建链接不会转发招商银行短信。页面可选择招商银行并复制新版规则和手机更新步骤。
+
 接入步骤、数据库迁移和真实账号验证见 [独立账号部署说明](docs/cloud-accounts.md)。站点地址为 <https://wenzo-zwz.github.io/Moneytrail-/>。账号版首次发布用于注册和同步测试；迁移真实账目前应先验证邮箱、换设备读取与账户隔离。
 
 设置页提供“快速上手”，统一进入截图记账、短信自动记账、手动记账和月预算。截图记账按“安装快捷指令 → 绑定轻点背面 → 核对保存第一笔”完成配置；短信自动记账交付前，按[首次试用验收清单](docs/automatic-bookkeeping-rollout.md)完成模板交付、独立账号接收和真实短信验证。
