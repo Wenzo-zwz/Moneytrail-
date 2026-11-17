@@ -37,3 +37,9 @@ Mac 用户可下载[未签名 v2 源文件](https://wenzo-zwz.github.io/Moneytra
 v1 配置、JSON、XML 和审核过的安装链接保留不变。v2 配置为 `public/shortcuts/general-bank-profile.json`，源为 `shortcuts/moneytrail-general-bank.template.json`；`scripts/build-bank-shortcut.py` 同时构建和检查两版。模板仍使用原生产接口及 `p_token`/`p_message`，空白令牌和通知分支不变。
 
 v2 的 `url` 暂为空；实际分享产物审核前，不给招商银行提供旧版或占位安装链接。其他 Supabase 部署不提供本生产项目的安装或制作内容。后续按[首次试用清单](automatic-bookkeeping-rollout.md)记录真实短信及新用户验收。
+
+## 云端验证（2026-11-17）
+
+生产项目已应用 `20261116164816_cmb_review_intake.sql` 及 `20261117113755_cmb_sms_formats.sql`。使用两条提供的格式样例进行只读函数验证：快捷支付提取 11415 分、04-09 06:43、支付描述 `支付宝-payee`；信用卡提取 25605 分、12-24 18:04、提示待补充商户，两者均要求确认。样例日期按各自指定的接收日期验证，不代表实际收到过这些短信。
+
+37 个已有、此次不涉及的业务函数定义指纹保持一致；新增私有辅助函数没有授予匿名或登录角色执行权限。验证未向真实用户的账本或收件箱写入样例。上述验证不代替新 iCloud 共享产物审核及朋友手机上的真实短信触发验收。
