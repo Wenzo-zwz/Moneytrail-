@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GENERAL_BANK_TEMPLATE, getCompatibleSmsShortcutTemplate, getGenericSmsShortcutIphoneSteps, getGenericSmsShortcutSignCommand, getGenericSmsShortcutSource, isGenericSmsShortcutCompatible, THREE_BANK_IPHONE_STEPS, THREE_BANK_SIGN_COMMAND, THREE_BANK_TEMPLATE } from "./bankOnboarding";
+import { BANK_ACTIVITY_IPHONE_STEPS, BANK_ACTIVITY_SIGN_COMMAND, BANK_ACTIVITY_TEMPLATE, GENERAL_BANK_TEMPLATE, getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate, getGenericSmsShortcutIphoneSteps, getGenericSmsShortcutSignCommand, getGenericSmsShortcutSource, isBankActivityTemplateCompatible, isGenericSmsShortcutCompatible, THREE_BANK_IPHONE_STEPS, THREE_BANK_SIGN_COMMAND, THREE_BANK_TEMPLATE } from "./bankOnboarding";
 import { SMS_SHORTCUT_TEMPLATE } from "./shortcutTemplate";
 import type { SmsBankCode } from "./smsBanks";
 
@@ -76,5 +76,36 @@ describe("shareable three-bank setup instructions", () => {
     expect(THREE_BANK_IPHONE_STEPS).toContain(THREE_BANK_TEMPLATE.name);
     expect(THREE_BANK_IPHONE_STEPS).toContain("默认答案也留空");
     expect(THREE_BANK_IPHONE_STEPS).not.toMatch(/mt_sms_|7044156f|1329/);
+  });
+});
+
+describe("five-bank income and expense setup", () => {
+  it.each(["icbc", "abc", "boc", "ccb", "cmb"] as const)("keeps %s on a new source without reusing an expense installer", bankCode => {
+    expect(BANK_ACTIVITY_TEMPLATE).toMatchObject({ version: 3, url: null, name: "MoneyTrail 银行收支记账",
+      supportedBanks: ["icbc", "abc", "boc", "ccb", "cmb"], transactionKinds: ["expense", "income"], incomeReviewOnly: true });
+    expect(isBankActivityTemplateCompatible(BANK_ACTIVITY_TEMPLATE.projectUrl, bankCode)).toBe(true);
+    expect(isBankActivityTemplateCompatible(`${BANK_ACTIVITY_TEMPLATE.projectUrl}/`, bankCode)).toBe(true);
+    expect(isBankActivityTemplateCompatible(BANK_ACTIVITY_TEMPLATE.projectUrl.toUpperCase(), bankCode)).toBe(true);
+    expect(getCompatibleBankActivityTemplate(BANK_ACTIVITY_TEMPLATE.projectUrl, bankCode)).toBeNull();
+    expect(getCompatibleSmsShortcutTemplate(BANK_ACTIVITY_TEMPLATE.projectUrl, bankCode)?.url ?? null)
+      .toBe(bankCode === "icbc" ? SMS_SHORTCUT_TEMPLATE.url : bankCode === "cmb" ? null : THREE_BANK_TEMPLATE.url);
+  });
+
+  it.each(["", "https://other.supabase.co", `${BANK_ACTIVITY_TEMPLATE.projectUrl}/rest/v1`, `${BANK_ACTIVITY_TEMPLATE.projectUrl}//`, `${BANK_ACTIVITY_TEMPLATE.projectUrl}:443`, `${BANK_ACTIVITY_TEMPLATE.projectUrl}?token=private`, `${BANK_ACTIVITY_TEMPLATE.projectUrl}#`, "https://person:password@ojcgabicpjipwpvwolzn.supabase.co"])("does not expose production source compatibility for %s", projectUrl => {
+    expect(isBankActivityTemplateCompatible(projectUrl, "icbc")).toBe(false);
+    expect(getCompatibleBankActivityTemplate(projectUrl, "icbc")).toBeNull();
+  });
+
+  it("uses the new source, blank token handoff and actual senders for income", () => {
+    expect(BANK_ACTIVITY_SIGN_COMMAND).toContain('moneytrail-bank-activity-v3.unsigned.plist');
+    expect(BANK_ACTIVITY_SIGN_COMMAND).toContain('MoneyTrail 银行收支记账.shortcut');
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain(THREE_BANK_TEMPLATE.url);
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain(BANK_ACTIVITY_TEMPLATE.matchPattern);
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain("整体替换");
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain("默认答案全部留空");
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain("「信息包含」留空");
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain("收入全部先待确认");
+    expect(BANK_ACTIVITY_IPHONE_STEPS).toContain("不能用余额或遮罩字符猜收入");
+    expect(BANK_ACTIVITY_IPHONE_STEPS).not.toMatch(/mt_sms_|owner_id|user_id/);
   });
 });

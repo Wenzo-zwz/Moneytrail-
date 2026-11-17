@@ -227,6 +227,8 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .hero-amount small { margin-right: 6px; font-size: .55em; font-weight: 350; }
 .hero-sub { margin: 13px 0 0; color: #b3aca4; font-size: 12px; line-height: 1.7; letter-spacing: .15px; }
 .hero-sub > span { margin: 0 7px; color: #6d6863; }
+.hero-income { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 14px 0 0; color: #b3aca4; font-size: 12px; line-height: 1.7; }
+.hero-income dd { max-width: 100%; margin: 0; color: #d0c4a6; font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .hero-footer { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-top: 25px; padding-top: 17px; border-top: 1px solid #49423b; color: #b9b0a5; font-size: 11px; line-height: 1.7; }
 .hero-footer > span { display: flex; align-items: center; gap: 8px; }
 .hero-footer > svg { color: #c1ac8d; stroke-width: 1.3; }
@@ -623,5 +625,5 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
   .panel, .hero-card, .budget-card, .stat-card, .insight-card, .setting-card, .onboarding-banner { border-color: #bcbcbc; color: #222; background: #fff; box-shadow: none; break-inside: avoid; }
   .hero-card::before, .hero-card::after { display: none; }
   .hero-amount { color: #222; background: none; -webkit-text-fill-color: #222; }
-  .hero-label, .hero-sub, .hero-footer, .hero-footer strong, .panel-title, .panel-subtitle, .page-title, .eyebrow, .transaction-title, .transaction-meta, .transaction-amount, .empty-title, .empty-copy, .budget-value, .budget-note { color: #222; }
+  .hero-label, .hero-sub, .hero-income, .hero-income dd, .hero-footer, .hero-footer strong, .panel-title, .panel-subtitle, .page-title, .eyebrow, .transaction-title, .transaction-meta, .transaction-amount, .empty-title, .empty-copy, .budget-value, .budget-note { color: #222; }
 }

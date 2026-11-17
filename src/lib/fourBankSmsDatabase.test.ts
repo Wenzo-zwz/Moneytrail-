@@ -134,7 +134,7 @@ it('retains existing ICBC auto posting and account merchant memory', async () =>
 
 it.each([
   '您尾号1234消费20元。【未知银行】', '消费20元【中国银行】【农业银行】',
-  '您尾号1234收到工资收入1000元。【农业银行】', '信用卡消费满100元赠20元优惠券。【中国银行】',
+  '您尾号1234账户余额1000元。【农业银行】', '信用卡消费满100元赠20元优惠券。【中国银行】',
   '中国银行信用卡限时促销，消费享优惠。【中国银行】',
   ...['验证码123456', '动态码123456', 'OTP123456', 'ｏｔｐ１２３', 'verification123456', 'one-time123456'].map(code => `您消费20元${code}。【建设银行】`),
 ])('rejects non-scope or security input without retaining or counting it: %s', async raw => {
@@ -147,7 +147,7 @@ it.each([
 it.each([
   '您的借记卡1234于10月31日12:00消费USD20.00元，余额10000.00元。【中国银行】',
   '您尾号1234于10月31日12:00支出美元20元。【建设银行】',
-  '您的账户收到工资收入1000元，已开通消费通知。【中国银行】',
+  '您的账户余额1000元，已开通消费通知。【中国银行】',
   '每消费100元可获1积分，敬请使用我行信用卡。【中国银行】',
 ])('rejects new-bank foreign amounts or a mere mention of spending before any receipt write: %s', async raw => {
   const { token } = await rpc('moneytrail_sms_rotate', ['auto']);

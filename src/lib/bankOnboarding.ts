@@ -1,10 +1,12 @@
 import profile from "../../public/shortcuts/three-bank-profile.json";
 import generalProfile from "../../public/shortcuts/general-bank-profile.json";
+import activityProfile from "../../public/shortcuts/bank-activity-profile.json";
 import { isShortcutTemplateCompatible, SMS_SHORTCUT_TEMPLATE } from "./shortcutTemplate";
 import type { SmsBankCode } from "./smsBanks";
 
 export const THREE_BANK_TEMPLATE = profile;
 export const GENERAL_BANK_TEMPLATE = generalProfile;
+export const BANK_ACTIVITY_TEMPLATE = activityProfile;
 
 type GenericBankProfile = {
   name: string; url: string | null; projectUrl: string; version: number;
@@ -18,6 +20,27 @@ type SmsShortcutTemplate = {
   version: number;
   supportedBanks: readonly string[];
 };
+
+export function isBankActivityTemplateCompatible(projectUrl: string, bankCode: SmsBankCode): boolean {
+  return projectUrl.replace(/\/$/, "").toLowerCase() === BANK_ACTIVITY_TEMPLATE.projectUrl
+    && BANK_ACTIVITY_TEMPLATE.supportedBanks.includes(bankCode);
+}
+
+export function getCompatibleBankActivityTemplate(projectUrl: string, bankCode: SmsBankCode): SmsShortcutTemplate | null {
+  const template: GenericBankProfile = BANK_ACTIVITY_TEMPLATE;
+  return isBankActivityTemplateCompatible(projectUrl, bankCode) && template.url ? template as SmsShortcutTemplate : null;
+}
+
+export const BANK_ACTIVITY_SIGN_COMMAND = `shortcuts sign --mode anyone --input "$HOME/Downloads/${BANK_ACTIVITY_TEMPLATE.sourcePath.split("/").at(-1)}" --output "$HOME/Downloads/${BANK_ACTIVITY_TEMPLATE.name}.shortcut"`;
+export const BANK_ACTIVITY_IPHONE_STEPS = [
+  `1. 在 iPhone 安装或复制已发布的农中建通用模板：${THREE_BANK_TEMPLATE.url}。将空白副本重命名为「${BANK_ACTIVITY_TEMPLATE.name}」，保留原指令；不要只修改原工行版的请求地址。`,
+  '2. 找到现有的「匹配文本」，将匹配规则整体替换为下面内容。输入仍选「短信正文」，关闭区分大小写；不要额外保留「只含支出」条件。',
+  BANK_ACTIVITY_TEMPLATE.matchPattern,
+  '3. 保留「如果 匹配文本有任何值」、网络请求和通知分支，不修改接收地址、请求字段或输入变量。',
+  '4. 分享副本的令牌文本和导入问题默认答案全部留空。分享取得新 iCloud 链接并审核后再发布，个人安装时填写自己的有效令牌。',
+  '5. 新的收支短信自动化按各银行实际发件号码建立，「信息包含」留空，运行这条收支新版。由本地匹配排除验证码和无关文本；旧手机指令不会因网页更新自动升级。',
+  '6. 用新的真实收入短信验收：收入全部先待确认。数值打码或字段不全时按实际情况补填，不能用余额或遮罩字符猜收入。',
+].join('\n\n');
 
 export function getCompatibleSmsShortcutTemplate(projectUrl: string, bankCode: SmsBankCode): SmsShortcutTemplate | null {
   if (isShortcutTemplateCompatible(projectUrl, bankCode)) return SMS_SHORTCUT_TEMPLATE;

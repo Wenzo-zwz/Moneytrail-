@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
-import { GENERAL_BANK_TEMPLATE, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
+import { BANK_ACTIVITY_TEMPLATE, GENERAL_BANK_TEMPLATE, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 import type { SmsConfig } from "../lib/smsClient";
 import type { SmsBankCode } from "../lib/smsBanks";
 import SmsShortcutSetup from "./SmsShortcutSetup";
@@ -17,12 +17,12 @@ describe("iPhone shortcut setup guidance", () => {
     const markup = render({ enabled: true }, SMS_SHORTCUT_TEMPLATE.projectUrl, false, bankCode);
     expect(markup).toContain(`value="${bankCode}" selected=""`);
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
-    expect(markup).toContain("配置农中建通用模板");
+    expect(markup).toContain("配置收入与支出快捷指令");
     expect(markup).toContain("储蓄卡和信用卡共用");
     expect(markup).toContain(`href="${THREE_BANK_TEMPLATE.url}"`);
     expect(markup).toContain('target="_blank"');
     expect(markup).toContain('rel="noopener noreferrer"');
-    expect(markup).not.toContain("共享安装链接尚未发布");
+    expect(markup).toContain("收支新版共享安装链接尚未发布");
     expect(markup).toContain("收到后先待确认");
     expect(markup).toContain(`信息包含「${({ abc: "农业银行", boc: "中国银行", ccb: "建设银行" })[bankCode]}」`);
     expect(markup).toContain("复制匹配规则");
@@ -34,7 +34,7 @@ describe("iPhone shortcut setup guidance", () => {
 
   it.each(["abc", "boc", "ccb"] as const)("requires personal access before offering the %s installer", bankCode => {
     const markup = render({}, SMS_SHORTCUT_TEMPLATE.projectUrl, false, bankCode);
-    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装支出快捷指令<\/button>/);
     expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).toContain("请先在上方启用个人接入并保存令牌");
@@ -54,7 +54,7 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("建设银行");
     expect(markup).toContain("招商银行");
     expect(markup).toContain("工行版模板");
-    expect(markup).toContain("农行、中行、建行、招商银行目前接收后先待确认");
+    expect(markup).toContain("新收入全部先待确认");
     expect(markup).toContain("银行选择仅用于查看配置步骤");
   });
 
@@ -65,7 +65,7 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("启用个人接入");
     expect(markup).toContain("创建短信自动化");
     expect(markup).toContain("核对实际接收");
-    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装支出快捷指令<\/button>/);
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).toContain("尚未收到短信");
     expect(markup).toContain("尚无接收记录不代表手机设置有误");
@@ -92,7 +92,7 @@ describe("iPhone shortcut setup guidance", () => {
     const markup = render({ enabled: true }, "https://other.supabase.co");
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
-    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装支出快捷指令<\/button>/);
     expect(markup).toContain("当前部署与此模板不匹配");
     expect(markup).toContain("手动配置");
   });
@@ -102,7 +102,9 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("与当前部署不匹配");
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
-    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装支出快捷指令<\/button>/);
+    expect(markup).not.toContain(`href="${BANK_ACTIVITY_TEMPLATE.sourcePath}"`);
+    expect(markup).not.toContain("复制收支匹配规则");
     expect(markup).not.toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
     expect(markup).not.toContain('href="/shortcuts/moneytrail-general-bank-v2.unsigned.plist"');
     expect(markup).not.toContain("复制 iPhone 制作步骤");
@@ -112,7 +114,7 @@ describe("iPhone shortcut setup guidance", () => {
   it.each([false, true])("shows the CMB v2 update recipe without presenting the old installer (enabled %s)", enabled => {
     const markup = render({ enabled }, SMS_SHORTCUT_TEMPLATE.projectUrl, false, "cmb");
     expect(markup).toContain('value="cmb" selected=""');
-    expect(markup).toContain("配置含招商银行的通用模板");
+    expect(markup).toContain("通用银行模板（含招商银行）");
     expect(markup).toContain("共享安装链接尚未发布");
     expect(markup).not.toContain("与当前部署不匹配");
     expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
@@ -124,9 +126,26 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("“信息包含”留空");
     expect(markup).not.toContain("信息包含「招商银行」");
     expect(markup).toContain("〖招商银行〗");
-    expect(markup).toContain("完整的「您尾号…的招行信用卡于…消费人民币…元」短信");
+    expect(markup).toContain("完整的「您尾号…的招行信用卡于…消费人民币…元」句式");
     expect(markup).toContain("95555、1065795555、106941995555");
     expect(markup).toContain("此银行收到后先待确认，不会自动增加消费");
+  });
+
+  it.each(["icbc", "abc", "boc", "ccb", "cmb"] as const)("gives %s an income-capable path distinct from frozen expense installers", bankCode => {
+    const markup = render({ enabled: true }, SMS_SHORTCUT_TEMPLATE.projectUrl, false, bankCode);
+    expect(markup).toContain('aria-label="收入与支出快捷指令"');
+    expect(markup).toContain(`「${BANK_ACTIVITY_TEMPLATE.name}」`);
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装收支快捷指令<\/button>/);
+    expect(markup).toContain("仅接收支出：旧版模板与配置");
+    expect(markup).toContain("不会因网页更新而新增收入筛选");
+    expect(markup).toContain("“信息包含”留空");
+    expect(markup).toContain("发件人选实际发送");
+    expect(markup).toContain("遮罩金额需要补填");
+    expect(markup).toContain(`href="${BANK_ACTIVITY_TEMPLATE.sourcePath}"`);
+    expect(markup).toContain("复制收支匹配规则");
+    expect(markup).toContain("复制收支iPhone步骤");
+    expect(markup).toContain("复制收支Mac签名命令");
+    expect(markup).not.toContain("安装 iPhone 快捷指令</");
   });
 
   it("shows actual server receipt history without claiming installation or booking is complete", () => {

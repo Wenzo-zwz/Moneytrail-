@@ -26,6 +26,13 @@ GENERAL_NOTICE = (
     b"<!-- UNSIGNED SOURCE: MoneyTrail ABC/BOC/CCB/CMB debit and credit template.\n"
     b"Apple signing is required before installation; this XML is not an installer. -->\n"
 )
+ACTIVITY_SOURCE = ROOT / "shortcuts/moneytrail-bank-activity.template.json"
+ACTIVITY_PROFILE = ROOT / "public/shortcuts/bank-activity-profile.json"
+ACTIVITY_OUTPUT = ROOT / "public/shortcuts/moneytrail-bank-activity-v3.unsigned.plist"
+ACTIVITY_NOTICE = (
+    b"<!-- UNSIGNED SOURCE: MoneyTrail ICBC/ABC/BOC/CCB/CMB income and expense template.\n"
+    b"Apple signing is required before installation; this XML is not an installer. -->\n"
+)
 
 
 def build_bytes(source=SOURCE, profile_path=PROFILE, notice=NOTICE, banks=None):
@@ -47,8 +54,13 @@ def build_bytes(source=SOURCE, profile_path=PROFILE, notice=NOTICE, banks=None):
     if actions[4]["WFWorkflowActionIdentifier"] != "is.workflow.actions.text.match" or match["WFMatchTextPattern"] != profile["matchPattern"]:
         raise ValueError("The public profile and workflow routing filter must agree")
     contents = json.dumps(workflow, ensure_ascii=False)
-    if any(value in contents for value in ("mt_sms_", "owner_id", "user_id", "last4", "卡尾号", "工商银行")):
+    forbidden = ["mt_sms_", "owner_id", "user_id", "last4", "卡尾号"]
+    if "icbc" not in banks:
+        forbidden.append("工商银行")
+    if any(value in contents for value in forbidden):
         raise ValueError("The shared bank source contains personal or out-of-scope fields")
+    if "icbc" in banks and (profile.get("transactionKinds") != ["expense", "income"] or profile.get("incomeReviewOnly") is not True):
+        raise ValueError("The five-bank activity profile must keep income review-only")
     xml = plistlib.dumps(workflow, fmt=plistlib.FMT_XML, sort_keys=False)
     declaration, remainder = xml.split(b"\n", 1)
     return workflow, declaration + b"\n" + notice + remainder
@@ -61,6 +73,7 @@ def main():
     for source, profile, output, notice, banks in [
         (SOURCE, PROFILE, OUTPUT, NOTICE, ["abc", "boc", "ccb"]),
         (GENERAL_SOURCE, GENERAL_PROFILE, GENERAL_OUTPUT, GENERAL_NOTICE, ["abc", "boc", "ccb", "cmb"]),
+        (ACTIVITY_SOURCE, ACTIVITY_PROFILE, ACTIVITY_OUTPUT, ACTIVITY_NOTICE, ["icbc", "abc", "boc", "ccb", "cmb"]),
     ]:
         workflow, xml = build_bytes(source, profile, notice, banks)
         if args.check:

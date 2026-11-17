@@ -76,6 +76,7 @@
 .sms-message-summary > div { min-width: 0; }
 .sms-message-summary h3 { margin: 0 0 6px; color: #ded5c8; font-size: 13px; font-weight: 450; overflow-wrap: anywhere; }
 .sms-message-summary p { margin: 0; color: #9b9185; font-size: 10px; font-variant-numeric: tabular-nums; }
+.sms-message-summary .sms-message-kind { margin-top: 6px; color: #c5b18f; font-size: 11px; }
 .sms-message-summary > strong { flex-shrink: 0; color: #e2d7c5; font-size: 20px; font-weight: 450; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
 .sms-review-reason { margin-bottom: 9px; color: #baa68c; font-size: 10px; line-height: 1.9; }
 .sms-warnings { margin: 0 0 13px; padding-left: 16px; color: #c2ad8d; font-size: 10px; line-height: 1.9; }
