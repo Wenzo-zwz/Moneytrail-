@@ -23,6 +23,9 @@ describe("generic bank v2 shortcut source", () => {
     "您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元",
     "您尾号1234的招行信用卡于04月09日06时03分消费人民币0.01元。",
     "您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元\u200c\ufffc",
+    "您尾号xX*×的招行信用卡于12月24日18时4分消费人民币256.05元",
+    "您尾号••••的招行信用卡于12月24日18时4分消费人民币256.05元",
+    "您尾号１２Ｘ＊的招行信用卡于12月24日18时4分消费人民币256.05元",
   ])("routes only the included bank's signed debit text %s", message => {
     // Shortcuts uses ICU Unicode properties; JS needs u for the same semantics.
     expect(new RegExp(profile.matchPattern, "iu").test(message)).toBe(true);
@@ -51,6 +54,12 @@ describe("generic bank v2 shortcut source", () => {
     "您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元【未知银行】",
     "您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元验证码123456",
     "其他文案您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元",
+    ...["【中国银行】", "〖招商银行〗", "【招商银行】"].flatMap(signature => [
+      `您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元${signature}`,
+      `${signature}您尾号1234的招行信用卡于12月24日18时4分消费人民币256.05元`,
+      `您尾号xX*×的招行信用卡于12月24日18时4分消费人民币256.05元${signature}`,
+      `${signature}您尾号１２Ｘ＊的招行信用卡于12月24日18时4分消费人民币256.05元`,
+    ]),
   ])("rejects unsafe or ambiguous bank text %s", message => {
     expect(new RegExp(profile.matchPattern, "iu").test(message)).toBe(false);
   });
