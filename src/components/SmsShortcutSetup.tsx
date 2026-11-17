@@ -3,7 +3,7 @@ import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
 import { getSmsBank, SMS_BANKS, type SmsBankCode } from "../lib/smsBanks";
 import type { SmsConfig } from "../lib/smsClient";
 import ThreeBankShortcutGuide from "./ThreeBankShortcutGuide";
-import { getCompatibleSmsShortcutTemplate, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
+import { getCompatibleSmsShortcutTemplate, getGenericSmsShortcutSource } from "../lib/bankOnboarding";
 
 type Props = {
   projectUrl: string;
@@ -25,7 +25,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
 
   return <section className="sms-shortcut-setup" aria-label="iPhone 快捷指令安装">
     <h3 id="sms-shortcut-setup-title">在 iPhone 上接入</h3>
-    <p className="sms-shortcut-intro">选择银行，查看短信转发配置。农行、中行、建行目前接收后先待确认，格式与字段需要逐条核对。</p>
+    <p className="sms-shortcut-intro">选择银行，查看短信转发配置。农行、中行、建行、招商银行目前接收后先待确认，格式与字段需要逐条核对。</p>
     <label className="sms-shortcut-bank-picker"><span>要接入的银行</span><select aria-label="银行" value={bankCode} onChange={event => { const nextBank = event.target.value as SmsBankCode; setLocalBankCode(nextBank); onBankChange?.(nextBank); }}>{SMS_BANKS.map(item => <option key={item.code} value={item.code}>{item.name}{item.reviewOnly ? " · 接收后待确认" : " · 工行版模板"}</option>)}</select></label>
     <p className="sms-shortcut-bank-status" role="status">{bank.reviewOnly ? `${bank.name}：已登记接收，收到后先待确认；当前真实短信格式与手机转发仍需验证。` : "工商银行：在自动记录模式下，明确消费可自动入账；共享安装链接为工行版模板。"}</p>
     <p className="sms-shortcut-note">银行选择仅用于查看配置步骤，不会更换令牌或修改手机自动化。</p>
@@ -37,7 +37,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         <p>已保存的有效令牌可继续使用，无需为安装模板再次更换。</p>
       </li>
       <li>
-        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{bankCode === "icbc" ? "安装快捷指令" : "配置农中建通用模板"}</h4></div>
+        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{bankCode === "icbc" ? "安装快捷指令" : getGenericSmsShortcutSource(bankCode).version === 1 ? "配置农中建通用模板" : "配置含招商银行的通用模板"}</h4></div>
         {bankCode === "icbc" ? <>
           <p>用 iPhone 添加「{SMS_SHORTCUT_TEMPLATE.name}」工行版模板。导入时，在令牌问题中粘贴自己的个人令牌，并保留模板名称。</p>
           {config.enabled && template ? <a className="button primary sms-shortcut-install" href={template.url} target="_blank" rel="noopener noreferrer">安装 iPhone 快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装 iPhone 快捷指令</button>}
@@ -48,12 +48,12 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
       </li>
       <li>
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>创建短信自动化</h4></div>
-        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码（常见示例 {bank.senderExamples.join("、")}，以真实短信为准），信息包含「{bankCode === "icbc" ? "支出" : bank.name}」，选择「立即运行」。</p>
-        <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择{bankCode === "icbc" ? `「${SMS_SHORTCUT_TEMPLATE.name}」` : `「${THREE_BANK_TEMPLATE.name}」`}，将输入设为上一步得到的「文本」。</p>
+        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}消费短信的号码{bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : "（以真实短信发件人为准）"}，{bankCode === "cmb" ? "“信息包含”留空，避免漏掉正文只写“招行信用卡”的消费短信" : `信息包含「${bankCode === "icbc" ? "支出" : bank.name}」`}，选择「立即运行」。</p>
+        <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择{bankCode === "icbc" ? `「${SMS_SHORTCUT_TEMPLATE.name}」` : `「${getGenericSmsShortcutSource(bankCode).name}」`}，将输入设为上一步得到的「文本」。</p>
         {bankCode === "icbc" ? <p className="sms-shortcut-note">当前模板用于工行消费短信。请保留其他设备或模板各自需要的触发与输入绑定。</p> : <>
           <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份通用指令并沿用本账户令牌。</p>
-          <p>通用指令会筛选银行名称、消费或扣款等词，并排除安全验证码。短信仍需通过输入变量传入。</p>
-          <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。前后位置与写法由接收规则核对；缺少来源或格式未知时，不能据此视为已支持全部短信。</p>
+          <p>通用指令会筛选银行来源与消费、扣款等交易描述，并排除安全验证码。短信仍需通过输入变量传入。</p>
+          {bankCode === "cmb" ? <p className="sms-shortcut-note">招商银行支持「〖招商银行〗」等独立银行签名，或完整的「您尾号…的招行信用卡于…消费人民币…元」短信。请传入完整正文；任意招行文案或缺失交易字段的短信不能据此视为已适配。</p> : <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。前后位置与写法由接收规则核对；缺少来源或格式未知时，不能据此视为已支持全部短信。</p>}
         </>}
       </li>
       <li>

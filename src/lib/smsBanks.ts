@@ -1,4 +1,4 @@
-export type SmsBankCode = "icbc" | "abc" | "boc" | "ccb";
+export type SmsBankCode = "icbc" | "abc" | "boc" | "ccb" | "cmb";
 
 interface SmsBank {
   code: SmsBankCode;
@@ -24,6 +24,12 @@ export const SMS_BANKS: readonly SmsBank[] = [
     code: "ccb", name: "建设银行", signatureNames: ["中国建设银行", "建设银行"],
     // Official sender FAQ: https://creditcard.ccb.com/faq/20111126_924470564/questionlist_1.html
     senderExamples: ["95533", "106980095533"], reviewOnly: true,
+  },
+  {
+    code: "cmb", name: "招商银行", signatureNames: ["招商银行"],
+    // Official contact/credit-card notice: https://m.cmbchina.com/hotline.html
+    // https://cc.cmbchina.com/detail/2024110205gg_news.htm (2024-11-06).
+    senderExamples: ["95555", "1065795555", "106941995555"], reviewOnly: true,
   },
 ];
 

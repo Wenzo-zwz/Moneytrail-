@@ -9,6 +9,7 @@ const OFFICIAL='https://ojcgabicpjipwpvwolzn.supabase.co', CUSTOM='https://custo
 const INSTALL='https://www.icloud.com/shortcuts/86d33de8ff704d6581c173b82f3f4f21';
 const THREE_BANK_INSTALL='https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d';
 const THREE_BANK_SOURCE='/Moneytrail-/shortcuts/moneytrail-three-bank-v1.unsigned.plist';
+const GENERAL_BANK_SOURCE='/Moneytrail-/shortcuts/moneytrail-general-bank-v2.unsigned.plist';
 const THREE_BANKS=[{code:'abc',name:'农业银行'},{code:'boc',name:'中国银行'},{code:'ccb',name:'建设银行'}];
 const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -122,5 +123,35 @@ async function newBankTemplateWorkflow(browser,app,bank,cardKind){const service=
  assert(!service.requests.some(r=>r.path.includes('receive_sms')||r.path.includes('save_moneytrail')));assert.deepEqual(service.external,[THREE_BANK_INSTALL]);await safe(page,service,errors);
  passed(`${bank.name} ${cardKind}: consent-gated shared installer, matching token handoff, fixed secret-free URL, bank trigger and selection retention`);
  }finally{await context.close();}}
-async function customWorkflow(browser,app){const service=backend(CUSTOM,app.origin,true),{context,page,errors}=await fixture(browser,app,service,393);try{await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.waitFor();assert.equal(await page.locator(`a[href="${INSTALL}"]`).count(),0);for(const bank of THREE_BANKS){await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);assert.match(await guide.innerText(),/与当前部署不匹配/);assert.equal(await guide.locator(`a[href="${THREE_BANK_SOURCE}"]`).count(),0,'custom projects must not download the fixed production source');for(const name of ['复制匹配规则','复制 iPhone 制作步骤','复制 Mac 签名命令'])assert.equal(await guide.getByRole('button',{name,exact:true}).count(),0,'custom projects must not copy production template content');assert.equal(await page.locator('a[href*="icloud.com/shortcuts/"]').count(),0);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'ccb');assert.equal(service.secrets.length,0);await safe(page,service,errors);passed('custom project cannot offer a production installer, source download or template clipboard');}finally{await context.close();}}
-(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{const official=await start(OFFICIAL,5191);try{for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Apple import and real SMS triggers still require iPhone verification.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});
+async function cmbTemplateWorkflow(browser,app){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,320);try{
+ await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.getByLabel('银行',{exact:true}).selectOption('cmb');
+ await guide.getByRole('heading',{name:'配置含招商银行的通用模板',exact:true}).waitFor();
+ assert((await guide.innerText()).includes('“信息包含”留空'));assert((await guide.innerText()).includes('MoneyTrail 通用银行记账'));
+ assert((await guide.innerText()).includes('95555'));assert((await guide.innerText()).includes('以真实短信为准'));
+ assert((await guide.innerText()).includes('旧农中建模板不会转发招商银行短信'));
+ assert.equal(await guide.getByRole('button',{name:'安装 iPhone 快捷指令',exact:true}).isDisabled(),true);
+ assert.equal(await guide.locator('a[href*="icloud.com/shortcuts/"]').count(),0);
+ await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});await modal.waitFor();
+ assert.equal(await modal.getByRole('link',{name:'打开模板安装页',exact:true}).count(),0,'CMB must never receive the older three-bank or ICBC installer');
+ await modal.getByRole('button',{name:'复制令牌',exact:true}).click();assert.equal(await page.evaluate(()=>window.__fixtureCopied),service.secrets[0]);
+ await modal.getByRole('button',{name:'我已保存',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'cmb');
+ const source=guide.locator(`a[href="${GENERAL_BANK_SOURCE}"]`);await source.waitFor();assert.notEqual(await source.getAttribute('download'),null);
+ const sourceText=await (await page.request.get(app.origin+GENERAL_BANK_SOURCE)).text();assert.match(sourceText,/<plist\b/);assert(sourceText.includes('招商银行'));
+ await guide.getByRole('button',{name:'复制匹配规则',exact:true}).click();const pattern=await page.evaluate(()=>window.__fixtureCopied);
+ const matcher=new RegExp(pattern,'iu');
+ assert(matcher.test('【招商银行】您尾号1234卡消费人民币28.70元。'));
+ assert(matcher.test('〖招商银行〗您账户0000于04月09日06:43在〖支付宝-payee〗快捷支付114.15元，余额9999.99元\u200c\ufffc'));
+ assert(matcher.test('您尾号3436的招行信用卡于12月24日18时4分消费人民币256.05元'));
+ assert(!matcher.test('【招商银行】您尾号1234卡消费人民币28.70元，验证码123456。'));
+ assert(!matcher.test('〖招商银行〗您账户0000快捷支付114.15元，验\u200c证码123456'));
+ assert(!matcher.test('您尾号3436的招行信用卡于12月24日18时4分消费人民币256.05元【中国银行】'));
+ await guide.getByRole('button',{name:'复制 iPhone 制作步骤',exact:true}).click();const steps=await page.evaluate(()=>window.__fixtureCopied);
+ assert(steps.includes(THREE_BANK_INSTALL));assert(steps.includes('整体替换'));assert(steps.includes('令牌文本留空'));
+ await guide.getByRole('button',{name:'复制 Mac 签名命令',exact:true}).click();assert((await page.evaluate(()=>window.__fixtureCopied)).includes('moneytrail-general-bank-v2.unsigned.plist'));
+ for(const token of service.secrets){assert(!sourceText.includes(token));assert(!steps.includes(token));assert(!pattern.includes(token));}
+ await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'cmb');assert.equal(service.secrets.length,1);
+ await safe(page,service,errors);await page.screenshot({path:path.join(OUT,'install-cmb-320.png'),fullPage:true,animations:'disabled'});
+ passed('CMB preserves personal token selection, exposes the v2 update rule and unsigned source, never offers an incompatible installer, and fits 320px');
+ }finally{await context.close();}}
+async function customWorkflow(browser,app){const service=backend(CUSTOM,app.origin,true),{context,page,errors}=await fixture(browser,app,service,393);try{await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.waitFor();assert.equal(await page.locator(`a[href="${INSTALL}"]`).count(),0);for(const bank of [...THREE_BANKS,{code:'cmb',name:'招商银行'}]){await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);assert.match(await guide.innerText(),/与当前部署不匹配/);assert.equal(await guide.locator(`a[href="${THREE_BANK_SOURCE}"]`).count(),0,'custom projects must not download the fixed production source');for(const name of ['复制匹配规则','复制 iPhone 制作步骤','复制 Mac 签名命令'])assert.equal(await guide.getByRole('button',{name,exact:true}).count(),0,'custom projects must not copy production template content');assert.equal(await page.locator('a[href*="icloud.com/shortcuts/"]').count(),0);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'cmb');assert.equal(service.secrets.length,0);await safe(page,service,errors);passed('custom project cannot offer a production installer, source download or template clipboard');}finally{await context.close();}}
+(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{const official=await start(OFFICIAL,5191);try{for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);await cmbTemplateWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Apple import and real SMS triggers still require iPhone verification.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});

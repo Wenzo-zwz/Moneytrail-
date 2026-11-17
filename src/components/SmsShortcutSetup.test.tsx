@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
-import { THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
+import { GENERAL_BANK_TEMPLATE, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 import type { SmsConfig } from "../lib/smsClient";
 import type { SmsBankCode } from "../lib/smsBanks";
 import SmsShortcutSetup from "./SmsShortcutSetup";
@@ -41,18 +41,20 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("收到后先待确认");
   });
 
-  it("lets users select all four banks while labelling the existing template as ICBC-only", () => {
+  it("lets users select all five banks while labelling the existing template as ICBC-only", () => {
     const markup = render({ enabled: true });
     expect(markup).toMatch(/<select[^>]+aria-label="银行"/);
     expect(markup).toContain('value="icbc" selected=""');
     expect(markup).toContain('value="abc"');
     expect(markup).toContain('value="boc"');
     expect(markup).toContain('value="ccb"');
+    expect(markup).toContain('value="cmb"');
     expect(markup).toContain("农业银行");
     expect(markup).toContain("中国银行");
     expect(markup).toContain("建设银行");
+    expect(markup).toContain("招商银行");
     expect(markup).toContain("工行版模板");
-    expect(markup).toContain("农行、中行、建行目前接收后先待确认");
+    expect(markup).toContain("农行、中行、建行、招商银行目前接收后先待确认");
     expect(markup).toContain("银行选择仅用于查看配置步骤");
   });
 
@@ -95,15 +97,36 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("手动配置");
   });
 
-  it.each(["abc", "boc", "ccb"] as const)("keeps fixed-production generic source and conversion instructions unavailable to another project (%s)", bankCode => {
+  it.each(["abc", "boc", "ccb", "cmb"] as const)("keeps fixed-production generic source and conversion instructions unavailable to another project (%s)", bankCode => {
     const markup = render({ enabled: true }, "https://other.supabase.co", false, bankCode);
     expect(markup).toContain("与当前部署不匹配");
     expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
     expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
     expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装 iPhone 快捷指令<\/button>/);
     expect(markup).not.toContain('href="/shortcuts/moneytrail-three-bank-v1.unsigned.plist"');
+    expect(markup).not.toContain('href="/shortcuts/moneytrail-general-bank-v2.unsigned.plist"');
     expect(markup).not.toContain("复制 iPhone 制作步骤");
     expect(markup).not.toContain("复制 Mac 签名命令");
+  });
+
+  it.each([false, true])("shows the CMB v2 update recipe without presenting the old installer (enabled %s)", enabled => {
+    const markup = render({ enabled }, SMS_SHORTCUT_TEMPLATE.projectUrl, false, "cmb");
+    expect(markup).toContain('value="cmb" selected=""');
+    expect(markup).toContain("配置含招商银行的通用模板");
+    expect(markup).toContain("共享安装链接尚未发布");
+    expect(markup).not.toContain("与当前部署不匹配");
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
+    expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
+    expect(markup).toContain(`href="${GENERAL_BANK_TEMPLATE.sourcePath}"`);
+    expect(markup).toContain("复制匹配规则");
+    expect(markup).toContain("将已有“匹配文本”的规则整体替换");
+    expect(markup).toContain(`「${GENERAL_BANK_TEMPLATE.name}」`);
+    expect(markup).toContain("“信息包含”留空");
+    expect(markup).not.toContain("信息包含「招商银行」");
+    expect(markup).toContain("〖招商银行〗");
+    expect(markup).toContain("完整的「您尾号…的招行信用卡于…消费人民币…元」短信");
+    expect(markup).toContain("95555、1065795555、106941995555");
+    expect(markup).toContain("此银行收到后先待确认，不会自动增加消费");
   });
 
   it("shows actual server receipt history without claiming installation or booking is complete", () => {

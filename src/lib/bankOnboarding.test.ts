@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCompatibleSmsShortcutTemplate, THREE_BANK_IPHONE_STEPS, THREE_BANK_SIGN_COMMAND, THREE_BANK_TEMPLATE } from "./bankOnboarding";
+import { GENERAL_BANK_TEMPLATE, getCompatibleSmsShortcutTemplate, getGenericSmsShortcutIphoneSteps, getGenericSmsShortcutSignCommand, getGenericSmsShortcutSource, isGenericSmsShortcutCompatible, THREE_BANK_IPHONE_STEPS, THREE_BANK_SIGN_COMMAND, THREE_BANK_TEMPLATE } from "./bankOnboarding";
 import { SMS_SHORTCUT_TEMPLATE } from "./shortcutTemplate";
 import type { SmsBankCode } from "./smsBanks";
 
@@ -34,13 +34,34 @@ describe("shareable three-bank setup instructions", () => {
     "https://person:password@ojcgabicpjipwpvwolzn.supabase.co",
     "https://ojcgabicpjipwpvwolzn.supabase.co@other.supabase.co",
   ])("never offers either production installer for an alternate or ambiguous project %s", projectUrl => {
-    for (const bankCode of ["icbc", "abc", "boc", "ccb"] as const) {
+    for (const bankCode of ["icbc", "abc", "boc", "ccb", "cmb"] as const) {
       expect(getCompatibleSmsShortcutTemplate(projectUrl, bankCode)).toBeNull();
     }
   });
 
   it("does not fall back to a production installer for an unknown bank", () => {
     expect(getCompatibleSmsShortcutTemplate(THREE_BANK_TEMPLATE.projectUrl, "other" as SmsBankCode)).toBeNull();
+  });
+
+  it("keeps CMB on the v2 source without falsely offering the three-bank installer", () => {
+    expect(GENERAL_BANK_TEMPLATE).toMatchObject({ version: 2, url: null, supportedBanks: ["abc", "boc", "ccb", "cmb"] });
+    expect(getCompatibleSmsShortcutTemplate(THREE_BANK_TEMPLATE.projectUrl, "cmb")).toBeNull();
+    expect(getGenericSmsShortcutSource("cmb")).toBe(GENERAL_BANK_TEMPLATE);
+    expect(isGenericSmsShortcutCompatible(THREE_BANK_TEMPLATE.projectUrl, "cmb")).toBe(true);
+    expect(isGenericSmsShortcutCompatible("https://other.supabase.co", "cmb")).toBe(false);
+    for (const bank of ["abc", "boc", "ccb"] as const) expect(getGenericSmsShortcutSource(bank)).toBe(THREE_BANK_TEMPLATE);
+  });
+
+  it("provides an explicit rule replacement recipe for the blank v2 sharing copy", () => {
+    const steps = getGenericSmsShortcutIphoneSteps("cmb");
+    expect(steps).toContain(GENERAL_BANK_TEMPLATE.matchPattern);
+    expect(steps).toContain(GENERAL_BANK_TEMPLATE.name);
+    expect(steps).toContain("整体替换");
+    expect(steps).toContain("默认答案也留空");
+    expect(steps).toContain("“信息包含”留空");
+    expect(steps).not.toMatch(/mt_sms_|owner_id|user_id/);
+    expect(getGenericSmsShortcutSignCommand("cmb")).toContain('moneytrail-general-bank-v2.unsigned.plist');
+    expect(getGenericSmsShortcutSignCommand("cmb")).toContain('MoneyTrail 通用银行记账.shortcut');
   });
 
   it("signs the shipped source into the same shortcut name used by the automation guide", () => {

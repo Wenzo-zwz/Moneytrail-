@@ -24,7 +24,7 @@ describe("verified SMS shortcut template", () => {
     expect(isShortcutTemplateCompatible(value)).toBe(true);
   });
 
-  it.each(["abc", "boc", "ccb"] as const)("does not advertise the ICBC-only shared template for %s", bankCode => {
+  it.each(["abc", "boc", "ccb", "cmb"] as const)("does not advertise the ICBC-only shared template for %s", bankCode => {
     expect(isShortcutTemplateCompatible(projectUrl, bankCode)).toBe(false);
   });
 

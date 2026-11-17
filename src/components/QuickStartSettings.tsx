@@ -1,5 +1,6 @@
 import { ArrowRight, MessageSquare, Pencil, ScanText, Smartphone, Wallet } from "lucide-react";
 import { SCREENSHOT_SHORTCUT_TEMPLATE } from "../lib/screenshotShortcutTemplate";
+import { GENERAL_BANK_TEMPLATE } from "../lib/bankOnboarding";
 
 type Props = {
   onSmsAutomation?: () => void;
@@ -30,7 +31,8 @@ export default function QuickStartSettings({ onSmsAutomation, onScreenshotSetup,
           <p>连接 iPhone 短信自动化，让新收到的银行消费短信进入你的账户账本。</p>
           <div className="quick-start-support" aria-label="当前银行接入范围">
             <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；群收款和不明确的记录仍需确认。</span></p>
-            <p><strong>农行 · 中行 · 建行</strong><span>可安装农中建通用模板，收到后先待确认，核对后再入账。</span></p>
+            <p><strong>农行 · 中行 · 建行</strong><span>可安装{GENERAL_BANK_TEMPLATE.url ? "通用银行模板" : "农中建通用模板"}，收到后先待确认，核对后再入账。</span></p>
+            <p><strong>招商银行</strong><span>{GENERAL_BANK_TEMPLATE.url ? "可安装通用银行模板，收到后先待确认，核对后再入账。" : "已登记接收后待确认，需使用包含招商银行筛选的新版通用指令；分享模板待更新。"}</span></p>
           </div>
           <button type="button" className="button secondary" onClick={onSmsAutomation}>开通短信自动记账<ArrowRight size={17} /></button>
           <details className="quick-start-checklist">
