@@ -14,6 +14,7 @@ const examples = [
 ] as const;
 let db: PGlite;
 let unchangedDefinitions: unknown[];
+let threeBankDefinitionsUnchanged: boolean;
 
 async function rpc(name: string, args: unknown[] = []): Promise<any> {
   return (await db.query<{ r: any }>(`select to_jsonb(public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')})) r`, args)).rows[0].r;
@@ -34,7 +35,9 @@ beforeAll(async () => {
   for (const file of Object.keys(migrations).sort()) {
     if (file.endsWith('_three_bank_review_intake.sql')) unchangedDefinitions = await definitions();
     await db.exec(migrations[file]);
+    if (file.endsWith('_three_bank_review_intake.sql')) threeBankDefinitionsUnchanged = JSON.stringify(await definitions()) === JSON.stringify(unchangedDefinitions);
   }
+  unchangedDefinitions = await definitions();
 }, 30000);
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -112,7 +115,7 @@ it.each([
   '【中国银行】您尾号1234卡消费交易，金额为120.001，余额23500元。',
   '【中国银行】您尾号1234卡消费USD120元，余额23500元。',
   '【中国银行】您尾号1234卡消费人民币120元，余额20美元。',
-  '【农业银行】您尾号1234卡收到工资收入120元，已开通消费通知。',
+  '【农业银行】您尾号1234卡收到余额通知，余额120元，已开通消费通知。',
   '【中国银行】信用卡消费满100元赠20元优惠券。',
   '【建设银行】每消费人民币100元可获1积分，敬请使用我行信用卡。',
   '【中国银行】本期账单消费人民币120元，应还金额120元，请按时还款。',
@@ -165,6 +168,7 @@ it('reapplying the migration preserves business data and every established bank/
   await receive(token, examples[0][1]);
   const tables = ['public.moneytrail_ledgers', 'moneytrail_private.sms_inbox', 'moneytrail_private.sms_category_rules', 'moneytrail_private.sms_settings'];
   const before = await Promise.all(tables.map(rows));
+  expect(threeBankDefinitionsUnchanged).toBe(true);
   expect(await definitions()).toEqual(unchangedDefinitions);
   await db.exec(migrations[Object.keys(migrations).find(file => file.endsWith('_three_bank_review_intake.sql'))!]);
   expect(await Promise.all(tables.map(rows))).toEqual(before);

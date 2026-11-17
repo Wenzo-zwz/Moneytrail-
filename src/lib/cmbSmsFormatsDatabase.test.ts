@@ -9,6 +9,7 @@ const credit = '您尾号1234的招行信用卡于12月24日18时4分消费人�
 const copied = debit + '\u200c\ufffc\u200c\ufffc';
 let db: PGlite;
 let establishedDefinitions: unknown[];
+let cmbDefinitionsUnchanged: boolean;
 
 async function rpc(name: string, args: unknown[] = []): Promise<any> {
   return (await db.query<{ r: any }>(`select to_jsonb(public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')})) r`, args)).rows[0].r;
@@ -35,7 +36,9 @@ beforeAll(async () => {
   for (const file of Object.keys(migrations).sort()) {
     if (file.endsWith('_cmb_sms_formats.sql')) establishedDefinitions = await definitions();
     await db.exec(migrations[file]);
+    if (file.endsWith('_cmb_sms_formats.sql')) cmbDefinitionsUnchanged = JSON.stringify(await definitions()) === JSON.stringify(establishedDefinitions);
   }
+  establishedDefinitions = await definitions();
 }, 30000);
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -183,6 +186,7 @@ it('keeps helpers private, immutable and pinned while preserving established par
     for (const role of ['anon', 'authenticated']) expect((await db.query<{ allowed: boolean }>("select has_function_privilege($1,$2,'EXECUTE') allowed", [role, 'moneytrail_private.' + signature])).rows[0].allowed).toBe(false);
     expect((await db.query('select provolatile,prosecdef,proconfig from pg_proc where oid=$1::regprocedure', ['moneytrail_private.' + signature])).rows[0]).toMatchObject({ provolatile: 'i', prosecdef: false, proconfig: ['search_path=""'] });
   }
+  expect(cmbDefinitionsUnchanged).toBe(true);
   expect(await definitions()).toEqual(establishedDefinitions);
   await rpc('save_moneytrail_ledger', [{ version: 1, budgetCents: 12345, transactions: [], billCheckedMonths: [] }, 0]);
   const { token } = await rpc('moneytrail_sms_rotate', ['review']); await receive(token, copied);
