@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import plistlib
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +34,21 @@ ACTIVITY_NOTICE = (
     b"<!-- UNSIGNED SOURCE: MoneyTrail ICBC/ABC/BOC/CCB/CMB income and expense template.\n"
     b"Apple signing is required before installation; this XML is not an installer. -->\n"
 )
+RULES_SOURCE = ROOT / "shortcuts/bank-rules.json"
+RULES_OUTPUT = ROOT / "public/shortcuts/bank-rules.json"
+
+
+def build_rules_bytes():
+    """Run shared schema and publisher regression checks with the project's Node 24 runtime."""
+    command = ["node", str(ROOT / "scripts/validate-bank-rules.mjs"), str(RULES_SOURCE)]
+    if RULES_OUTPUT.exists():
+        command.append(str(RULES_OUTPUT))
+    result = subprocess.run(
+        command,
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    print(result.stdout.strip())
+    return (json.dumps(json.loads(RULES_SOURCE.read_text(encoding="utf-8")), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
 def build_bytes(source=SOURCE, profile_path=PROFILE, notice=NOTICE, banks=None):
@@ -70,6 +86,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Check committed XML against the JSON source without changing files")
     args = parser.parse_args()
+    try:
+        rules = build_rules_bytes()
+    except (OSError, subprocess.SubprocessError) as error:
+        parser.error(f"Bank rules validation failed: {getattr(error, 'stderr', '') or error}")
     for source, profile, output, notice, banks in [
         (SOURCE, PROFILE, OUTPUT, NOTICE, ["abc", "boc", "ccb"]),
         (GENERAL_SOURCE, GENERAL_PROFILE, GENERAL_OUTPUT, GENERAL_NOTICE, ["abc", "boc", "ccb", "cmb"]),
@@ -85,6 +105,13 @@ def main():
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(xml)
             print(f"Built {output.relative_to(ROOT)} (unsigned; Apple signing required).")
+    if args.check:
+        if not RULES_OUTPUT.exists() or RULES_OUTPUT.read_bytes() != rules:
+            parser.error("Public bank rules differ from the canonical manifest; run the builder")
+        print("Public bank rules match the canonical manifest.")
+    else:
+        RULES_OUTPUT.write_bytes(rules)
+        print(f"Built {RULES_OUTPUT.relative_to(ROOT)} (public rules data; not a shortcut installer).")
 
 
 if __name__ == "__main__":
