@@ -8,6 +8,7 @@ const income = '尾号0000卡11月10日14:50工商银行收入(2026年10月工�
 const otherBanks = ['农业银行', '中国银行', '建设银行', '招商银行'];
 let db: PGlite;
 let existingDefinitions: unknown[];
+let incomeDefinitionsUnchanged: boolean;
 
 async function rpc(name: string, args: unknown[] = []): Promise<any> {
   return (await db.query<{ r: any }>(`select to_jsonb(public.${name}(${args.map((_, i) => `$${i + 1}`).join(',')})) r`, args)).rows[0].r;
@@ -35,7 +36,9 @@ beforeAll(async () => {
   for (const file of Object.keys(migrations).sort()) {
     if (file.endsWith('_bank_income_review_intake.sql')) existingDefinitions = await definitions();
     await db.exec(migrations[file]);
+    if (file.endsWith('_bank_income_review_intake.sql')) incomeDefinitionsUnchanged = JSON.stringify(await definitions()) === JSON.stringify(existingDefinitions);
   }
+  existingDefinitions = await definitions();
 }, 30000);
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -269,6 +272,7 @@ it.each([
 });
 
 it('adds only private immutable helpers and preserves all other established function definitions', async () => {
+  expect(incomeDefinitionsUnchanged).toBe(true);
   expect(await definitions()).toEqual(existingDefinitions);
   const helpers = (await db.query<{ proname: string; provolatile: string; proconfig: string[]; exposed: boolean }>(`select p.proname,p.provolatile,p.proconfig,
     has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('authenticated',p.oid,'EXECUTE') exposed

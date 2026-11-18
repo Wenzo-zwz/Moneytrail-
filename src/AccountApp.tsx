@@ -12,6 +12,8 @@ import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/admin
 import { fetchSmsCategoryRules } from "./lib/smsClient";
 import type { MerchantRule } from "./lib/merchantClassification";
 import { clearScreenshotIntake, getScreenshotIntake } from "./lib/screenshotIntake";
+import SmsReviewReminder from "./components/SmsReviewReminder";
+import { recordSmsReviewOpened } from "./lib/smsReviewReminder";
 import { prefersLocalLedger, rememberLocalLedger } from "./lib/localPreference";
 import { clearLocalBackupMetadata } from "./lib/backupMetadata";
 
@@ -213,6 +215,8 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const [migrated, setMigrated] = useState(false);
   const [bookEpoch, setBookEpoch] = useState(0);
   const accountName = session.user.email || "当前账户";
+  const reviewScope = `${projectUrl.replace(/\/$/, "").toLowerCase()}|${session.user.id}`;
+  useEffect(() => { if (view === "sms") recordSmsReviewOpened(reviewScope); }, [view, reviewScope]);
   useEffect(() => { if (view !== "ledger") { dialog.current?.close(); setNotice(""); } }, [view]);
 
   function backupAccount() {
@@ -293,7 +297,10 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   }
 
   const controls = <button className="button secondary small account-control" onClick={() => dialog.current?.showModal()} aria-label="我的账户"><UserRound size={16} /><span>我的账户</span><SyncBadge state={state} /></button>;
-  const syncNotice = state.ready && ["conflict", "error", "offline"].includes(state.phase) && <div className="notice warning" role="alert"><span>首页金额尚未更新到云端最新账本，当前显示本机副本。{state.message}</span><button className="button secondary small" onClick={() => state.phase === "conflict" || state.recoveryError ? dialog.current?.showModal() : void store.retry()}>{state.phase === "conflict" || state.recoveryError ? "核对同步" : "重试同步"}</button></div>;
+  const syncNotice = <>
+    {state.ready && ["conflict", "error", "offline"].includes(state.phase) && <div className="notice warning" role="alert"><span>首页金额尚未更新到云端最新账本，当前显示本机副本。{state.message}</span><button className="button secondary small" onClick={() => state.phase === "conflict" || state.recoveryError ? dialog.current?.showModal() : void store.retry()}>{state.phase === "conflict" || state.recoveryError ? "核对同步" : "重试同步"}</button></div>}
+    {view === "ledger" && <SmsReviewReminder key={reviewScope} scope={reviewScope} onOpen={() => onView("sms")} />}
+  </>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
   const ledger = state.ready || state.recoveryError
     ? <App key={bookEpoch} store={store} cloudMode cloudProjectUrl={projectUrl} syncNotice={syncNotice} merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />

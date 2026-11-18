@@ -115,6 +115,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false } = {}) {
             current.data.transactions.push(transaction); current.revision++; Object.assign(item, { status: "recorded", raw_text: null, transaction_id: transaction.id });
             return respond({ recorded_count: 1, pending_count: inboxes.get(id).filter(i => i.status === "pending").length });
           }
+          if (action === "activity_summary") return respond({ period_start: "2026-10-15T11:30:00Z", period_end: "2026-10-22T11:30:00Z", time_zone: "Asia/Shanghai", received_count: 0, recorded_count: 0, pending_count: 0, dismissed_count: 0 });
           if (action === "config") return respond(config(id));
           if (action === "rotate") {
             assert.deepEqual(Object.keys(body), ["p_mode"]);

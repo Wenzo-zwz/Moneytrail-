@@ -1,5 +1,7 @@
 import SmsClassificationTools from "./SmsClassificationTools";
 import SmsShortcutSetup from "./SmsShortcutSetup";
+import SmsActivitySummary from "./SmsActivitySummary";
+import BankRuleStatus from "./BankRuleStatus";
 import { getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
 import { categoryText, DetailField } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
@@ -80,7 +82,7 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
         {canRemember && <label className="sms-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy} />以后这家都这样分类</label>}
         <label>备注<input type="text" autoComplete="off" maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={busy} /></label>
         {kind === "transfer" && <p className="sms-form-hint">转账会保留记录，不计入消费支出。</p>}
-        {!item.draft && <p className="sms-form-hint">未能自动识别这条短信，请对照原文逐项填写后再确认。</p>}
+        {!item.draft && <p className="sms-form-hint">未能自动识别这条短信，请对照原文选择交易类型、逐项填写后再确认。支出付款详情也可用截图记账补录；先核对已有记录，避免重复。</p>}
         {error && <p className="sms-form-error" role="alert">{error}</p>}
         <div className="sms-review-actions"><button className="button primary" type="submit" disabled={busy || !canConfirm}><Check size={16} />确认并记入账本</button><button className="button ghost" type="button" disabled={busy} onClick={() => void onDismiss(item.id)}>忽略此条</button></div>
       </form>}
@@ -206,6 +208,13 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       {canRefreshLedger && syncState.phase !== "saved" && syncState.phase !== "syncing" && <div className="sms-sync-hint" role="status"><p>首页账目尚未刷新。{syncState.message}</p><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()}><RefreshCw size={15} />重试账本同步</button></div>}
       {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>正在读取接入状态</h2><p>正在连接当前账户的短信收件箱。</p></section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{currentFailure.setup && <p>请联系应用维护者完成短信接入配置，已有账本仍可使用。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />重新检查</button></section> : config && inbox && <>
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入账本</small></article></section>
+        <SmsActivitySummary client={client} userId={userId} refreshKey={revision} />
+        <details className="sms-guide"><summary>未收到或未识别时，怎么核对与补录？</summary><div>
+          <p>先确认银行已开通动账短信、实际发件人、自动化输入和运行权限。iOS 更新后需用新短信核对锁屏运行；“接入已启用”不能证明手机已触发。</p>
+          <p>服务端只能显示已接收记录。网络失败没有自动补传；恢复网络后先核对收件箱和账本，再决定补录。</p>
+          <p>返回账本 → 录入 → 粘贴银行短信，或在付款详情使用“截图记账”。截图入口当前用于支出；收入、退款和转账需手动核对。补录前对照金额、时间和已有记录，避免重复。</p>
+          <button type="button" className="button secondary small" onClick={onBack}>返回账本补录</button>
+        </div></details>
         <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} run={action => run(action, false)} onServerWrite={refresh} onRulesChanged={onRulesChanged} />
         <div className={`sms-main-grid${config.enabled && config.pending_count > 0 ? " has-pending" : ""}`}>
           <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">工行明确消费可自动记录；五家银行的收入候选、农中建招支出均先待确认。请在下方选择银行，使用收支新版接收收入。</p>
@@ -214,6 +223,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
             <p className="sms-forward-consent">启用表示你同意：由自己配置的 iPhone 自动化，将筛选后的银行收支短信转发至当前慢慢记账账户。请勿转发验证码或其他私人短信。</p>
             <div className="sms-setup-actions">{config.enabled ? <><button className="button primary" disabled={busy || mode === config.mode} onClick={() => void run(async signal => { await setSmsMode(client, userId, mode, signal); return "记录方式已更新，仅对之后收到的短信生效。"; })}>保存记录方式</button><button className="button secondary" disabled={busy} onClick={() => void createToken()}><KeyRound size={15} />更换接入令牌</button><button className="button ghost" disabled={busy} onClick={() => void run(async signal => { await revokeSmsToken(client, userId, signal); clearSecret(); return "已停用接入，手机里的旧令牌立即失效。已有待确认短信仍可处理。"; })}>停用接入</button></> : <button className="button primary" disabled={busy} onClick={() => void createToken()}><KeyRound size={16} />同意转发并启用</button>}</div>
             <SmsShortcutSetup projectUrl={projectUrl} config={config} busy={busy} bankCode={selectedSetupBank} onBankChange={code => setSetupBank({ owner: userId, code })} onRefresh={() => void refreshInbox()} />
+            <BankRuleStatus projectUrl={projectUrl} />
             <details className="sms-guide"><summary><span><Smartphone size={17} />iPhone 配置步骤</span><ChevronDown size={16} /></summary><div>
               <p className="sms-guide-intro">以下为高级手动配置。收入接入使用上方收支新版；旧工行和农中建安装链接仅用于支出。其他部署需按当前项目地址和公开密钥制作配套指令，以下网络字段共用。</p>
               <p className="sms-guide-intro">新收支自动化使用实际发件人、完整短信输入和本地收支筛选。创建个人自动化后，新短信才能触发；网站无法直接读取短信历史。</p>
