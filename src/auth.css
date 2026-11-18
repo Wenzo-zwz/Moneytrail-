@@ -101,6 +101,7 @@
 .auth-legacy-note > svg { margin-top: 3px; color: #b7a58b; stroke-width: 1.5; }
 .auth-legacy-note p { margin: 0; color: #aaa398; font-size: 12px; line-height: 1.9; }
 .auth-bottom-note { margin: 19px 0 0; color: #8f8a84; font-size: 11px; line-height: 1.8; }
+.auth-local-choice { margin-top: 22px; padding-top: 20px; border-top: 1px solid #393632; }
 .auth-spinning { animation: auth-spin 1s linear infinite; }
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 

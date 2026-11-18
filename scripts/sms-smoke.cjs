@@ -38,7 +38,7 @@ function identity(request) {
   try { return JSON.parse(Buffer.from((request.headers().authorization || "").split(".")[1], "base64url").toString()).sub; }
   catch { return null; }
 }
-function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false, incomePending = false } = {}) {
+function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false, incomePending = false, missingSummary = false } = {}) {
   const ledgers = new Map([[OWNER, { data: { ...empty(), budgetCents: 900000, transactions: [manual], billCheckedMonths: ["2026-09"] }, revision: 1, updated_at: "2026-10-22T11:00:00Z" }], [MEMBER, { data: empty(), revision: 1, updated_at: "2026-10-22T11:00:00Z" }]]);
   const inboxes = new Map([[OWNER, [
     { id: GROUP, received_at: "2026-10-22T11:27:00Z", status: "pending", raw_text: RAW, draft: { kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" }, warnings: ["群收款需确认是消费还是转账。"], reason: null, transaction_id: null },
@@ -90,6 +90,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
     ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
   }
   const requests = []; const routeErrors = []; const secrets = []; const ledgerRead = { fail: false };
+  const summaryRead = { fail: missingSummary };
   const config = (id) => ({ ...clone(configs.get(id)), pending_count: inboxes.get(id).filter((item) => item.status === "pending").length });
   async function attach(context) {
     await context.route("**/*", async (route) => {
@@ -125,6 +126,13 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
           if (missingSms) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           const action = url.pathname.split("moneytrail_sms_")[1];
           if (action === "category_rules") return respond({ rules: [] });
+          if (action === "activity_summary") {
+            assert.deepEqual(body, {});
+            if (summaryRead.fail) return respond({ code: "PGRST202", message: "Summary unavailable" }, 404);
+            const end = Date.parse("2026-10-23T12:00:00Z"), start = end - 168 * 3600000;
+            const items = inboxes.get(id).filter(item => Date.parse(item.received_at) >= start && Date.parse(item.received_at) < end);
+            return respond({ period_start: new Date(start).toISOString(), period_end: new Date(end).toISOString(), time_zone: "Asia/Shanghai", received_count: items.length, recorded_count: items.filter(item => item.status === "recorded").length, pending_count: items.filter(item => item.status === "pending").length, dismissed_count: items.filter(item => item.status === "dismissed").length });
+          }
           if (action === "config") return respond(config(id));
           if (action === "rotate") {
             assert.deepEqual(Object.keys(body), ["p_mode"]);
@@ -187,7 +195,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
       }
     });
   }
-  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, ledgerRead };
+  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, ledgerRead, summaryRead };
 }
 async function ready(server, output) {
   const deadline = Date.now() + 20000;
@@ -237,6 +245,40 @@ async function openSms(page) {
   await page.getByRole("button", { name: "我的账户", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "我的账户", exact: true });
   await dialog.getByRole("button", { name: "短信自动记账", exact: true }).click();
+}
+
+async function receiptReviewWorkflow(browser) {
+  const backend = mockBackend({ missingSummary: true });
+  const { page, context, errors } = await fixture(browser, backend, { width: 320, sms: false });
+  try {
+    const key = `moneytrail:sms-review:v1:${PROJECT}|${OWNER}`;
+    await page.evaluate(({ key }) => localStorage.setItem(key, JSON.stringify({ openedAt: Date.UTC(2026, 9, 14, 11, 30) })), { key });
+    await login(page); await page.locator(".hero-amount").waitFor();
+    const reminder = page.getByRole("status", { name: "每周短信核对提醒", exact: true });
+    await reminder.waitFor();
+    assert.equal(backend.requests.filter(request => request.path.includes("moneytrail_sms_") && !request.path.endsWith("category_rules")).length, 0, "the reminder must not read an unopened inbox");
+    await noOverflow(page, "weekly SMS reminder at 320px");
+    await reminder.getByRole("button", { name: "查看接收核对", exact: true }).click();
+    const summary = page.getByRole("region", { name: "近7天已接收短信", exact: true });
+    await summary.getByText("统计暂不可用。短信收件箱仍可照常使用。", { exact: true }).waitFor();
+    const group = page.locator(".sms-message").filter({ hasText: "财付通-群收款" });
+    await group.waitFor();
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    backend.summaryRead.fail = false;
+    await summary.getByRole("button", { name: "重试统计", exact: true }).click();
+    await until(async () => await summary.locator("dd").allTextContents().then(values => values.join(",") === "2条,0条,2条,0条"), "summary retry without changing the inbox");
+    await group.getByRole("button", { name: "核对并记录", exact: true }).click();
+    await group.getByRole("button", { name: "忽略此条", exact: true }).click();
+    await until(async () => await summary.locator("dd").allTextContents().then(values => values.join(",") === "2条,0条,1条,1条"), "summary refresh after dismissal");
+    await noOverflow(page, "seven-day received SMS counts at 320px");
+    await page.getByText("未收到或未识别时，怎么核对与补录？", { exact: true }).click();
+    await page.getByRole("button", { name: "返回账本补录", exact: true }).click();
+    await page.locator(".hero-amount").waitFor();
+    assert.equal(await reminder.count(), 0, "opening the inbox restarts the seven-day visit reminder without declaring reconciliation complete");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+    passed("weekly review opens no inbox in the background; summary failure/retry and dismissal preserve ledger access and refresh exact received-state counts");
+  } finally { await context.close(); }
 }
 
 // Workflow selectors are kept accessible so the test exercises the shipped UI.
@@ -655,6 +697,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
     for (const width of [320, 393, 1440]) await incomeWorkflow(browser, width);
     if (process.env.MONEYTRAIL_SMS_SMOKE_SUITE !== "income") {
+      await receiptReviewWorkflow(browser);
       await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     }
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);

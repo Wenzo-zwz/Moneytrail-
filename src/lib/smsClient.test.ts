@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  SmsSetupError, SmsUpgradeError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMode,
-  type SmsConfig, type SmsDraft, type SmsInbox,
+  SmsSetupError, SmsUpgradeError, confirmSms, dismissSms, fetchSmsActivitySummary, fetchSmsConfig, fetchSmsInbox, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMode,
+  type SmsActivitySummary, type SmsConfig, type SmsDraft, type SmsInbox,
 } from "./smsClient";
 
 const project = "https://sms-test.supabase.co";
@@ -16,6 +16,7 @@ const response = (data: unknown, status = 200) => new Response(JSON.stringify(da
 const config = (): SmsConfig => ({ enabled: true, mode: "auto", created_at: at, last_received_at: at, pending_count: 1 });
 const draft = (): SmsDraft => ({ kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" });
 const inbox = (): SmsInbox => ({ items: [{ id: inboxId, received_at: at, status: "pending", raw_text: "尾号xxxx卡支出30.90元。【工商银行】", draft: draft(), warnings: ["群收款需要确认用途。"], reason: null, transaction_id: null }], total: 1, page: 1, page_size: 20 });
+const summary = (): SmsActivitySummary => ({ period_start: "2026-10-15T11:27:00.123456+00:00", period_end: at, time_zone: "Asia/Shanghai", received_count: 12, recorded_count: 8, pending_count: 3, dismissed_count: 1 });
 let client: SupabaseClient;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 beforeEach(() => {
@@ -26,6 +27,70 @@ beforeEach(() => {
   vi.spyOn(client.auth, "getSession").mockResolvedValue({ data: { session: session() }, error: null });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("cloud SMS activity summary", () => {
+  it("reads the captured account's fixed window without sending an owner, cutoff or SMS capability", async () => {
+    vi.mocked(client.auth.getSession).mockResolvedValueOnce({ data: { session: session() }, error: null })
+      .mockResolvedValue({ data: { session: session(bob, "token-B") }, error: null });
+    fetchMock.mockResolvedValue(response(summary()));
+    expect(await fetchSmsActivitySummary(client, alice)).toEqual(summary());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/rest/v1/rpc/moneytrail_sms_activity_summary");
+    expect(JSON.parse(String(init?.body))).toEqual({});
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token-A");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain(capability);
+  });
+
+  it("accepts a successful empty period as zero counts rather than an unavailable service", async () => {
+    const value = { ...summary(), received_count: 0, recorded_count: 0, pending_count: 0, dismissed_count: 0 };
+    fetchMock.mockResolvedValue(response(value));
+    expect(await fetchSmsActivitySummary(client, alice)).toEqual(value);
+  });
+
+  it.each([
+    { received_count: -1 }, { pending_count: 0.5 }, { dismissed_count: "1" }, { recorded_count: Number.MAX_SAFE_INTEGER + 1 },
+    { received_count: 11 }, { received_count: 0 }, { received_count: Number.MAX_SAFE_INTEGER, recorded_count: Number.MAX_SAFE_INTEGER, pending_count: 1, dismissed_count: 0 },
+    { period_start: "2026-10-16T11:27:00.123456+00:00" }, { period_start: at },
+    { period_end: "2026-02-30T11:27:00Z" }, { period_end: null }, { period_start: "2026-10-29T11:27:00Z" },
+    { time_zone: "UTC" }, { raw_text: "private message" }, { user_id: bob }, { token: capability },
+  ])("rejects malformed windows, unsafe counts and expanded data: %j", async invalid => {
+    fetchMock.mockResolvedValue(response({ ...summary(), ...invalid }));
+    await expect(fetchSmsActivitySummary(client, alice)).rejects.toThrow("格式不正确");
+  });
+
+  it("rejects missing fields and non-object responses", async () => {
+    const value: Partial<SmsActivitySummary> = summary(); delete value.dismissed_count;
+    for (const invalid of [value, null, [], 0]) {
+      fetchMock.mockResolvedValueOnce(response(invalid));
+      await expect(fetchSmsActivitySummary(client, alice)).rejects.toThrow("格式不正确");
+    }
+  });
+
+  it.each([null, session(bob)])("never reads the summary under a missing or changed account", async current => {
+    vi.mocked(client.auth.getSession).mockResolvedValue(current
+      ? { data: { session: current }, error: null }
+      : { data: { session: null }, error: null });
+    await expect(fetchSmsActivitySummary(client, alice)).rejects.toThrow("账号已发生变化");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an unavailable summary RPC without exposing database diagnostics", async () => {
+    fetchMock.mockResolvedValue(response({ code: "PGRST202", message: "PRIVATE DATABASE DETAILS" }, 404));
+    const task = fetchSmsActivitySummary(client, alice);
+    await expect(task).rejects.toBeInstanceOf(SmsSetupError);
+    await expect(task).rejects.not.toThrow("PRIVATE DATABASE DETAILS");
+  });
+
+  it("aborts before reading a session and discards a response arriving after cancellation", async () => {
+    const before = new AbortController(); before.abort();
+    await expect(fetchSmsActivitySummary(client, alice, before.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(client.auth.getSession).not.toHaveBeenCalled();
+    const late = new AbortController();
+    fetchMock.mockImplementation(async () => { late.abort(); return response(summary()); });
+    await expect(fetchSmsActivitySummary(client, alice, late.signal)).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
 
 describe("account-bound SMS automation transport", () => {
   it("preserves validated detail, platform and masked evidence through inbox and confirmation", async () => {

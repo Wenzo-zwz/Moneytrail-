@@ -72,6 +72,7 @@ import ScreenshotCaptureSettings from "./components/ScreenshotCaptureSettings";
 import { clearScreenshotIntake, getScreenshotIntake, subscribeScreenshotIntake } from "./lib/screenshotIntake";
 import type { PaymentScreenshotCandidate } from "./lib/paymentScreenshot";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
+import { clearLocalBackupMetadata, dismissLocalBackupReminder, localBackupReminderDue, observeLocalLedger, readLocalBackupMetadata, recordLocalBackupExport } from "./lib/backupMetadata";
 
 type Page = "overview" | "transactions" | "capture" | "settings";
 type Preview = {
@@ -529,6 +530,7 @@ function Empty({
 export default function App({
   store = localLedgerStore,
   cloudMode = false,
+  cloudProjectUrl,
   accountControls,
   accountPanel,
   onSmsAutomation,
@@ -539,6 +541,7 @@ export default function App({
 }: {
   store?: LedgerStore;
   cloudMode?: boolean;
+  cloudProjectUrl?: string;
   accountControls?: ReactNode;
   accountPanel?: ReactNode;
   onSmsAutomation?: () => void;
@@ -576,6 +579,7 @@ export default function App({
   const [previewLimit, setPreviewLimit] = useState(30);
   const csvRef = useRef<HTMLInputElement>(null);
   const backupRef = useRef<HTMLInputElement>(null);
+  const [backupMetadata, setBackupMetadata] = useState(() => cloudMode ? null : readLocalBackupMetadata());
   const hashProcessed = useRef(false);
   useEffect(() => {
     if (!incomingScreenshot) return;
@@ -583,6 +587,13 @@ export default function App({
     setPage("capture");
     setCaptureMode("screenshot");
   }, [incomingScreenshot]);
+  useEffect(() => {
+    if (cloudMode || !data.transactions.length || recoveryError) return;
+    const refresh = () => setBackupMetadata(observeLocalLedger(Date.now()));
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [cloudMode, data.transactions.length, recoveryError]);
   const stats = useMemo(
     () => summarize(data.transactions, month, data.budgetCents),
     [data, month],
@@ -988,6 +999,13 @@ export default function App({
       if (backupRef.current) backupRef.current.value = "";
     }
   }
+  function exportFullBackup() {
+    try {
+      download(exportBackup(data), `moneytrail-backup-${localNow().slice(0, 10)}.json`);
+      if (!cloudMode) setBackupMetadata(recordLocalBackupExport(Date.now()));
+      setToast("备份下载已发起，请确认文件已保存。");
+    } catch { setNotice("备份下载未能发起，请检查浏览器下载权限后重试。账目未修改。"); }
+  }
   function clearAll() {
     try {
       const rawBeforeClear = readStoredRaw();
@@ -1003,6 +1021,7 @@ export default function App({
         return;
       }
       setData(emptyData());
+      if (!cloudMode) { clearLocalBackupMetadata(); setBackupMetadata(null); }
       setRecoveryError("");
       setPreviews([]);
       setSmsText("");
@@ -1166,6 +1185,11 @@ export default function App({
             </button>
           </div>
         )}
+        {!cloudMode && data.transactions.length > 0 && !editor && !incomingScreenshot && !recoveryError && localBackupReminderDue(backupMetadata, Date.now()) && <section className="notice warning" aria-label="本机备份提醒" role="status">
+          <span>本机账本已满 30 天没有发起完整备份下载。请导出并确认文件已保存。</span>
+          <button className="button secondary small" onClick={exportFullBackup}>现在备份</button>
+          <button className="button ghost small" onClick={() => setBackupMetadata(dismissLocalBackupReminder(Date.now()))}>本月稍后</button>
+        </section>}
         {recoveryError ? (
           <section className="panel">
             <h2>先保护你的原始账目</h2>
@@ -1865,11 +1889,12 @@ export default function App({
                     调整月预算
                   </button>
                 </section>
-                <section className="setting-card">
+                <section className="setting-card data-location">
                   <div className="setting-heading">
                     <ShieldCheck size={23} />
-                    <h2>你的数据，你来保管</h2>
+                    <h2>数据在哪里</h2>
                   </div>
+                  <p><strong>{cloudMode ? "账号模式" : "仅在本机"}</strong> · {cloudMode ? "当前账户的云端账本与此浏览器的离线副本" : "当前设备与浏览器的独立账本"}</p>
                   <p>
                     已保存 <strong>{data.transactions.length}</strong>{" "}
                     笔记录，{cloudMode ? "按当前账户同步至云端。" : "仅限当前设备与浏览器。"}
@@ -1877,15 +1902,14 @@ export default function App({
                   <p className="help-text">
                     {cloudMode ? "请确认显示“已同步”后再换设备。完整备份仍建议定期导出；恢复备份会替换当前账户账本并同步至其他设备。" : "换设备、清理浏览器数据前请先备份。主屏幕应用与浏览器也可能使用独立存储，可通过备份转移。"}
                   </p>
+                  {cloudMode && <p className="help-text">云端服务：<code>{cloudProjectUrl ? new URL(cloudProjectUrl).hostname : "当前连接的服务数据库"}</code>。账目按账户隔离；本机离线副本和导出文件仍是明文。</p>}
+                  <p className="help-text">截图在手机上提取文字，图片不上传；账单文件在本机解析。{cloudMode ? "确认保存的账目会同步到当前账户。短信自动记账会将筛选后的短信正文发送到服务器解析，待确认期间保留原文，入账后移除原文并保留脱敏凭据。" : "此模式新建或导入的账目不上传，也不提供云端短信接入操作。连接账户时，本机账本仍需你确认迁移后才会上传。"}</p>
+                  {!cloudMode && <p className="help-text">切换本机模式不会停用手机上已配置的短信自动化。若要停止短信上传，请先在账号短信设置停用接入，或关闭对应自动化。</p>}
+                  {!cloudMode && <p className="help-text">{backupMetadata?.lastExportAt ? `上次发起完整备份下载：${new Date(backupMetadata.lastExportAt).toLocaleString("zh-CN")}` : "尚无完整备份下载记录。提醒会在打开应用时检查，不会在网页关闭后主动推送。"}</p>}
                   <div className="form-actions">
                     <button
                       className="button primary"
-                      onClick={() =>
-                        download(
-                          exportBackup(data),
-                          `moneytrail-backup-${localNow().slice(0, 10)}.json`,
-                        )
-                      }
+                      onClick={exportFullBackup}
                     >
                       <ArrowUpToLine size={17} />
                       导出完整备份

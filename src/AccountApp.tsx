@@ -12,6 +12,10 @@ import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/admin
 import { fetchSmsCategoryRules } from "./lib/smsClient";
 import type { MerchantRule } from "./lib/merchantClassification";
 import { clearScreenshotIntake, getScreenshotIntake } from "./lib/screenshotIntake";
+import SmsReviewReminder from "./components/SmsReviewReminder";
+import { recordSmsReviewOpened } from "./lib/smsReviewReminder";
+import { prefersLocalLedger, rememberLocalLedger } from "./lib/localPreference";
+import { clearLocalBackupMetadata } from "./lib/backupMetadata";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const SmsAutomationPanel = lazy(() => import("./components/SmsAutomationPanel"));
@@ -107,16 +111,26 @@ function SyncBadge({ state }: { state: CloudStoreState }) {
 }
 
 export default function AccountApp() {
+  const [localOnly, setLocalOnly] = useState(prefersLocalLedger);
+  function chooseLocal(local: boolean) {
+    rememberLocalLedger(local);
+    setLocalOnly(local);
+  }
+  if (localOnly) return <LocalApplication onConnect={() => chooseLocal(false)} />;
+  return <ConfiguredApplication onUseLocal={() => chooseLocal(true)} />;
+}
+
+function ConfiguredApplication({ onUseLocal }: { onUseLocal: () => void }) {
   const [client] = useState(getCloudClient);
   const configuration = readCloudConfig(import.meta.env);
   if (!client || !configuration) return <LocalApplication />;
-  return <AccountSession client={client} projectUrl={configuration.url} />;
+  return <AccountSession client={client} projectUrl={configuration.url} onUseLocal={onUseLocal} />;
 }
 
-function LocalApplication() {
+function LocalApplication({ onConnect }: { onConnect?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   return <>
-    <App accountControls={<button className="button secondary small" onClick={() => dialog.current?.showModal()}><UserRound size={16} />账户服务</button>} />
+    <App accountControls={<button className="button secondary small" onClick={onConnect ?? (() => dialog.current?.showModal())}><UserRound size={16} />{onConnect ? "连接账户" : "账户服务"}</button>} />
     <dialog className="account-dialog" ref={dialog} aria-labelledby="configuration-title">
       <div className="account-dialog-header"><h2 id="configuration-title">独立账户尚未接通</h2><button className="icon-button" aria-label="关闭" onClick={() => dialog.current?.close()}><X size={18} /></button></div>
       <div className="account-dialog-body"><p>{getCloudConfigError()}</p><p>当前仍是本机账本，账目不会上传。接入账号服务后，你可以登录自己的账户，并确认是否迁移已有账目。</p><p>换设备前，请在设置中导出完整备份。</p></div>
@@ -124,7 +138,7 @@ function LocalApplication() {
   </>;
 }
 
-function AccountSession({ client, projectUrl }: { client: SupabaseClient; projectUrl: string }) {
+function AccountSession({ client, projectUrl, onUseLocal }: { client: SupabaseClient; projectUrl: string; onUseLocal: () => void }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -169,10 +183,10 @@ function AccountSession({ client, projectUrl }: { client: SupabaseClient; projec
     });
     return () => { active = false; subscription.unsubscribe(); };
   }, [client]);
-  if (loading) return <main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开你的账本</h1><p>正在确认当前登录账户。</p></main>;
-  if (error) return <main className="account-empty"><ShieldCheck /><h1>暂时无法读取账号</h1><p role="alert">{error}</p><button className="button secondary" onClick={() => location.reload()}>重新连接</button></main>;
+  if (loading) return <main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开你的账本</h1><p>正在确认当前登录账户。</p><button className="button secondary" onClick={onUseLocal}>仅在本机使用</button></main>;
+  if (error) return <main className="account-empty"><ShieldCheck /><h1>暂时无法读取账号</h1><p role="alert">{error}</p><button className="button secondary" onClick={() => location.reload()}>重新连接</button><button className="button secondary" onClick={onUseLocal}>仅在本机使用</button></main>;
   if (recovery) return <AuthForm key="recovery" client={client} initialMode="recovery" onRecoveryComplete={() => setRecovery(false)} />;
-  if (!session) return <AuthForm key="login" client={client} legacyPresent={hasLegacyBook()} />;
+  if (!session) return <AuthForm key="login" client={client} legacyPresent={hasLegacyBook()} onUseLocal={onUseLocal} />;
   return <CloudConnection key={session.user.id} client={client} projectUrl={projectUrl} session={session} view={view} onView={navigate} />;
 }
 
@@ -201,6 +215,8 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const [migrated, setMigrated] = useState(false);
   const [bookEpoch, setBookEpoch] = useState(0);
   const accountName = session.user.email || "当前账户";
+  const reviewScope = `${projectUrl.replace(/\/$/, "").toLowerCase()}|${session.user.id}`;
+  useEffect(() => { if (view === "sms") recordSmsReviewOpened(reviewScope); }, [view, reviewScope]);
   useEffect(() => { if (view !== "ledger") { dialog.current?.close(); setNotice(""); } }, [view]);
 
   function backupAccount() {
@@ -259,6 +275,7 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
       if (!window.confirm("请确认另一设备已能读到迁移的账目，并已保留 JSON 备份。现在移除此浏览器的旧本机账本副本吗？")) return;
       if (readStoredRaw() !== legacyBackup) throw new Error("旧账本已改变，请重新核对。");
       const result = clearStoredData(); if (!result.ok) throw new Error(result.error);
+      clearLocalBackupMetadata();
       setLegacy({ present: false, ...loadData() }); setNotice("旧本机副本已移除，账户账本与下载的备份保留。");
     } catch (error) { setNotice(error instanceof Error ? error.message : "旧副本未能移除。"); }
   }
@@ -280,10 +297,13 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   }
 
   const controls = <button className="button secondary small account-control" onClick={() => dialog.current?.showModal()} aria-label="我的账户"><UserRound size={16} /><span>我的账户</span><SyncBadge state={state} /></button>;
-  const syncNotice = state.ready && ["conflict", "error", "offline"].includes(state.phase) && <div className="notice warning" role="alert"><span>首页金额尚未更新到云端最新账本，当前显示本机副本。{state.message}</span><button className="button secondary small" onClick={() => state.phase === "conflict" || state.recoveryError ? dialog.current?.showModal() : void store.retry()}>{state.phase === "conflict" || state.recoveryError ? "核对同步" : "重试同步"}</button></div>;
+  const syncNotice = <>
+    {state.ready && ["conflict", "error", "offline"].includes(state.phase) && <div className="notice warning" role="alert"><span>首页金额尚未更新到云端最新账本，当前显示本机副本。{state.message}</span><button className="button secondary small" onClick={() => state.phase === "conflict" || state.recoveryError ? dialog.current?.showModal() : void store.retry()}>{state.phase === "conflict" || state.recoveryError ? "核对同步" : "重试同步"}</button></div>}
+    {view === "ledger" && <SmsReviewReminder key={reviewScope} scope={reviewScope} onOpen={() => onView("sms")} />}
+  </>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
   const ledger = state.ready || state.recoveryError
-    ? <App key={bookEpoch} store={store} cloudMode syncNotice={syncNotice} merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
+    ? <App key={bookEpoch} store={store} cloudMode cloudProjectUrl={projectUrl} syncNotice={syncNotice} merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
     : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>;
   return <>
     {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>

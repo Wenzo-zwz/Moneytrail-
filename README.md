@@ -1,12 +1,12 @@
 # Moneytrail · 慢慢记账
 
-面向 iPhone 的个人消费账本：从银行短信和支付平台账单整理记录，查看每月花了多少、花在哪，以及还剩多少预算。界面适配手机，可作为 PWA 添加到主屏幕。
+支持仅本机记账、可选账号同步的个人收支账本：从银行短信和支付平台账单整理记录，查看每月收入、消费分类和预算。界面适配手机，可作为 PWA 添加到主屏幕。
 
 界面采用石墨黑、碳纤维编织纹理与铂金色数字，手机导航、表单、弹窗和主屏幕图标使用同一套深色设计。
 
-支持独立账号与云端同步：邮箱注册、登录、密码重置、按账号隔离的账本，以及经确认后迁移旧本机账目。需要先配置自己的 Supabase 项目；未配置时保留本机模式，不会伪装成已登录的账户。首次打开为空账本，不会把演示消费混入真实记录。
+可选择仅在本机记账，或登录账户使用云端同步。登录不会自动上传原本机账本，迁移仍需先备份再确认。设置中的“数据在哪里”展示当前存储方式、云端地址和完整备份入口；本机账目不上传，账号账目同步至当前服务配置的 Supabase 项目并按账户隔离。首次打开为空账本，不混入演示消费。数据流与核对边界见[说明](docs/data-location-and-receipt-checks.md)。
 
-农行、中行、建行的储蓄卡与信用卡可安装同一份[农中建通用模板](https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d)，在导入时填写自己的个人接入令牌，再按[接入说明](docs/three-bank-shortcut.md)配置手机短信触发。三行短信仍全部先待确认；共享产物已做静态审核，真实 iPhone 导入、授权及锁屏触发尚待验收，见[交付审核记录](docs/three-bank-shortcut-audit-2026-11-15.md)。开发时使用 Python 3 标准库构建和校验模板源文件 XML：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
+农行、中行、建行的储蓄卡与信用卡可安装同一份[农中建通用模板](https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d)，在导入时填写自己的个人接入令牌，再按[接入说明](docs/three-bank-shortcut.md)配置手机短信触发。三行短信仍全部先待确认；共享产物已做静态审核，真实 iPhone 导入、授权及锁屏触发尚待验收，见[交付审核记录](docs/three-bank-shortcut-audit-2026-11-15.md)。开发时使用 Python 3 和项目要求的 Node 24 构建、校验模板及规则清单：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
 
 招商银行已加入[通用银行 v2](docs/general-bank-shortcut.md)接收及制作流程，收到后先待确认。v2 源和匹配规则已准备，新的 iCloud 产物仍需分享审核；旧农中建链接不会转发招商银行短信。页面可选择招商银行并复制新版规则和手机更新步骤。
 
@@ -54,7 +54,7 @@ npm run build && npm run test:e2e
 
 本云环境已有系统 Chromium，可使用 `MONEYTRAIL_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e`；默认使用 Playwright 配套浏览器。测试自行启动并清理端口 `4183` 的生产预览，不需要提前启动服务。浏览器测试受机器的浏览器能力限制，不替代必需的单元测试。
 
-本机模式的冒烟测试需使用未注入 Supabase 配置的构建。账号和短信界面的测试使用真实 SDK 和拦截的服务夹具，命令分别为 `npm run test:accounts` 和 `npm run test:sms`；新增分类与批量流程使用 `npm run test:classification`。它们验证浏览器流程，不表示已经接通真实云端服务或完成 iPhone 短信投递实测。
+本机模式可在未配置账号服务的构建中使用，也可在账号站点登录页明确选择；显式本机模式的账户隔离与备份提醒由账号浏览器流程验证。账号和短信界面的测试使用真实 SDK 和拦截的服务夹具，命令分别为 `npm run test:accounts` 和 `npm run test:sms`；新增分类与批量流程使用 `npm run test:classification`。它们验证浏览器流程，不表示已经接通真实云端服务或完成 iPhone 短信投递实测。
 
 `npm run test:update` 同样需要根路径、本机模式的生产构建。它在临时副本中验证设置内检查更新、离线反馈、真实 Service Worker 下载等待、取消更新、确认重开和其他标签页的草稿保护，并核对安装后的 worker 已接管、原账目和缓存保留。
 
@@ -117,4 +117,4 @@ MONEYTRAIL_BASE_PATH=/Moneytrail-/ MONEYTRAIL_CHROMIUM_PATH=/usr/bin/chromium np
 
 ## 后续范围
 
-更多银行的短信格式、周报、订阅识别和多币种属于后续功能。账号版部署后还需完成真实 Supabase 项目的注册、邮件与隔离验证，以及 iPhone 短信自动化实测；日常录入、账单补全、分类、统计与备份仍需持续检验。
+短信页提供近 7 天已接收记录的当前处理状态，超过 7 天未打开接收页时可在应用内提醒回看；它不能发现未触发或未上传的短信。更多银行的完整格式、后台推送周报、订阅识别和多币种属于后续功能。账号版部署后还需完成真实 Supabase 项目的注册、邮件与隔离验证，以及 iPhone 短信自动化实测；日常录入、账单补全、分类、统计与备份仍需持续检验。

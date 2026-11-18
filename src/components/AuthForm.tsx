@@ -10,6 +10,7 @@ export interface AuthFormProps {
   onRecoveryComplete?: () => void;
   configurationError?: string;
   legacyPresent?: boolean;
+  onUseLocal?: () => void;
 }
 
 function friendlyError(error: unknown, mode: AuthMode): string {
@@ -36,6 +37,7 @@ export default function AuthForm({
   onRecoveryComplete,
   configurationError,
   legacyPresent = false,
+  onUseLocal,
 }: AuthFormProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
@@ -183,6 +185,7 @@ export default function AuthForm({
           {recoveryDone ? <button type="button" className="button primary auth-submit" onClick={() => onRecoveryComplete ? onRecoveryComplete() : switchMode("login")}>进入我的账本<ArrowRight size={17} /></button> : <button type="submit" className="button primary auth-submit" disabled={disabled}>{busy ? <><RefreshCw size={17} className="auth-spinning" />正在处理…</> : <>{buttonLabel}<ArrowRight size={17} /></>}</button>}
         </form>
         {legacyPresent && <div className="auth-legacy-note"><ShieldCheck size={18} /><p>原本的本机账目会保留；登录后由你决定是否导入此账户。</p></div>}
+        {onUseLocal && mode !== "recovery" && <div className="auth-local-choice"><button type="button" className="button secondary" disabled={busy} onClick={onUseLocal}>仅在本机使用</button><p className="auth-bottom-note">无需登录，账目保存在当前浏览器。以后连接账户时，由你确认是否迁移。</p></div>}
         <p className="auth-bottom-note">请在公用设备上使用后退出账号。</p>
       </div>
     </section>

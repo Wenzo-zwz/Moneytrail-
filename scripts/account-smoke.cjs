@@ -112,17 +112,25 @@ async function ready(server, output) {
   }
   throw new Error(`Account dev server not ready: ${output()}`);
 }
-async function fixture(browser, backend, mobile = false, legacy) {
+async function fixture(browser, backend, mobile = false, legacy, local = false) {
   const context = await browser.newContext({ viewport: { width: mobile ? 393 : 1440, height: mobile ? 852 : 1000 }, locale: "zh-CN", timezoneId: "Asia/Shanghai", acceptDownloads: true, ...(mobile ? { isMobile: true, hasTouch: true } : {}) });
   await backend.attach(context);
   if (legacy) await context.addInitScript((data) => { if (!sessionStorage.getItem("fixture-seeded")) { localStorage.setItem("moneytrail:v1", JSON.stringify(data)); sessionStorage.setItem("fixture-seeded", "1"); } }, legacy);
+  if (local) await context.addInitScript(() => {
+    if (!sessionStorage.getItem("fixture-local-seeded")) {
+      localStorage.setItem("moneytrail:mode:v1", "local");
+      localStorage.setItem("moneytrail:local-backup:v1", JSON.stringify({ firstSeenAt: Date.parse("2026-09-20T04:30:00Z"), lastExportAt: null, dismissedMonth: null }));
+      sessionStorage.setItem("fixture-local-seeded", "1");
+    }
+  });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.setDefaultTimeout(12000);
   await page.clock.setFixedTime(new Date("2026-10-22T04:30:00Z"));
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "登录我的账本", exact: true }).waitFor();
+  if (local) await page.locator(".hero-amount").waitFor();
+  else await page.getByRole("button", { name: "登录我的账本", exact: true }).waitFor();
   return { page, context, errors };
 }
 async function login(page, email = "a@example.test", password = PASSWORD) {
@@ -324,6 +332,75 @@ async function mobileWorkflow(browser) {
   } finally { await context.close(); }
 }
 
+async function localChoiceWorkflow(browser) {
+  const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend);
+  try {
+    await page.getByRole("button", { name: "仅在本机使用", exact: true }).click();
+    await page.locator(".hero-amount").waitFor();
+    assert.equal(await page.getByRole("status", { name: "本机备份提醒", exact: true }).count(), 0, "a new empty book must not start with an overdue reminder");
+    await addManual(page, "本机独立消费");
+    const book = await page.evaluate(() => JSON.parse(localStorage.getItem("moneytrail:v1")));
+    assert.equal(book.transactions.length, 1);
+    assert.equal(book.transactions[0].merchant, "本机独立消费");
+    assert.equal(backend.requests.length, 0, "local recording must not submit ledger or auth requests");
+    await page.evaluate(({ key, value }) => {
+      localStorage.setItem(key, value);
+      window.dispatchEvent(new StorageEvent("storage", { key, newValue: value }));
+    }, { key: `moneytrail:auth:v1:${encodeURIComponent(new URL(PROJECT).host)}`, value: JSON.stringify(session(A)) });
+    assert.equal(await page.getByRole("button", { name: "连接账户", exact: true }).count(), 1, "background account state must not replace an explicit local view");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator(".hero-amount").waitFor();
+    assert.equal(backend.requests.length, 0, "a stored local preference must boot without initializing account requests");
+    assert.equal(await page.getByRole("button", { name: "连接账户", exact: true }).count(), 1);
+    assert.deepEqual(errors, []);
+    passed("an explicit local choice records and reloads a separate book without cloud requests or empty-book reminders");
+  } finally { await context.close(); }
+}
+
+async function localBackupWorkflow(browser, mobile) {
+  const legacy = { ...empty(), transactions: [transaction("local-only", "本机旧记录")], budgetCents: 90000 };
+  const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, mobile, legacy, true);
+  try {
+    const reminder = page.getByRole("status", { name: "本机备份提醒", exact: true }); await reminder.waitFor();
+    assert.equal(backend.requests.length, 0, "local preference must take priority before account initialization");
+    await reminder.getByRole("button", { name: "本月稍后", exact: true }).click();
+    await page.reload({ waitUntil: "networkidle" }); await page.locator(".hero-amount").waitFor();
+    assert.equal(await reminder.count(), 0, "dismissal must survive a reload in the same month");
+    const nav = page.locator(mobile ? ".mobile-nav" : ".sidebar");
+    await nav.getByRole("button", { name: "设置", exact: true }).click();
+    const location = page.locator(".data-location"); await location.waitFor();
+    assert.match(await location.innerText(), /仅在本机/);
+    assert.match(await location.innerText(), /此模式新建或导入的账目不上传/);
+    assert.match(await location.innerText(), /不会停用手机上已配置的短信自动化/);
+    assert(!await location.innerText().then(text => text.includes("test-project.supabase.co")));
+    const before = await page.evaluate(() => localStorage.getItem("moneytrail:local-backup:v1"));
+    const csvPromise = page.waitForEvent("download"); await page.getByRole("button", { name: "导出全部 CSV", exact: true }).click(); await csvPromise;
+    assert.equal(await page.evaluate(() => localStorage.getItem("moneytrail:local-backup:v1")), before, "CSV must not pretend to be a complete backup");
+    const jsonPromise = page.waitForEvent("download"); await location.getByRole("button", { name: "导出完整备份", exact: true }).click(); const backup = await jsonPromise;
+    assert.deepEqual(JSON.parse(await readFile(await backup.path(), "utf8")), legacy);
+    const metadata = await page.evaluate(() => JSON.parse(localStorage.getItem("moneytrail:local-backup:v1")));
+    assert.equal(metadata.lastExportAt, Date.parse("2026-10-22T04:30:00Z"));
+    await page.getByText(/上次发起完整备份下载/).waitFor();
+    await noOverflow(page, `${mobile ? "393px" : "desktop"} data location and local backup`);
+    assert.equal(backend.requests.length, 0);
+    await page.screenshot({ path: path.join(ARTIFACTS, `local-data-${mobile ? "393" : "1440"}.png`), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: "连接账户", exact: true }).click();
+    await page.getByRole("button", { name: "登录我的账本", exact: true }).waitFor();
+    assert.equal(backend.accepted.length, 0);
+    await login(page); await cacheWait(page, A, value => value && !value.dirty);
+    assert.equal(backend.accepted.length, 0, "connecting and logging in must not migrate the local book");
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("moneytrail:v1"))), legacy);
+    await nav.getByRole("button", { name: "设置", exact: true }).click();
+    await location.waitFor();
+    assert.match(await location.innerText(), /账号模式/);
+    assert.match(await location.innerText(), /test-project\.supabase\.co/);
+    assert.match(await location.innerText(), /短信正文发送到服务器解析/);
+    assert.equal(await page.getByRole("status", { name: "本机备份提醒", exact: true }).count(), 0);
+    assert.deepEqual(errors, []);
+    passed(`${mobile ? "393px" : "desktop"} local reminder, full backup and explicit account connection keep books isolated and explain data destinations`);
+  } finally { await context.close(); }
+}
+
 (async () => {
   await mkdir(ARTIFACTS, { recursive: true });
   let output = "";
@@ -337,9 +414,13 @@ async function mobileWorkflow(browser) {
   try {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
-    await authWorkflow(browser);
-    await ledgerWorkflow(browser);
-    await mobileWorkflow(browser);
+    await localChoiceWorkflow(browser);
+    for (const mobile of [false, true]) await localBackupWorkflow(browser, mobile);
+    if (process.env.MONEYTRAIL_ACCOUNT_SMOKE_SUITE !== "local") {
+      await authWorkflow(browser);
+      await ledgerWorkflow(browser);
+      await mobileWorkflow(browser);
+    }
     process.stdout.write(`\n${checks} account browser checks passed using intercepted fixture responses. Hosted authentication, email delivery, JWT verification and real iPhone checks remain separate.\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error}\n`); process.exitCode = 1;

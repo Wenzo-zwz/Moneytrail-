@@ -371,6 +371,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .setting-heading h2 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.7; }
 .setting-card p { margin-bottom: 13px; color: #adacab; font-size: 12px; line-height: 1.95; }
 .setting-card p strong { color: #d1d0cf; font-weight: 500; }
+.data-location code { overflow-wrap: anywhere; }
 .setting-card .form-actions { justify-content: flex-start; }
 .setting-card .button + .button { margin-left: 3px; }
 .quick-start-card { grid-column: 1 / -1; border-color: #625b51; background: linear-gradient(125deg, #242222, #151519); }
