@@ -36,6 +36,7 @@ ACTIVITY_NOTICE = (
 )
 RULES_SOURCE = ROOT / "shortcuts/bank-rules.json"
 RULES_OUTPUT = ROOT / "public/shortcuts/bank-rules.json"
+RULES_TEXT_OUTPUT = ROOT / "public/shortcuts/bank-rules.txt"
 
 
 def build_rules_bytes():
@@ -105,13 +106,14 @@ def main():
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(xml)
             print(f"Built {output.relative_to(ROOT)} (unsigned; Apple signing required).")
-    if args.check:
-        if not RULES_OUTPUT.exists() or RULES_OUTPUT.read_bytes() != rules:
-            parser.error("Public bank rules differ from the canonical manifest; run the builder")
-        print("Public bank rules match the canonical manifest.")
-    else:
-        RULES_OUTPUT.write_bytes(rules)
-        print(f"Built {RULES_OUTPUT.relative_to(ROOT)} (public rules data; not a shortcut installer).")
+    for output in (RULES_OUTPUT, RULES_TEXT_OUTPUT):
+        if args.check:
+            if not output.exists() or output.read_bytes() != rules:
+                parser.error(f"{output.name} differs from the canonical manifest; run the builder")
+            print(f"Public {output.name} matches the canonical manifest.")
+        else:
+            output.write_bytes(rules)
+            print(f"Built {output.relative_to(ROOT)} (public rules data; not a shortcut installer).")
 
 
 if __name__ == "__main__":
