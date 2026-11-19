@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import { BANK_RULES_PROJECT } from "./bankRulesValidation";
+import { BANK_RULES_V4_PROFILE, getReleasedBankRulesV4, type BankRulesV4Profile } from "./bankRulesV4";
+
+export const releaseFixture: BankRulesV4Profile = {
+  version: 4, projectUrl: BANK_RULES_PROJECT, releaseVerified: true,
+  smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+  updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210",
+};
+
+describe("public v4 release gate", () => {
+  it("keeps the checked-in profile unpublished with no private links", () => {
+    expect(BANK_RULES_V4_PROFILE).toEqual({ version: 4, projectUrl: BANK_RULES_PROJECT, releaseVerified: false, smsUrl: null, updateUrl: null });
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT)).toBeNull();
+  });
+
+  it.each([BANK_RULES_PROJECT, `${BANK_RULES_PROJECT}/`, BANK_RULES_PROJECT.toUpperCase()])("offers both independently verified links for the official project %s", projectUrl => {
+    expect(getReleasedBankRulesV4(projectUrl, releaseFixture)).toEqual(releaseFixture);
+  });
+
+  it.each([
+    "", "https://other.supabase.co", `${BANK_RULES_PROJECT}/rest/v1`, `${BANK_RULES_PROJECT}//`,
+    `${BANK_RULES_PROJECT}/.`, `${BANK_RULES_PROJECT}/%2e`, `${BANK_RULES_PROJECT}:443`,
+    `${BANK_RULES_PROJECT}?token=secret`, `${BANK_RULES_PROJECT}#`, `${BANK_RULES_PROJECT}\n`,
+    "https://user:password@ojcgabicpjipwpvwolzn.supabase.co",
+    "https://ojcgabicpjipwpvwolzn.supabase.co@other.supabase.co",
+  ])("does not offer production installers for another or ambiguous project %s", projectUrl => {
+    expect(getReleasedBankRulesV4(projectUrl, releaseFixture)).toBeNull();
+  });
+
+  it.each([
+    null, "", "http://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+    "https://icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+    "https://example.com/shortcuts/0123456789abcdef0123456789abcdef",
+    "https://www.icloud.com:443/shortcuts/0123456789abcdef0123456789abcdef",
+    "https://person@www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+    "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef?token=secret",
+    "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef#",
+    "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef/",
+    "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdeg",
+    "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef\n",
+    " https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+  ])("requires both URLs to be strict iCloud shortcut links %#", url => {
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT, { ...releaseFixture, smsUrl: url })).toBeNull();
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT, { ...releaseFixture, updateUrl: url })).toBeNull();
+  });
+
+  it.each([
+    { ...releaseFixture, releaseVerified: false },
+    { ...releaseFixture, releaseVerified: "true" },
+    { ...releaseFixture, version: 3 },
+    { ...releaseFixture, version: "4" },
+    { ...releaseFixture, projectUrl: "https://other.supabase.co" },
+    { ...releaseFixture, projectUrl: `${BANK_RULES_PROJECT}/` },
+    { ...releaseFixture, updateUrl: releaseFixture.smsUrl },
+    { ...releaseFixture, updateUrl: releaseFixture.smsUrl!.slice(0, -32) + releaseFixture.smsUrl!.slice(-32).toUpperCase() },
+    { ...releaseFixture, ownerId: "private" },
+    { ...releaseFixture, smsUrl: null },
+    { ...releaseFixture, updateUrl: null },
+  ])("requires the exact release profile and two distinct shortcut IDs %#", value => {
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT, value as BankRulesV4Profile)).toBeNull();
+  });
+});

@@ -3,6 +3,7 @@ import SmsShortcutSetup from "./SmsShortcutSetup";
 import SmsActivitySummary from "./SmsActivitySummary";
 import BankRuleStatus from "./BankRuleStatus";
 import { getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
+import { BANK_RULES_V4_NAMES, getReleasedBankRulesV4 } from "../lib/bankRulesV4";
 import { categoryText, DetailField } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -114,7 +115,9 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const loading = !current && !currentFailure;
   const token = secret?.owner === userId ? secret.value : "";
   const selectedSetupBank = setupBank.owner === userId ? setupBank.code : "icbc";
-  const selectedActivityTemplate = getCompatibleBankActivityTemplate(projectUrl, selectedSetupBank);
+  const releasedV4 = getReleasedBankRulesV4(projectUrl);
+  const selectedActivityTemplate = releasedV4 ? { name: BANK_RULES_V4_NAMES.sms, url: releasedV4.smsUrl }
+    : getCompatibleBankActivityTemplate(projectUrl, selectedSetupBank);
   const selectedTemplate = selectedActivityTemplate ?? getCompatibleSmsShortcutTemplate(projectUrl, selectedSetupBank);
   const canConfirm = syncState.ready && !syncState.dirty && syncState.phase === "saved" && !syncState.recoveryError;
   const canRefreshLedger = syncState.ready && !syncState.dirty && syncState.phase !== "conflict" && !syncState.recoveryError;

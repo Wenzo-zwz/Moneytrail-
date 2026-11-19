@@ -8,7 +8,8 @@ describe("bank rule version status", () => {
   it("keeps web publication separate from an unverified phone update", () => {
     const markup = renderToStaticMarkup(createElement(BankRuleStatus, { projectUrl: BANK_RULES_PROJECT }));
     expect(markup).toContain('aria-label="银行规则发布状态"');
-    expect(markup).toContain("手机自动更新尚未实现或验证");
+    expect(markup).toContain("v4 私有试用已有真机验证");
+    expect(markup).toContain("公开版仍待签名、分享链接审核及首次安装验收");
     expect(markup).toContain("网页版本不能证明手机已更新");
     expect(markup).toContain("现有 v3 不会自动读取此清单");
     expect(markup).toContain("正在读取网页规则版本");

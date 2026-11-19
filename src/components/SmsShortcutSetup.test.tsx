@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as v4 from "../lib/bankRulesV4";
 import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
 import { BANK_ACTIVITY_TEMPLATE, GENERAL_BANK_TEMPLATE, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
 import type { SmsConfig } from "../lib/smsClient";
@@ -8,6 +9,7 @@ import type { SmsBankCode } from "../lib/smsBanks";
 import SmsShortcutSetup from "./SmsShortcutSetup";
 
 const config: SmsConfig = { enabled: false, mode: "auto", created_at: null, last_received_at: null, pending_count: 0 };
+afterEach(() => { vi.restoreAllMocks(); });
 function render(overrides: Partial<SmsConfig> = {}, projectUrl: string = SMS_SHORTCUT_TEMPLATE.projectUrl, busy = false, bankCode?: SmsBankCode) {
   return renderToStaticMarkup(createElement(SmsShortcutSetup, { projectUrl, config: { ...config, ...overrides }, busy, onRefresh: vi.fn(), bankCode, onBankChange: vi.fn() }));
 }
@@ -163,5 +165,32 @@ describe("iPhone shortcut setup guidance", () => {
 
   it("disables refresh while the parent is busy", () => {
     expect(render({}, SMS_SHORTCUT_TEMPLATE.projectUrl, true)).toMatch(/<button[^>]+disabled=""[^>]*>刷新接收状态<\/button>/);
+  });
+
+  it("keeps v4 pending and all current installers unchanged before release", () => {
+    const markup = render({ enabled: true });
+    expect(markup).toContain("v4 私有试用已有真机验证");
+    expect(markup).not.toContain("安装 v4 记账指令");
+    expect(markup).not.toContain("安装 v4 更新指令");
+    expect(markup).toContain(`href="${SMS_SHORTCUT_TEMPLATE.url}"`);
+    expect(markup).toContain(`「${BANK_ACTIVITY_TEMPLATE.name}」`);
+  });
+
+  it("wires a complete verified v4 release into the primary guide and SMS automation name", () => {
+    const original = v4.getReleasedBankRulesV4;
+    const profile = { version: 4, projectUrl: SMS_SHORTCUT_TEMPLATE.projectUrl, releaseVerified: true,
+      smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
+      updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210" };
+    vi.spyOn(v4, "getReleasedBankRulesV4").mockImplementation(projectUrl => original(projectUrl, profile));
+    const markup = render({ enabled: true });
+    expect(markup).toContain(`href="${profile.smsUrl}"`);
+    expect(markup).toContain(`href="${profile.updateUrl}"`);
+    expect(markup).toContain(`选择「${v4.BANK_RULES_V4_NAMES.sms}」`);
+    expect(markup).toContain("查看 v3 手动模板");
+    expect(markup).toContain("仅接收支出：旧版模板与配置");
+    const custom = render({ enabled: true }, "https://other.supabase.co");
+    expect(custom).not.toContain(profile.smsUrl);
+    expect(custom).not.toContain(profile.updateUrl);
+    expect(custom).not.toContain("安装 v4");
   });
 });

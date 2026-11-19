@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { BANK_RULES_PATH, isBankRulesProjectCompatible, readPublishedBankRules } from "../lib/bankRules";
 import type { BankRuleManifest } from "../lib/bankRulesValidation";
+import { getReleasedBankRulesV4 } from "../lib/bankRulesV4";
 
 type RuleState = { phase: "loading" | "ready" | "error"; rule?: BankRuleManifest };
 
 export default function BankRuleStatus({ projectUrl }: { projectUrl: string }) {
   const compatible = isBankRulesProjectCompatible(projectUrl);
+  const v4 = getReleasedBankRulesV4(projectUrl);
   const [state, setState] = useState<RuleState>({ phase: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState("");
@@ -21,13 +23,13 @@ export default function BankRuleStatus({ projectUrl }: { projectUrl: string }) {
   }, [projectUrl, compatible, attempt]);
   async function copy() {
     if (!compatible || state.phase !== "ready" || !state.rule) return;
-    try { await navigator.clipboard.writeText(state.rule.matchPattern); setNotice("已复制发布规则，供手动核验；手机指令尚未自动更新。"); }
+    try { await navigator.clipboard.writeText(state.rule.matchPattern); setNotice("已复制发布规则，供手动核验。手机使用的版本请在设备上核对。"); }
     catch { setNotice("复制未完成，请展开规则并手动复制。"); }
   }
   return <section className="three-bank-guide" aria-label="银行规则发布状态">
     <h4>银行规则发布状态</h4>
     {!compatible ? <p className="sms-shortcut-caution">当前项目没有配套的规则发布清单。请使用当前部署维护的模板与规则。</p> : <>
-      <p>手机自动更新尚未实现或验证；网页版本不能证明手机已更新。现有 v3 不会自动读取此清单。</p>
+      <p>{v4 ? "v4 可通过独立更新指令下载规则；请在手机上核对更新结果。" : "v4 私有试用已有真机验证，公开版仍待签名、分享链接审核及首次安装验收。"}网页版本不能证明手机已更新。现有 v3 不会自动读取此清单。</p>
       {state.phase === "ready" && state.rule ? <>
         <p role="status">网页已发布规则 v{state.rule.version} · 最低快捷指令版本 v{state.rule.minShortcutVersion}</p>
         <p className="help-text">发布时间：<time dateTime={state.rule.publishedAt}>{state.rule.publishedAt}</time></p>

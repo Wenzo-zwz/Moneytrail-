@@ -1866,7 +1866,7 @@ export default function App({
               </div>
             {page === "settings" && (
               <div className="page settings-grid">
-                <QuickStartSettings onSmsAutomation={onSmsAutomation} onScreenshotSetup={() => setScreenshotSetupOpen(true)} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
+                <QuickStartSettings projectUrl={cloudProjectUrl} onSmsAutomation={onSmsAutomation} onScreenshotSetup={() => setScreenshotSetupOpen(true)} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
                 {accountPanel}
                 <AppUpdateSettings />
                 <section className="setting-card">
