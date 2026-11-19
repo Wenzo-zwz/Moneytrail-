@@ -9,9 +9,22 @@ export const releaseFixture: BankRulesV4Profile = {
 };
 
 describe("public v4 release gate", () => {
-  it("keeps the checked-in profile unpublished with no private links", () => {
-    expect(BANK_RULES_V4_PROFILE).toEqual({ version: 4, projectUrl: BANK_RULES_PROJECT, releaseVerified: false, smsUrl: null, updateUrl: null });
-    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT)).toBeNull();
+  it("keeps the live profile structurally valid and consistent with its release gate", () => {
+    expect(BANK_RULES_V4_PROFILE.version).toBe(4);
+    expect(BANK_RULES_V4_PROFILE.projectUrl).toBe(BANK_RULES_PROJECT);
+    expect(typeof BANK_RULES_V4_PROFILE.releaseVerified).toBe("boolean");
+    for (const url of [BANK_RULES_V4_PROFILE.smsUrl, BANK_RULES_V4_PROFILE.updateUrl]) {
+      if (url !== null) expect(url).toMatch(/^https:\/\/www\.icloud\.com\/shortcuts\/[a-fA-F0-9]{32}(?![\s\S])/);
+    }
+    if (BANK_RULES_V4_PROFILE.smsUrl && BANK_RULES_V4_PROFILE.updateUrl) {
+      expect(BANK_RULES_V4_PROFILE.smsUrl.toLowerCase()).not.toBe(BANK_RULES_V4_PROFILE.updateUrl.toLowerCase());
+    }
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT)).toEqual(BANK_RULES_V4_PROFILE.releaseVerified ? BANK_RULES_V4_PROFILE : null);
+  });
+
+  it("keeps explicit staged profiles hidden even with two valid share links", () => {
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT, { ...releaseFixture, releaseVerified: false })).toBeNull();
+    expect(getReleasedBankRulesV4(BANK_RULES_PROJECT, { ...releaseFixture, releaseVerified: false, smsUrl: null, updateUrl: null })).toBeNull();
   });
 
   it.each([BANK_RULES_PROJECT, `${BANK_RULES_PROJECT}/`, BANK_RULES_PROJECT.toUpperCase()])("offers both independently verified links for the official project %s", projectUrl => {

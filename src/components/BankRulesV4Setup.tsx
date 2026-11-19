@@ -5,7 +5,7 @@ export default function BankRulesV4Setup({ projectUrl, enabled, profile = BANK_R
 }) {
   if (!isBankRulesV4ProjectCompatible(projectUrl)) return null;
   const release = getReleasedBankRulesV4(projectUrl, profile);
-  if (!release) return <p className="sms-shortcut-note">v4 私有试用已有真机验证；公开版仍待签名、分享链接审核及首次安装验收。请继续使用下方现有 v3 或旧版指引。</p>;
+  if (!release) return <p className="sms-shortcut-note">v4 私有试用已有真机验证。签名链接审核和首次安装验收通过后开放公开入口。请继续使用下方现有 v3 或旧版指引。</p>;
   return <section className="three-bank-guide" aria-label="银行收支 v4 设置">
     <h5>银行收支 v4</h5>
     <p>分别安装记账指令和规则更新指令。后续兼容规则由更新指令下载；新增动作或来源保护仍可能需要更新指令本体。</p>

@@ -10,14 +10,14 @@ const release: BankRulesV4Profile = {
   smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
   updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210",
 };
-const render = (profile?: BankRulesV4Profile, projectUrl = BANK_RULES_PROJECT, enabled = true) =>
+const render = (profile: BankRulesV4Profile = { ...release, releaseVerified: false }, projectUrl = BANK_RULES_PROJECT, enabled = true) =>
   renderToStaticMarkup(createElement(BankRulesV4Setup, { projectUrl, enabled, profile }));
 
 describe("v4 onboarding publication", () => {
   it("describes private verification and pending public release without an install action", () => {
     const markup = render();
     expect(markup).toContain("v4 私有试用已有真机验证");
-    expect(markup).toContain("公开版仍待签名、分享链接审核及首次安装验收");
+    expect(markup).toContain("签名链接审核和首次安装验收通过后开放公开入口");
     expect(markup).toContain("现有 v3 或旧版指引");
     expect(markup).not.toContain("安装 v4");
     expect(markup).not.toContain("icloud.com");

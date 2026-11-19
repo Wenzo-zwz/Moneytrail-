@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as v4 from "../lib/bankRulesV4";
 import { SMS_SHORTCUT_TEMPLATE } from "../lib/shortcutTemplate";
 import { BANK_ACTIVITY_TEMPLATE, GENERAL_BANK_TEMPLATE, THREE_BANK_TEMPLATE } from "../lib/bankOnboarding";
@@ -9,6 +9,8 @@ import type { SmsBankCode } from "../lib/smsBanks";
 import SmsShortcutSetup from "./SmsShortcutSetup";
 
 const config: SmsConfig = { enabled: false, mode: "auto", created_at: null, last_received_at: null, pending_count: 0 };
+const realV4Resolver = v4.getReleasedBankRulesV4;
+beforeEach(() => { vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null); });
 afterEach(() => { vi.restoreAllMocks(); });
 function render(overrides: Partial<SmsConfig> = {}, projectUrl: string = SMS_SHORTCUT_TEMPLATE.projectUrl, busy = false, bankCode?: SmsBankCode) {
   return renderToStaticMarkup(createElement(SmsShortcutSetup, { projectUrl, config: { ...config, ...overrides }, busy, onRefresh: vi.fn(), bankCode, onBankChange: vi.fn() }));
@@ -177,7 +179,7 @@ describe("iPhone shortcut setup guidance", () => {
   });
 
   it("wires a complete verified v4 release into the primary guide and SMS automation name", () => {
-    const original = v4.getReleasedBankRulesV4;
+    const original = realV4Resolver;
     const profile = { version: 4, projectUrl: SMS_SHORTCUT_TEMPLATE.projectUrl, releaseVerified: true,
       smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
       updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210" };

@@ -29,7 +29,7 @@ export default function BankRuleStatus({ projectUrl }: { projectUrl: string }) {
   return <section className="three-bank-guide" aria-label="银行规则发布状态">
     <h4>银行规则发布状态</h4>
     {!compatible ? <p className="sms-shortcut-caution">当前项目没有配套的规则发布清单。请使用当前部署维护的模板与规则。</p> : <>
-      <p>{v4 ? "v4 可通过独立更新指令下载规则；请在手机上核对更新结果。" : "v4 私有试用已有真机验证，公开版仍待签名、分享链接审核及首次安装验收。"}网页版本不能证明手机已更新。现有 v3 不会自动读取此清单。</p>
+      <p>{v4 ? "v4 可通过独立更新指令下载规则；请在手机上核对更新结果。" : "v4 私有试用已有真机验证。签名链接审核和首次安装验收通过后开放公开入口。"}网页版本不能证明手机已更新。现有 v3 不会自动读取此清单。</p>
       {state.phase === "ready" && state.rule ? <>
         <p role="status">网页已发布规则 v{state.rule.version} · 最低快捷指令版本 v{state.rule.minShortcutVersion}</p>
         <p className="help-text">发布时间：<time dateTime={state.rule.publishedAt}>{state.rule.publishedAt}</time></p>

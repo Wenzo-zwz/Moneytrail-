@@ -81,9 +81,14 @@ def compare_workflows(exported, expected):
     compact = plistlib.dumps(exported, fmt=plistlib.FMT_XML)
     if b"deviceSpecific:" in compact or b"crossDeviceItemID" in compact or b"mt_sms_" in compact:
         raise ValueError("The shared shortcut contains a personal folder reference or token")
-    for field in ("WFWorkflowImportQuestions", "WFWorkflowTypes", "WFWorkflowInputContentItemClasses", "WFWorkflowHasShortcutInputVariables"):
+    for field in ("WFWorkflowImportQuestions", "WFWorkflowInputContentItemClasses", "WFWorkflowHasShortcutInputVariables"):
         if exported.get(field) != expected.get(field):
             raise ValueError(f"The shared shortcut changes {field}")
+    exported_types = exported.get("WFWorkflowTypes", [])
+    source_types = expected.get("WFWorkflowTypes", [])
+    # The Mac sharing flow adds Watch visibility to both audited iPhone shortcuts.
+    if exported_types not in (source_types, ["Watch", *source_types]):
+        raise ValueError("The shared shortcut changes WFWorkflowTypes")
     actual = normalize_actions(exported)
     intended = normalize_actions(expected)
     if len(actual) != len(intended):
