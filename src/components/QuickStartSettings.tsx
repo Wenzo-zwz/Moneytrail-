@@ -43,7 +43,7 @@ export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScre
             <ol>
               <li><strong>启用自己的接入</strong><span>同意转发后，复制并保存个人令牌。不要使用别人的令牌。</span></li>
               <li><strong>添加记账快捷指令</strong><span>{bankSms ? `安装「${bankSms.name}」，粘贴个人令牌。` : "按指引选择模板，安装时填写自己的令牌。网页更新不会升级手机上已安装的旧模板。"}</span></li>
-              <li><strong>设置手机触发</strong><span>选择真实银行短信发件人，{bankSms ? "收到短信时运行记账指令。" : "收支新版的“信息包含”留空，将新短信正文传给收支指令。"}</span></li>
+              <li><strong>设置手机触发</strong><span>{bankSms ? "在记账指令里点「自动化 → 信息」，选择银行发件人并启用。" : "选择真实银行短信发件人，收支新版的“信息包含”留空，将新短信正文传给收支指令。"}</span></li>
             </ol>
             <p className="help-text">启用接入不代表手机已配置完成。历史短信不会自动导入，收到短信也不等于已经入账。</p>
           </details>

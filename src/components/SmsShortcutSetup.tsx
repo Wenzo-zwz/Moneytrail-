@@ -25,6 +25,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
   const bank = getSmsBank(bankCode);
   const template = getCompatibleSmsShortcutTemplate(projectUrl, bankCode);
   const sms = getReleasedBankSmsV4(projectUrl);
+  const sender = `实际发送${bank.name}收支短信的号码${bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : ""}`;
   const received = config.last_received_at ? new Date(config.last_received_at) : null;
 
   return <section className="sms-shortcut-setup" aria-label="iPhone 快捷指令安装">
@@ -60,10 +61,21 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         </details>
       </li>
       <li>
-        <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>创建短信自动化</h4></div>
-        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}收支短信的号码{bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : "（以真实短信发件人为准）"}，“信息包含”留空，选择「立即运行」。请勿只填“支出”，也不要把“支出|收入”当作多个条件。</p>
-        <p>添加「获取文本」，来源选「快捷指令输入」。再添加「运行快捷指令」，选择「{sms?.name ?? BANK_ACTIVITY_TEMPLATE.name}」，输入选上一步的「文本」。</p>
-        <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份收支指令并沿用本账户令牌。由本地匹配筛选银行交易、排除安全验证码，再提交完整正文。</p>
+        <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>{sms ? "绑定银行短信" : "创建短信自动化"}</h4></div>
+        {sms && <>
+          <p>在「快捷指令」里编辑「{sms.name}」。点底部搜索框下方的「自动化」→「信息」。</p>
+          <p>发件人选{sender}。如有空的「信息包含」一行，点右侧减号移除。</p>
+          <p>已有同一银行的旧自动化时，先将它关闭。展开新触发卡，打开「自动化」，关闭「运行前确认」。系统提示访问权限时，在 iPhone 上确认。</p>
+        </>}
+        {sms ? <details className="three-bank-maker">
+          <summary>编辑页找不到「自动化」时</summary>
+          <p>到「快捷指令 → 自动化 → ＋」新建「信息」自动化，发件人选{sender}，「信息包含」留空，选择「立即运行」。</p>
+          <p>添加「获取文本」，输入选「快捷指令输入」。再添加「运行快捷指令」，选「{sms.name}」，输入选上一步的「文本」。</p>
+        </details> : <>
+          <p>在「快捷指令」App 进入「自动化」，新建「信息」触发，发件人选{sender}，“信息包含”留空，选择「立即运行」。</p>
+          <p>添加「获取文本」，来源选「快捷指令输入」。再添加「运行快捷指令」，选择「{BANK_ACTIVITY_TEMPLATE.name}」，输入选上一步的「文本」。</p>
+        </>}
+        {!sms && <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份收支指令并沿用本账户令牌。由本地匹配筛选银行交易、排除安全验证码，再提交完整正文。</p>}
         {bankCode === "cmb" ? <p className="sms-shortcut-note">招商银行支持「〖招商银行〗」等独立银行签名；无独立签名仅接收完整的「您尾号…的招行信用卡于…消费人民币…元」句式，不据此放开任意招行收入文案。</p> : <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。未知格式或无法确认收入方向时，仍需人工核对。</p>}
       </li>
       <li>

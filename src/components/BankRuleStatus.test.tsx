@@ -5,7 +5,10 @@ import * as v4 from "../lib/bankRulesV4";
 import { BANK_RULES_PROJECT } from "../lib/bankRulesValidation";
 import BankRuleStatus from "./BankRuleStatus";
 
-beforeEach(() => { vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null); });
+beforeEach(() => {
+  vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null);
+  vi.spyOn(v4, "getReleasedBankSmsV4").mockReturnValue(null);
+});
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("bank rule version status", () => {

@@ -11,7 +11,10 @@ import SmsShortcutSetup from "./SmsShortcutSetup";
 const config: SmsConfig = { enabled: false, mode: "auto", created_at: null, last_received_at: null, pending_count: 0 };
 const realV4Resolver = v4.getReleasedBankRulesV4;
 const realSmsResolver = v4.getReleasedBankSmsV4;
-beforeEach(() => { vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null); });
+beforeEach(() => {
+  vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null);
+  vi.spyOn(v4, "getReleasedBankSmsV4").mockReturnValue(null);
+});
 afterEach(() => { vi.restoreAllMocks(); });
 function render(overrides: Partial<SmsConfig> = {}, projectUrl: string = SMS_SHORTCUT_TEMPLATE.projectUrl, busy = false, bankCode?: SmsBankCode) {
   return renderToStaticMarkup(createElement(SmsShortcutSetup, { projectUrl, config: { ...config, ...overrides }, busy, onRefresh: vi.fn(), bankCode, onBankChange: vi.fn() }));
@@ -192,7 +195,12 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain(`href="${profile.updateUrl}"`);
     const [primary, advanced] = markup.split('<details class="three-bank-maker"><summary>高级配置：本机规则缓存与更新</summary>');
     expect(primary).toContain(`href="${smsProfile.url}"`);
-    expect(primary).toContain(`选择「${v4.BANK_SMS_V4_NAME}」`);
+    const [direct, compatibility] = primary.split('<details class="three-bank-maker"><summary>编辑页找不到「自动化」时</summary>');
+    expect(direct).toContain(`编辑「${v4.BANK_SMS_V4_NAME}」`);
+    expect(direct).toContain("「自动化」→「信息」");
+    expect(direct).toContain("关闭「运行前确认」");
+    expect(direct).not.toContain("添加「获取文本」");
+    expect(compatibility).toContain("添加「获取文本」");
     expect(primary).not.toMatch(/定时|特定时间|文件夹|使用 Mac 签名|安装 v4 更新指令/);
     expect(advanced).toContain(profile.updateUrl);
     expect(markup).toContain("仅接收支出：旧版模板与配置");
