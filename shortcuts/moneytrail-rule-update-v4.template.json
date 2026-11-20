@@ -1,0 +1,584 @@
+{
+  "WFWorkflowMinimumClientVersionString": "900",
+  "WFWorkflowMinimumClientVersion": 900,
+  "WFWorkflowIcon": {
+    "WFWorkflowIconStartColor": -12365313,
+    "WFWorkflowIconGlyphNumber": 61440
+  },
+  "WFWorkflowClientVersion": "5114.0.8.3",
+  "WFWorkflowOutputContentItemClasses": [],
+  "WFWorkflowHasOutputFallback": false,
+  "WFWorkflowInputContentItemClasses": [
+    "WFAppContentItem",
+    "WFAppStoreAppContentItem",
+    "WFArticleContentItem",
+    "WFContactContentItem",
+    "WFDateContentItem",
+    "WFEmailAddressContentItem",
+    "WFFolderContentItem",
+    "WFGenericFileContentItem",
+    "WFImageContentItem",
+    "WFiTunesProductContentItem",
+    "WFLocationContentItem",
+    "WFDCMapsLinkContentItem",
+    "WFAVAssetContentItem",
+    "WFPDFContentItem",
+    "WFPhoneNumberContentItem",
+    "WFRichTextContentItem",
+    "WFSafariWebPageContentItem",
+    "WFStringContentItem",
+    "WFURLContentItem"
+  ],
+  "WFWorkflowImportQuestions": [],
+  "WFWorkflowTypes": [
+    "WFWorkflowTypeShowInSearch"
+  ],
+  "WFQuickActionSurfaces": [],
+  "WFWorkflowHasShortcutInputVariables": false,
+  "WFWorkflowActions": [
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.downloadurl",
+      "WFWorkflowActionParameters": {
+        "WFURL": "https://wenzo-zwz.github.io/Moneytrail-/shortcuts/bank-rules.txt",
+        "WFHTTPMethod": "GET",
+        "UUID": "946C29A3-32F7-5EA5-9746-AD4E04F47019"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.text",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "946C29A3-32F7-5EA5-9746-AD4E04F47019",
+            "OutputName": "URL 的内容"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "7EC87884-ABDD-5216-83FC-F1DD16BEB8F4"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": "^(?=[\\s\\S]{1,16000}(?![\\s\\S]))\\s*\\{\\s*\"schemaVersion\"\\s*:\\s*1\\s*,\\s*\"version\"\\s*:\\s*[1-9][0-9]{0,8}\\s*,\\s*\"minShortcutVersion\"\\s*:\\s*4\\s*,\\s*\"projectUrl\"\\s*:\\s*\"https://ojcgabicpjipwpvwolzn\\.supabase\\.co\"\\s*,\\s*\"publishedAt\"\\s*:\\s*\"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z\"\\s*,\\s*\"matchPattern\"\\s*:\\s*\"(?:[^\"\\\\\\x00-\\x1f]|\\\\(?:[\"\\\\/bfnrt]|u[0-9A-Fa-f]{4})){1,8000}\"\\s*\\}\\s*(?![\\s\\S])",
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "7EC87884-ABDD-5216-83FC-F1DD16BEB8F4",
+                "OutputName": "文本"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": true,
+        "UUID": "E1EB6DD2-2B99-50CD-964F-A175374DB1DA"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "E1EB6DD2-2B99-50CD-964F-A175374DB1DA",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "733E0E86-0D69-5F3E-ACB4-B4F02962FF1A",
+        "UUID": "EE267DAF-BB83-5B68-A2DC-D0BEC88BAAEA"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.dictionary",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "7EC87884-ABDD-5216-83FC-F1DD16BEB8F4",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "11BB6C97-61EE-53EB-96EC-6B4C91AD4B2C"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getvalueforkey",
+      "WFWorkflowActionParameters": {
+        "WFDictionaryKey": "matchPattern",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "11BB6C97-61EE-53EB-96EC-6B4C91AD4B2C",
+            "OutputName": "字典"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "BCC6B03B-6298-5589-AA27-1341278ED80A"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "WFTextActionText": "测试消费1.00元【招商银行】。",
+        "UUID": "653381F6-845F-5DCC-BF63-6B0CB1959A8F"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "BCC6B03B-6298-5589-AA27-1341278ED80A",
+                "OutputName": "字典值"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "653381F6-845F-5DCC-BF63-6B0CB1959A8F",
+                "OutputName": "文本"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": false,
+        "UUID": "37B4F471-F196-5191-8E37-6C9D2933966B"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "37B4F471-F196-5191-8E37-6C9D2933966B",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "E7155DD9-FE19-5CDC-9C68-0331E72955DF",
+        "UUID": "836B6ABA-F4CF-50B2-919F-8B404206B096"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "WFTextActionText": "测试消费1.00元，验证码123456【招商银行】",
+        "UUID": "CFC618A8-A832-5426-A38A-8E8DE3A5BA9D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "BCC6B03B-6298-5589-AA27-1341278ED80A",
+                "OutputName": "字典值"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "CFC618A8-A832-5426-A38A-8E8DE3A5BA9D",
+                "OutputName": "文本"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": false,
+        "UUID": "DDFC6BCD-9589-55E7-AC5F-49DCE347DB60"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "DDFC6BCD-9589-55E7-AC5F-49DCE347DB60",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "45D1E824-F270-531D-AA02-8373F705C24E",
+        "UUID": "F460F944-E1E1-5E77-9C9E-AFF3966F5D3D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFNotificationActionTitle": "MoneyTrail 银行规则更新",
+        "WFNotificationActionBody": "试用规则未拦截验证码样例，未写入文件。",
+        "UUID": "5E659494-975D-5EA8-A9B7-F330A3159AA9"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "45D1E824-F270-531D-AA02-8373F705C24E",
+        "UUID": "A7B3371D-23A9-5252-B6FA-FB644EF95B49"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getvalueforkey",
+      "WFWorkflowActionParameters": {
+        "WFDictionaryKey": "version",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "11BB6C97-61EE-53EB-96EC-6B4C91AD4B2C",
+            "OutputName": "字典"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "DF0200C3-AE2A-51C4-AE82-AEFEE41C88CD"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.documentpicker.open",
+      "WFWorkflowActionParameters": {
+        "WFGetFilePath": "bank-rules-v4.txt",
+        "WFFileErrorIfNotFound": false,
+        "UUID": "9D5C8C23-0ED9-5DDB-8055-255F294BE037"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "9D5C8C23-0ED9-5DDB-8055-255F294BE037",
+              "OutputName": "文件"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "05F08FE7-1250-5946-8031-BC97F98477BA",
+        "UUID": "D01B12FF-7F41-5BC2-BEBB-32C5C230EA33"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.text",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "9D5C8C23-0ED9-5DDB-8055-255F294BE037",
+            "OutputName": "文件"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "27F5E5E2-EBC4-5DFA-8C21-0F378A620AB9"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": "^(?=[\\s\\S]{1,16000}(?![\\s\\S]))\\s*\\{\\s*\"schemaVersion\"\\s*:\\s*1\\s*,\\s*\"version\"\\s*:\\s*[1-9][0-9]{0,8}\\s*,\\s*\"minShortcutVersion\"\\s*:\\s*4\\s*,\\s*\"projectUrl\"\\s*:\\s*\"https://ojcgabicpjipwpvwolzn\\.supabase\\.co\"\\s*,\\s*\"publishedAt\"\\s*:\\s*\"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z\"\\s*,\\s*\"matchPattern\"\\s*:\\s*\"(?:[^\"\\\\\\x00-\\x1f]|\\\\(?:[\"\\\\/bfnrt]|u[0-9A-Fa-f]{4})){1,8000}\"\\s*\\}\\s*(?![\\s\\S])",
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "27F5E5E2-EBC4-5DFA-8C21-0F378A620AB9",
+                "OutputName": "文本"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": true,
+        "UUID": "677C4442-11ED-5D5D-AC41-14563095E258"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "677C4442-11ED-5D5D-AC41-14563095E258",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "1665F169-DEAB-5E95-96CB-A6A68AB41EB0",
+        "UUID": "D7A0C8F8-1002-5E27-99D9-2FC4F556B0EA"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.dictionary",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "27F5E5E2-EBC4-5DFA-8C21-0F378A620AB9",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "B2E7D24F-CA71-5CD8-82A8-E1ECE0E2DDF4"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getvalueforkey",
+      "WFWorkflowActionParameters": {
+        "WFDictionaryKey": "version",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "B2E7D24F-CA71-5CD8-82A8-E1ECE0E2DDF4",
+            "OutputName": "字典"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "6730D2D0-4022-513A-8B92-3DAE240D2C3D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "1665F169-DEAB-5E95-96CB-A6A68AB41EB0",
+        "UUID": "684DE648-689A-5415-94CF-82AB04F8219A"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFNotificationActionTitle": "MoneyTrail 银行规则更新",
+        "WFNotificationActionBody": "现有试用缓存损坏或不兼容，保留原文件。",
+        "UUID": "05384BDA-EE97-5E37-ADCC-B79E646305C2"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.number",
+      "WFWorkflowActionParameters": {
+        "WFNumberActionNumber": "1000000000",
+        "UUID": "19019374-0864-53A9-AE73-11A565175605"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "1665F169-DEAB-5E95-96CB-A6A68AB41EB0",
+        "UUID": "C23AD85C-B317-5BF8-A697-35D0E066056B"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "05F08FE7-1250-5946-8031-BC97F98477BA",
+        "UUID": "7E15E483-5B86-588F-9CA7-020F55E871C9"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.number",
+      "WFWorkflowActionParameters": {
+        "WFNumberActionNumber": "0",
+        "UUID": "A450EC60-9B0F-5143-8D0F-772DC506498D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "05F08FE7-1250-5946-8031-BC97F98477BA",
+        "UUID": "151B675D-8628-5F50-B4B2-9D42DA5E13AD"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputName": "字典值",
+              "OutputUUID": "DF0200C3-AE2A-51C4-AE82-AEFEE41C88CD",
+              "Aggrandizements": [
+                {
+                  "Type": "WFCoercionVariableAggrandizement",
+                  "CoercionItemClass": "WFNumberContentItem"
+                }
+              ]
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "GroupingIdentifier": "7E1ECD23-E186-5A51-B4BE-BEC616A0E0CD",
+        "WFCondition": 2,
+        "WFControlFlowMode": 0,
+        "WFNumberValue": {
+          "Value": {
+            "OutputUUID": "151B675D-8628-5F50-B4B2-9D42DA5E13AD",
+            "Type": "ActionOutput",
+            "OutputName": "如果的结果"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "41C26907-3255-52CA-93B0-D42483B7C8BA"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.documentpicker.save",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "7EC87884-ABDD-5216-83FC-F1DD16BEB8F4",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFAskWhereToSave": false,
+        "UUID": "18C6D5B3-F65B-5B87-BF96-CB3216FB92B5",
+        "WFSaveFileOverwrite": true,
+        "WFFileDestinationPath": "bank-rules-v4.txt"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFNotificationActionTitle": "MoneyTrail 银行规则更新",
+        "WFNotificationActionBody": {
+          "Value": {
+            "string": "已更新本机规则至 v￼",
+            "attachmentsByRange": {
+              "{10, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "DF0200C3-AE2A-51C4-AE82-AEFEE41C88CD",
+                "OutputName": "字典值"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "UUID": "59EFAC01-D04E-5952-81BE-1640C3AF35D4"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "7E1ECD23-E186-5A51-B4BE-BEC616A0E0CD",
+        "UUID": "36536922-80AF-5292-AA71-F4E311649941"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "45D1E824-F270-531D-AA02-8373F705C24E",
+        "UUID": "4A2F9AC3-9E5F-5E5B-8AF0-26E451E62644"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "E7155DD9-FE19-5CDC-9C68-0331E72955DF",
+        "UUID": "9126D97C-326E-5F74-BA33-04C8331F1D6C"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFNotificationActionTitle": "MoneyTrail 银行规则更新",
+        "WFNotificationActionBody": "试用规则未匹配固定消费样例，未写入文件。",
+        "UUID": "927081B0-E3C8-5981-B9E1-45800C9A9013"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "E7155DD9-FE19-5CDC-9C68-0331E72955DF",
+        "UUID": "3D4EAEEE-9B3E-553B-A955-AD66ADB59C80"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "733E0E86-0D69-5F3E-ACB4-B4F02962FF1A",
+        "UUID": "F1E5BD22-1EF0-57EC-80CB-ECB8E9DB53D9"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFNotificationActionTitle": "MoneyTrail 银行规则更新",
+        "WFNotificationActionBody": "下载文本结构或兼容字段未通过，未写入文件。",
+        "UUID": "5B6264B9-5EB9-50AB-B5E3-D1CBEF55D810"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "733E0E86-0D69-5F3E-ACB4-B4F02962FF1A",
+        "UUID": "2C9FBA75-A2BF-5616-A4E9-2BA128F1084B"
+      }
+    }
+  ]
+}

@@ -1,16 +1,23 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as v4 from "../lib/bankRulesV4";
 import { BANK_RULES_PROJECT } from "../lib/bankRulesValidation";
 import BankRuleStatus from "./BankRuleStatus";
+
+beforeEach(() => {
+  vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null);
+  vi.spyOn(v4, "getReleasedBankSmsV4").mockReturnValue(null);
+});
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe("bank rule version status", () => {
   it("keeps web publication separate from an unverified phone update", () => {
     const markup = renderToStaticMarkup(createElement(BankRuleStatus, { projectUrl: BANK_RULES_PROJECT }));
     expect(markup).toContain('aria-label="银行规则发布状态"');
-    expect(markup).toContain("手机自动更新尚未实现或验证");
-    expect(markup).toContain("网页版本不能证明手机已更新");
-    expect(markup).toContain("现有 v3 不会自动读取此清单");
+    expect(markup).toContain("v4 私有试用已有真机验证");
+    expect(markup).toContain("此清单供本机缓存版使用");
+    expect(markup).toContain("现有 v3 使用模板内置规则");
     expect(markup).toContain("正在读取网页规则版本");
     expect(markup).not.toContain("网页已发布规则 v1");
     expect(markup).toContain("检查网页规则版本");

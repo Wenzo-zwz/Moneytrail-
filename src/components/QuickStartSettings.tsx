@@ -1,15 +1,18 @@
 import { ArrowRight, MessageSquare, Pencil, ScanText, Smartphone, Wallet } from "lucide-react";
 import { SCREENSHOT_SHORTCUT_TEMPLATE } from "../lib/screenshotShortcutTemplate";
 import { BANK_ACTIVITY_TEMPLATE } from "../lib/bankOnboarding";
+import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
 
 type Props = {
+  projectUrl?: string;
   onSmsAutomation?: () => void;
   onScreenshotSetup: () => void;
   onRecord: () => void;
   onBudget: () => void;
 };
 
-export default function QuickStartSettings({ onSmsAutomation, onScreenshotSetup, onRecord, onBudget }: Props) {
+export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScreenshotSetup, onRecord, onBudget }: Props) {
+  const bankSms = projectUrl ? getReleasedBankSmsV4(projectUrl) : null;
   return <section className="setting-card quick-start-card" aria-labelledby="quick-start-title">
     <div className="setting-heading"><Smartphone size={23} /><h2 id="quick-start-title">快速上手</h2></div>
     <p>选择适合你的记账方式，按指引完成设置，再核对第一笔记录。</p>
@@ -32,16 +35,15 @@ export default function QuickStartSettings({ onSmsAutomation, onScreenshotSetup,
           <div className="quick-start-support" aria-label="当前银行接入范围">
             <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；收入、群收款和不明确的记录仍需确认。</span></p>
             <p><strong>农行 · 中行 · 建行 · 招商银行</strong><span>新收入与支出收到后先待确认，核对后再入账；未知格式或遮罩金额需补填。</span></p>
-            <p><strong>收入与支出快捷指令</strong><span>{BANK_ACTIVITY_TEMPLATE.url ? "安装收支新版，并更新短信自动化触发条件。" : "收支新版共享安装链接待发布，可按指引更新匹配规则；已发布的旧工行、农中建安装模板仅筛选支出。"}</span></p>
+            <p><strong>手机设置</strong><span>{bankSms ? "添加一条记账快捷指令，再设置一次收到银行短信时运行。" : BANK_ACTIVITY_TEMPLATE.url ? "安装收支新版，并设置短信自动化触发条件。" : "收支新版共享安装链接待发布。旧工行、农中建安装模板仅筛选支出。"}</span></p>
           </div>
           <button type="button" className="button secondary" onClick={onSmsAutomation}>开通短信自动记账<ArrowRight size={17} /></button>
           <details className="quick-start-checklist">
             <summary>查看开通步骤</summary>
             <ol>
               <li><strong>启用自己的接入</strong><span>同意转发后，复制并保存个人令牌。不要使用别人的令牌。</span></li>
-              <li><strong>配置收支新版</strong><span>按指引安装或更新收支指令，填写自己的令牌。网页更新不会升级手机上已安装的旧模板。</span></li>
-              <li><strong>设置手机触发</strong><span>选择真实银行短信发件人，“信息包含”留空，将新短信正文传给收支指令。</span></li>
-              <li><strong>核对第一条真实短信</strong><span>等待新的收入或支出短信，在收件箱核对接收时间、金额和“已入账／待确认”状态。</span></li>
+              <li><strong>添加记账快捷指令</strong><span>{bankSms ? `安装「${bankSms.name}」，粘贴个人令牌。` : "按指引选择模板，安装时填写自己的令牌。网页更新不会升级手机上已安装的旧模板。"}</span></li>
+              <li><strong>设置手机触发</strong><span>{bankSms ? "在记账指令里点「自动化 → 信息」，选择银行发件人并启用。" : "选择真实银行短信发件人，收支新版的“信息包含”留空，将新短信正文传给收支指令。"}</span></li>
             </ol>
             <p className="help-text">启用接入不代表手机已配置完成。历史短信不会自动导入，收到短信也不等于已经入账。</p>
           </details>

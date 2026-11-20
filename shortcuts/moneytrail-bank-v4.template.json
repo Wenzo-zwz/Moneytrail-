@@ -1,0 +1,652 @@
+{
+  "WFWorkflowMinimumClientVersionString": "3010",
+  "WFWorkflowMinimumClientVersion": 3010,
+  "WFWorkflowIcon": {
+    "WFWorkflowIconStartColor": -314141441,
+    "WFWorkflowIconGlyphNumber": 61440
+  },
+  "WFWorkflowClientVersion": "3612.0.2.1",
+  "WFWorkflowOutputContentItemClasses": [],
+  "WFWorkflowHasOutputFallback": false,
+  "WFWorkflowActions": [
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "WFTextActionText": "",
+        "UUID": "9F6DD74A-B450-4960-A721-66D616DE15E9"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "OutputUUID": "9F6DD74A-B450-4960-A721-66D616DE15E9",
+            "Type": "ActionOutput",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFVariableName": "接入令牌"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.text",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ExtensionInput"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "24B30F46-280D-4A86-8D84-831E24A6D21F"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "OutputUUID": "24B30F46-280D-4A86-8D84-831E24A6D21F",
+            "Type": "ActionOutput",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFVariableName": "短信正文"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": "^(?=[\\s\\S]{1,2000}(?![\\s\\S]))(?![\\s\\S]*[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F])(?![\\s\\S]*(?:验[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*证[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*码|驗[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*證[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*碼|校[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*验[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*码|校[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*驗[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*碼|动[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*态[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*码|動[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*態[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*碼|口[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*令|密[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*码|密[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*碼|[oＯｏ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[tＴｔ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[pＰｐ]|[vＶｖ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[eＥｅ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[rＲｒ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[iＩｉ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[fＦｆ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[iＩｉ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[cＣｃ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[aＡａ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[tＴｔ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[iＩｉ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[oＯｏ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[nＮｎ]|[oＯｏ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[nＮｎ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[eＥｅ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[-－]?[\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[tＴｔ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[iＩｉ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[mＭｍ][\\p{Z}\\p{Cc}\\p{Cf}\\uFFFC]*[eＥｅ]))(?![\\s\\S]*(?:\\p{Cf}|\\uFFFC)[\\s\\S]*[^\\p{Cf}\\s\\uFFFC])(?![\\s\\S]*(?:【[^【】\\r\\n]*银行[^【】\\r\\n]*】|〖[^〖〗\\r\\n]*银行[^〖〗\\r\\n]*〗|\\([^()\\r\\n]*银行[^()\\r\\n]*\\)|（[^（）\\r\\n]*银行[^（）\\r\\n]*）)[\\s\\S]*(?:【[^【】\\r\\n]*银行[^【】\\r\\n]*】|〖[^〖〗\\r\\n]*银行[^〖〗\\r\\n]*〗|\\([^()\\r\\n]*银行[^()\\r\\n]*\\)|（[^（）\\r\\n]*银行[^（）\\r\\n]*）))(?:(?![\\s\\S]*您尾号[0-9０-９xXｘＸ*＊×•]{4}的招行信用卡于)(?:\\s*(?:【(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)】|\\((?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)\\)|（(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)）|〖招商银行〗)[。.．]?\\s*[\\s\\S]*|[\\s\\S]*(?:【(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)】|\\((?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)\\)|（(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)）|〖招商银行〗)[。.．]?\\s*)|\\s*您尾号[0-9０-９xXｘＸ*＊×•]{4}的招行信用卡于(?:0?[1-9]|1[0-2])月(?:0?[1-9]|[12][0-9]|3[01])日(?:[01]?[0-9]|2[0-3])时(?:[0-5]?[0-9])分消费人民币(?:[1-9][0-9]*(?:\\.[0-9]{1,2})?|0\\.(?:0[1-9]|[1-9][0-9]?))元[。.．]?[\\s\\p{Cf}\\uFFFC]*)(?![\\s\\S])",
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "Variable",
+                "VariableName": "短信正文"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": false,
+        "UUID": "440F70A5-2A15-5F3A-8C49-CF32DFC29966"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "440F70A5-2A15-5F3A-8C49-CF32DFC29966",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "B99F9EEE-64C7-5D9B-9019-4FC822794B61",
+        "UUID": "029712D5-DEB8-5A0B-A3E9-34EDA4C6C65B"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "WFTextActionText": "^(?=[\\s\\S]{1,2000}(?![\\s\\S]))(?![\\s\\S]*(?:验证码|驗證碼|校验码|校驗碼|动态码|動態碼|口令|密码|密碼|[oＯｏ][tＴｔ][pＰｐ]|[vＶｖ][eＥｅ][rＲｒ][iＩｉ][fＦｆ][iＩｉ][cＣｃ][aＡａ][tＴｔ][iＩｉ][oＯｏ][nＮｎ]|[oＯｏ][nＮｎ][eＥｅ][ 　\\-－]?[tＴｔ][iＩｉ][mＭｍ][eＥｅ]))(?![\\s\\S]*(?:\\p{Cf}|\\uFFFC)[\\s\\S]*[^\\p{Cf}\\s\\uFFFC])(?![\\s\\S]*(?:【[^【】\\r\\n]*银行[^【】\\r\\n]*】|〖[^〖〗\\r\\n]*银行[^〖〗\\r\\n]*〗|\\([^()\\r\\n]*银行[^()\\r\\n]*\\)|（[^（）\\r\\n]*银行[^（）\\r\\n]*）)[\\s\\S]*(?:【[^【】\\r\\n]*银行[^【】\\r\\n]*】|〖[^〖〗\\r\\n]*银行[^〖〗\\r\\n]*〗|\\([^()\\r\\n]*银行[^()\\r\\n]*\\)|（[^（）\\r\\n]*银行[^（）\\r\\n]*）))(?:(?![\\s\\S]*您尾号[0-9０-９xXｘＸ*＊×•]{4}的招行信用卡于)(?:(?=[\\s\\S]*(?:支出|消费|扣款|扣费|批扣|代扣|转出|支取))|(?=[\\s\\S]*(?:收入|入账|到账|转入|存入)[\\s,，:：]*(?:(?:\\([^()\\r\\n]{1,100}\\)|（[^（）\\r\\n]{1,100}）)[\\s,，:：]*)?(?:(?:金额)?[\\s]*(?:为|[:：])[\\s]*|金额[\\s]*)?(?:(?:人民币|RMB|CNY)[\\s]*)?[0-9０-９xXｘＸ*＊×•][0-9０-９xXｘＸ*＊×•,，.．]{0,39}[\\s]*元)|(?=[\\s\\S]*快捷支付)(?=[\\s\\S]*(?:【招商银行】|\\(招商银行\\)|（招商银行）|〖招商银行〗)))(?:\\s*(?:【(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)】|\\((?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)\\)|（(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)）|〖招商银行〗)[。.．]?\\s*[\\s\\S]*|[\\s\\S]*(?:【(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)】|\\((?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)\\)|（(?:中国工商银行|工商银行|中国农业银行|农业银行|中国银行|中国建设银行|建设银行|招商银行)）|〖招商银行〗)[。.．]?\\s*)|\\s*您尾号[0-9０-９xXｘＸ*＊×•]{4}的招行信用卡于(?:0?[1-9]|1[0-2])月(?:0?[1-9]|[12][0-9]|3[01])日(?:[01]?[0-9]|2[0-3])时(?:[0-5]?[0-9])分消费人民币(?:[1-9][0-9]*(?:\\.[0-9]{1,2})?|0\\.(?:0[1-9]|[1-9][0-9]?))元[。.．]?[\\s\\p{Cf}\\uFFFC]*)(?![\\s\\S])",
+        "UUID": "81065F0E-C7CE-59F7-93DE-75E254C27A9F"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+      "WFWorkflowActionParameters": {
+        "WFVariableName": "选用规则",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "81065F0E-C7CE-59F7-93DE-75E254C27A9F",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "8023A6EE-8628-58CE-BF01-3A5A41B2C54F"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.documentpicker.open",
+      "WFWorkflowActionParameters": {
+        "WFGetFilePath": "bank-rules-v4.txt",
+        "WFFileErrorIfNotFound": false,
+        "UUID": "9D6790DE-CFCC-5A2A-9945-C5530FE882BE"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "9D6790DE-CFCC-5A2A-9945-C5530FE882BE",
+              "OutputName": "文件"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "0E668262-AB8C-5D71-82D6-58643C930A35",
+        "UUID": "B3FCFB4A-4CC4-5E3C-B429-9B1D4728238B"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.text",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "9D6790DE-CFCC-5A2A-9945-C5530FE882BE",
+            "OutputName": "文件"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "E75CB1A1-CC26-546B-BDA9-E6D71F5DAA9D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": "^(?=[\\s\\S]{1,16000}(?![\\s\\S]))\\s*\\{\\s*\"schemaVersion\"\\s*:\\s*1\\s*,\\s*\"version\"\\s*:\\s*[1-9][0-9]{0,8}\\s*,\\s*\"minShortcutVersion\"\\s*:\\s*4\\s*,\\s*\"projectUrl\"\\s*:\\s*\"https://ojcgabicpjipwpvwolzn\\.supabase\\.co\"\\s*,\\s*\"publishedAt\"\\s*:\\s*\"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z\"\\s*,\\s*\"matchPattern\"\\s*:\\s*\"(?:[^\"\\\\\\x00-\\x1f]|\\\\(?:[\"\\\\/bfnrt]|u[0-9A-Fa-f]{4})){1,8000}\"\\s*\\}\\s*(?![\\s\\S])",
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "E75CB1A1-CC26-546B-BDA9-E6D71F5DAA9D",
+                "OutputName": "文本"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": true,
+        "UUID": "D0A3D591-A337-591D-8935-AD67C3213C63"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "D0A3D591-A337-591D-8935-AD67C3213C63",
+              "OutputName": "匹配"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 100,
+        "GroupingIdentifier": "662B140C-4C36-5AA3-A591-3DFFFA60AFD6",
+        "UUID": "B9F8A57A-555C-5079-AA08-BF880179A706"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.detect.dictionary",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "E75CB1A1-CC26-546B-BDA9-E6D71F5DAA9D",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "46B28574-53A3-5AAC-805E-FFB213D8A7FA"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getvalueforkey",
+      "WFWorkflowActionParameters": {
+        "WFDictionaryKey": "matchPattern",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "46B28574-53A3-5AAC-805E-FFB213D8A7FA",
+            "OutputName": "字典"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "83A47696-A9FF-5633-B8FC-1F8530C7AB94"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+      "WFWorkflowActionParameters": {
+        "WFVariableName": "选用规则",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "83A47696-A9FF-5633-B8FC-1F8530C7AB94",
+            "OutputName": "字典值"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "UUID": "9D0ADA91-E1DB-5C6A-8429-FA1803DDDCA4"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "662B140C-4C36-5AA3-A591-3DFFFA60AFD6",
+        "UUID": "38CA4D06-C646-5D87-8328-A170FED71A86"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "0E668262-AB8C-5D71-82D6-58643C930A35",
+        "UUID": "404AF54F-182F-51CC-AADA-AA53A0A651EF"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "WFMatchTextPattern": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "Variable",
+                "VariableName": "选用规则"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "VariableName": "短信正文",
+                "Type": "Variable"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": false,
+        "UUID": "99E812C4-93A1-4D40-A1BF-7C4E1398F92D"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "GroupingIdentifier": "A68DB6EC-C294-488B-9D1D-3DCFE1D8B7BE",
+        "WFCondition": 100,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "OutputUUID": "99E812C4-93A1-4D40-A1BF-7C4E1398F92D",
+              "Type": "ActionOutput",
+              "OutputName": "匹配的文本"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.downloadurl",
+      "WFWorkflowActionParameters": {
+        "WFHTTPHeaders": {
+          "Value": {
+            "WFDictionaryFieldValueItems": [
+              {
+                "WFKey": {
+                  "Value": {
+                    "string": "apikey"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFItemType": 0,
+                "WFValue": {
+                  "Value": {
+                    "string": "sb_publishable_lKTLQG3TuvrONC9v1KC4bQ_4XdaMYau"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              },
+              {
+                "WFKey": {
+                  "Value": {
+                    "string": "Content-Type"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFItemType": 0,
+                "WFValue": {
+                  "Value": {
+                    "string": "application/json"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              }
+            ]
+          },
+          "WFSerializationType": "WFDictionaryFieldValue"
+        },
+        "ShowHeaders": true,
+        "UUID": "7C1F181A-6C89-45FC-9B53-609F480FCF47",
+        "WFURL": "https://ojcgabicpjipwpvwolzn.supabase.co/rest/v1/rpc/moneytrail_receive_sms",
+        "WFJSONValues": {
+          "Value": {
+            "WFDictionaryFieldValueItems": [
+              {
+                "WFKey": {
+                  "Value": {
+                    "string": "p_token"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFItemType": 0,
+                "WFValue": {
+                  "Value": {
+                    "string": "￼",
+                    "attachmentsByRange": {
+                      "{0, 1}": {
+                        "VariableName": "接入令牌",
+                        "Type": "Variable"
+                      }
+                    }
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              },
+              {
+                "WFKey": {
+                  "Value": {
+                    "string": "p_message"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFItemType": 0,
+                "WFValue": {
+                  "Value": {
+                    "string": "￼",
+                    "attachmentsByRange": {
+                      "{0, 1}": {
+                        "VariableName": "短信正文",
+                        "Type": "Variable"
+                      }
+                    }
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              }
+            ]
+          },
+          "WFSerializationType": "WFDictionaryFieldValue"
+        },
+        "WFHTTPMethod": "POST"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getvalueforkey",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "OutputUUID": "7C1F181A-6C89-45FC-9B53-609F480FCF47",
+            "Type": "ActionOutput",
+            "OutputName": "URL的内容"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFDictionaryKey": "status",
+        "UUID": "42FC6BB6-917D-4B59-84B0-0F46274441AF"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "WFTextActionText": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "OutputUUID": "42FC6BB6-917D-4B59-84B0-0F46274441AF",
+                "Type": "ActionOutput",
+                "OutputName": "词典值"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "UUID": "38A1FEE5-EE10-4397-B86B-6B058774CD79"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "OutputUUID": "38A1FEE5-EE10-4397-B86B-6B058774CD79",
+            "Type": "ActionOutput",
+            "OutputName": "文本"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFVariableName": "提交状态"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "WFConditionalActionString": "recorded",
+        "WFCondition": 4,
+        "GroupingIdentifier": "76BDA373-DA97-4E85-A5F0-C6104484577D",
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "VariableName": "提交状态",
+              "Type": "Variable"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "VariableName": "提交状态",
+            "Type": "Variable"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFNotificationActionBody": "✅ 记账成功，已录入账本",
+        "UUID": "06B8AE89-B4E4-45D1-84A8-992E4ACCE38A"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "76BDA373-DA97-4E85-A5F0-C6104484577D",
+        "WFControlFlowMode": 1
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "FCEB4F7E-3D17-41F1-BAC9-AE1EE74DC829",
+        "WFControlFlowMode": 0,
+        "WFConditionalActionString": "pending",
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "VariableName": "提交状态",
+              "Type": "Variable"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFCondition": 4
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "VariableName": "提交状态",
+            "Type": "Variable"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFNotificationActionBody": "📩 短信已收到，待确认后入账",
+        "UUID": "A256FF1E-738A-44F6-800E-33C2220CC446"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "FCEB4F7E-3D17-41F1-BAC9-AE1EE74DC829"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFCondition": 4,
+        "WFConditionalActionString": "duplicate",
+        "WFControlFlowMode": 0,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "VariableName": "提交状态",
+              "Type": "Variable"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "GroupingIdentifier": "BB97D857-188C-4732-8303-B4001014FF84"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "VariableName": "提交状态",
+            "Type": "Variable"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFNotificationActionBody": "ℹ️ 这条短信已接收过，本次未重复新增",
+        "UUID": "A3608AB9-2D88-463B-8890-2B250D25F4EC"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "BB97D857-188C-4732-8303-B4001014FF84",
+        "WFControlFlowMode": 1
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.notification",
+      "WFWorkflowActionParameters": {
+        "WFInput": {
+          "Value": {
+            "VariableName": "提交状态",
+            "Type": "Variable"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        },
+        "WFNotificationActionBody": "⚠️ 提交结果未确认，请打开账本核对",
+        "UUID": "EA26EB1A-5F78-4E69-878B-55931FF204B7"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "BB97D857-188C-4732-8303-B4001014FF84",
+        "WFControlFlowMode": 2
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "FCEB4F7E-3D17-41F1-BAC9-AE1EE74DC829",
+        "WFControlFlowMode": 2
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "76BDA373-DA97-4E85-A5F0-C6104484577D",
+        "WFControlFlowMode": 2
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 1,
+        "GroupingIdentifier": "A68DB6EC-C294-488B-9D1D-3DCFE1D8B7BE"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "GroupingIdentifier": "A68DB6EC-C294-488B-9D1D-3DCFE1D8B7BE",
+        "WFControlFlowMode": 2,
+        "UUID": "583AEE7B-377F-4528-BFC1-8E06009EFB8F"
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "B99F9EEE-64C7-5D9B-9019-4FC822794B61",
+        "UUID": "3C47A90F-448A-5097-A14E-5EE63F7F989E"
+      }
+    }
+  ],
+  "WFWorkflowInputContentItemClasses": [
+    "WFAppContentItem",
+    "WFStringContentItem"
+  ],
+  "WFWorkflowImportQuestions": [
+    {
+      "ParameterKey": "WFTextActionText",
+      "Category": "Parameter",
+      "ActionIndex": 0,
+      "Text": "请粘贴你在MoneyTrail慢慢记账网页中生成的个人短信接入令牌",
+      "DefaultValue": ""
+    }
+  ],
+  "WFWorkflowTypes": [],
+  "WFQuickActionSurfaces": [],
+  "WFWorkflowHasShortcutInputVariables": true
+}

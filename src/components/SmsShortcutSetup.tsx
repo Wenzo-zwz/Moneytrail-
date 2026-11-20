@@ -4,6 +4,8 @@ import { getSmsBank, SMS_BANKS, type SmsBankCode } from "../lib/smsBanks";
 import type { SmsConfig } from "../lib/smsClient";
 import ThreeBankShortcutGuide from "./ThreeBankShortcutGuide";
 import BankActivityShortcutGuide from "./BankActivityShortcutGuide";
+import BankRulesV4Setup from "./BankRulesV4Setup";
+import { getReleasedBankSmsV4, isBankRulesV4ProjectCompatible } from "../lib/bankRulesV4";
 import { BANK_ACTIVITY_TEMPLATE, getCompatibleSmsShortcutTemplate, getGenericSmsShortcutSource } from "../lib/bankOnboarding";
 
 type Props = {
@@ -22,13 +24,15 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
   const bankCode = controlledBankCode ?? localBankCode;
   const bank = getSmsBank(bankCode);
   const template = getCompatibleSmsShortcutTemplate(projectUrl, bankCode);
+  const sms = getReleasedBankSmsV4(projectUrl);
+  const sender = `实际发送${bank.name}收支短信的号码${bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : ""}`;
   const received = config.last_received_at ? new Date(config.last_received_at) : null;
 
   return <section className="sms-shortcut-setup" aria-label="iPhone 快捷指令安装">
     <h3 id="sms-shortcut-setup-title">在 iPhone 上接入</h3>
-    <p className="sms-shortcut-intro">选择银行，配置收入与支出短信转发。新收入全部先待确认，未知格式或遮罩金额需要补填；已发布的旧模板只筛选支出。</p>
-    <label className="sms-shortcut-bank-picker"><span>要接入的银行</span><select aria-label="银行" value={bankCode} onChange={event => { const nextBank = event.target.value as SmsBankCode; setLocalBankCode(nextBank); onBankChange?.(nextBank); }}>{SMS_BANKS.map(item => <option key={item.code} value={item.code}>{item.name}{item.reviewOnly ? " · 接收后待确认" : " · 工行版模板"}</option>)}</select></label>
-    <p className="sms-shortcut-bank-status" role="status">{bank.reviewOnly ? `${bank.name}：已登记接收，收到后先待确认；当前真实短信格式与手机转发仍需验证。` : "工商银行：在自动记录模式下，明确消费可自动入账；共享安装链接为工行版模板。"}</p>
+    <p className="sms-shortcut-intro">{sms ? "添加记账指令后，设置一次短信触发。" : "选择银行，配置收入与支出短信转发。新收入全部先待确认，未知格式或遮罩金额需要补填；已发布的旧模板只筛选支出。"}</p>
+    <label className="sms-shortcut-bank-picker"><span>要接入的银行</span><select aria-label="银行" value={bankCode} onChange={event => { const nextBank = event.target.value as SmsBankCode; setLocalBankCode(nextBank); onBankChange?.(nextBank); }}>{SMS_BANKS.map(item => <option key={item.code} value={item.code}>{item.name}{item.reviewOnly ? " · 接收后待确认" : sms ? " · 收支接入" : " · 工行版模板"}</option>)}</select></label>
+    <p className="sms-shortcut-bank-status" role="status">{bank.reviewOnly ? `${bank.name}：已登记接收，收到后先待确认；当前真实短信格式与手机转发仍需验证。` : sms ? "工商银行：明确消费按账户模式处理，收入先待确认。" : "工商银行：在自动记录模式下，明确消费可自动入账；共享安装链接为工行版模板。"}</p>
     <p className="sms-shortcut-note">银行选择仅用于查看配置步骤，不会更换令牌或修改手机自动化。</p>
     <ol className="sms-shortcut-steps">
       <li>
@@ -38,8 +42,12 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         <p>已保存的有效令牌可继续使用，无需为安装模板再次更换。</p>
       </li>
       <li>
-        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>配置收入与支出快捷指令</h4></div>
-        <BankActivityShortcutGuide projectUrl={projectUrl} bankCode={bankCode} enabled={config.enabled} />
+        <div className="sms-shortcut-step-heading"><span aria-hidden="true">2</span><h4>{sms ? "添加记账快捷指令" : "配置收入与支出快捷指令"}</h4></div>
+        {sms ? <>
+          <p>添加「{sms.name}」，在安装页粘贴自己的令牌。</p>
+          {config.enabled ? <a className="button primary sms-shortcut-install" href={sms.url} target="_blank" rel="noopener noreferrer">安装收支快捷指令</a>
+            : <button className="button secondary sms-shortcut-install" type="button" disabled>安装收支快捷指令</button>}
+        </> : <BankActivityShortcutGuide projectUrl={projectUrl} bankCode={bankCode} enabled={config.enabled} />}
         <details className="three-bank-maker"><summary>仅接收支出：旧版模板与配置</summary>
         <p>以下旧版指令仍可用于支出，不会因网页更新而新增收入筛选。要接收收入，请使用上方收支新版，并按第 3 步更新手机触发条件。</p>
         {bankCode === "icbc" ? <>
@@ -53,10 +61,21 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
         </details>
       </li>
       <li>
-        <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>创建短信自动化</h4></div>
-        <p>在「快捷指令」App 进入「自动化」，新建「信息」触发：发件人选实际发送{bank.name}收支短信的号码{bank.senderExamples.length ? `（常见示例 ${bank.senderExamples.join("、")}，以真实短信为准）` : "（以真实短信发件人为准）"}，“信息包含”留空，选择「立即运行」。请勿只填“支出”，也不要把“支出|收入”当作多个条件。</p>
-        <p>先添加「获取文本」，来源设为「快捷指令输入」；再添加「运行快捷指令」，选择「{BANK_ACTIVITY_TEMPLATE.name}」，将输入设为上一步得到的「文本」。</p>
-        <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份收支指令并沿用本账户令牌。由本地匹配筛选银行交易、排除安全验证码，再提交完整正文。</p>
+        <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>{sms ? "绑定银行短信" : "创建短信自动化"}</h4></div>
+        {sms && <>
+          <p>在「快捷指令」里编辑「{sms.name}」。点底部搜索框下方的「自动化」→「信息」。</p>
+          <p>发件人选{sender}。如有空的「信息包含」一行，点右侧减号移除。</p>
+          <p>已有同一银行的旧自动化时，先将它关闭。展开新触发卡，打开「自动化」，关闭「运行前确认」。系统提示访问权限时，在 iPhone 上确认。</p>
+        </>}
+        {sms ? <details className="three-bank-maker">
+          <summary>编辑页找不到「自动化」时</summary>
+          <p>到「快捷指令 → 自动化 → ＋」新建「信息」自动化，发件人选{sender}，「信息包含」留空，选择「立即运行」。</p>
+          <p>添加「获取文本」，输入选「快捷指令输入」。再添加「运行快捷指令」，选「{sms.name}」，输入选上一步的「文本」。</p>
+        </details> : <>
+          <p>在「快捷指令」App 进入「自动化」，新建「信息」触发，发件人选{sender}，“信息包含”留空，选择「立即运行」。</p>
+          <p>添加「获取文本」，来源选「快捷指令输入」。再添加「运行快捷指令」，选择「{BANK_ACTIVITY_TEMPLATE.name}」，输入选上一步的「文本」。</p>
+        </>}
+        {!sms && <p>储蓄卡和信用卡使用相同触发步骤。多家银行可各建一条自动化，运行同一份收支指令并沿用本账户令牌。由本地匹配筛选银行交易、排除安全验证码，再提交完整正文。</p>}
         {bankCode === "cmb" ? <p className="sms-shortcut-note">招商银行支持「〖招商银行〗」等独立银行签名；无独立签名仅接收完整的「您尾号…的招行信用卡于…消费人民币…元」句式，不据此放开任意招行收入文案。</p> : <p className="sms-shortcut-note">正文需包含明确银行标记，如「【{bank.signatureNames[0]}】」或「（{bank.signatureNames[0]}）」。未知格式或无法确认收入方向时，仍需人工核对。</p>}
       </li>
       <li>
@@ -70,5 +89,9 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
       </li>
     </ol>
     <p className="sms-shortcut-boundary">「已启用」仅表示个人接入已打开，网页无法判断模板是否已安装、自动化是否已设置。手机上的安装与触发需按以上步骤实际核对。</p>
+    {isBankRulesV4ProjectCompatible(projectUrl) && <details className="three-bank-maker">
+      <summary>高级配置：本机规则缓存与更新</summary>
+      <BankRulesV4Setup projectUrl={projectUrl} enabled={config.enabled} />
+    </details>}
   </section>;
 }
