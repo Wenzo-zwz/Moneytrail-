@@ -16,6 +16,8 @@
 python scripts/audit-bank-shortcut-v4.py <单条记账指令的iCloud链接>
 ```
 
+单条模板的 [iCloud 分享](https://www.icloud.com/shortcuts/d2b6c56084884c5293cf9a70567e6294) 已通过签名与动作审核。Apple 分享增加了“在搜索中显示”和 Watch 可见性，28 个动作及令牌导入配置一致。网页入口等待一次 iPhone 导入与锁屏收件验收。
+
 ## 本机缓存方案进度
 
 | 步骤 | 进度 |

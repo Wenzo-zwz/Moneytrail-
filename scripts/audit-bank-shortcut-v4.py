@@ -72,7 +72,7 @@ def normalize_actions(workflow):
     return normalized
 
 
-def compare_workflows(exported, expected):
+def compare_workflows(exported, expected, *, allow_default_search_visibility=False):
     # Reject the private file parameters even if their provider metadata is unfamiliar.
     for item in exported["WFWorkflowActions"]:
         params = item["WFWorkflowActionParameters"]
@@ -86,8 +86,11 @@ def compare_workflows(exported, expected):
             raise ValueError(f"The shared shortcut changes {field}")
     exported_types = exported.get("WFWorkflowTypes", [])
     source_types = expected.get("WFWorkflowTypes", [])
-    # The Mac sharing flow adds Watch visibility to both audited iPhone shortcuts.
-    if exported_types not in (source_types, ["Watch", *source_types]):
+    # Mac sharing adds Watch visibility and may enable search for the folder-free shortcut.
+    allowed_types = [source_types, ["Watch", *source_types]]
+    if allow_default_search_visibility and not source_types:
+        allowed_types.append(["Watch", "WFWorkflowTypeShowInSearch"])
+    if exported_types not in allowed_types:
         raise ValueError("The shared shortcut changes WFWorkflowTypes")
     actual = normalize_actions(exported)
     intended = normalize_actions(expected)
@@ -115,7 +118,7 @@ def audit(url, source, expected_name=None):
     if not signed.startswith(b"AEA1"):
         raise ValueError("Signed asset is missing the Apple archive header")
     expected = plistlib.loads(source.read_bytes()) if source.suffix == ".plist" else json.loads(source.read_text(encoding="utf-8"))
-    compare_workflows(plistlib.loads(raw), expected)
+    compare_workflows(plistlib.loads(raw), expected, allow_default_search_visibility=source.suffix == ".plist")
     print(f"{source.name}: portable action graph verified; signed SHA-256 {hashlib.sha256(signed).hexdigest()}")
 
 
