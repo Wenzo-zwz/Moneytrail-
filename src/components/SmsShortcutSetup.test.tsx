@@ -10,6 +10,7 @@ import SmsShortcutSetup from "./SmsShortcutSetup";
 
 const config: SmsConfig = { enabled: false, mode: "auto", created_at: null, last_received_at: null, pending_count: 0 };
 const realV4Resolver = v4.getReleasedBankRulesV4;
+const realSmsResolver = v4.getReleasedBankSmsV4;
 beforeEach(() => { vi.spyOn(v4, "getReleasedBankRulesV4").mockReturnValue(null); });
 afterEach(() => { vi.restoreAllMocks(); });
 function render(overrides: Partial<SmsConfig> = {}, projectUrl: string = SMS_SHORTCUT_TEMPLATE.projectUrl, busy = false, bankCode?: SmsBankCode) {
@@ -178,19 +179,25 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain(`「${BANK_ACTIVITY_TEMPLATE.name}」`);
   });
 
-  it("wires a complete verified v4 release into the primary guide and SMS automation name", () => {
+  it("offers one signed shortcut in the primary guide, with cache setup in collapsed advanced options", () => {
     const original = realV4Resolver;
     const profile = { version: 4, projectUrl: SMS_SHORTCUT_TEMPLATE.projectUrl, releaseVerified: true,
       smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
       updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210" };
     vi.spyOn(v4, "getReleasedBankRulesV4").mockImplementation(projectUrl => original(projectUrl, profile));
+    const smsProfile = { version: 4, projectUrl: profile.projectUrl, url: "https://www.icloud.com/shortcuts/abcdef0123456789abcdef0123456789" };
+    vi.spyOn(v4, "getReleasedBankSmsV4").mockImplementation(projectUrl => realSmsResolver(projectUrl, smsProfile));
     const markup = render({ enabled: true });
     expect(markup).toContain(`href="${profile.smsUrl}"`);
     expect(markup).toContain(`href="${profile.updateUrl}"`);
-    expect(markup).toContain(`选择「${v4.BANK_RULES_V4_NAMES.sms}」`);
-    expect(markup).toContain("查看 v3 手动模板");
+    const [primary, advanced] = markup.split('<details class="three-bank-maker"><summary>高级配置：本机规则缓存与更新</summary>');
+    expect(primary).toContain(`href="${smsProfile.url}"`);
+    expect(primary).toContain(`选择「${v4.BANK_SMS_V4_NAME}」`);
+    expect(primary).not.toMatch(/定时|特定时间|文件夹|使用 Mac 签名|安装 v4 更新指令/);
+    expect(advanced).toContain(profile.updateUrl);
     expect(markup).toContain("仅接收支出：旧版模板与配置");
     const custom = render({ enabled: true }, "https://other.supabase.co");
+    expect(custom).not.toContain(smsProfile.url);
     expect(custom).not.toContain(profile.smsUrl);
     expect(custom).not.toContain(profile.updateUrl);
     expect(custom).not.toContain("安装 v4");

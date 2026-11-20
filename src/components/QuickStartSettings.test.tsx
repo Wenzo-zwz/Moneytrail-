@@ -8,11 +8,10 @@ import QuickStartSettings from "./QuickStartSettings";
 afterEach(() => { vi.restoreAllMocks(); });
 
 function enableFixtureRelease() {
-  const original = v4.getReleasedBankRulesV4;
-  const profile = { version: 4, projectUrl: BANK_RULES_PROJECT, releaseVerified: true,
-    smsUrl: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef",
-    updateUrl: "https://www.icloud.com/shortcuts/fedcba9876543210fedcba9876543210" };
-  vi.spyOn(v4, "getReleasedBankRulesV4").mockImplementation(projectUrl => original(projectUrl, profile));
+  const original = v4.getReleasedBankSmsV4;
+  const profile = { version: 4, projectUrl: BANK_RULES_PROJECT,
+    url: "https://www.icloud.com/shortcuts/0123456789abcdef0123456789abcdef" };
+  vi.spyOn(v4, "getReleasedBankSmsV4").mockImplementation(projectUrl => original(projectUrl, profile));
 }
 
 describe("quick start bank income guidance", () => {
@@ -29,14 +28,12 @@ describe("quick start bank income guidance", () => {
     expect(markup).toContain("收到短信也不等于已经入账");
   });
 
-  it("uses the existing entry for a verified official v4 release and its separate updater", () => {
+  it("uses the existing entry for the single SMS shortcut", () => {
     enableFixtureRelease();
     const markup = renderToStaticMarkup(createElement(QuickStartSettings, { ...handlers, projectUrl: BANK_RULES_PROJECT, onSmsAutomation: vi.fn() }));
-    expect(markup).toContain("安装两条 v4 指令");
-    expect(markup).toContain("同一本机 MoneyTrail 文件夹");
-    expect(markup).toContain("更新指令不填令牌");
-    expect(markup).toContain("另建特定时间自动化");
-    expect(markup).toContain("锁屏时");
+    expect(markup).toContain("添加一条记账快捷指令");
+    expect(markup).toContain(v4.BANK_SMS_V4_NAME);
+    expect(markup).not.toMatch(/文件夹|更新指令|定时/);
     expect(markup).toContain("开通短信自动记账");
     expect(markup).toContain("设置截图记账");
     expect(markup).not.toContain("收支新版共享安装链接待发布");
@@ -46,7 +43,7 @@ describe("quick start bank income guidance", () => {
     enableFixtureRelease();
     for (const projectUrl of [undefined, "https://other.supabase.co"]) {
       const markup = renderToStaticMarkup(createElement(QuickStartSettings, { ...handlers, projectUrl, onSmsAutomation: vi.fn() }));
-      expect(markup).not.toContain("安装两条 v4 指令");
+      expect(markup).not.toContain(v4.BANK_SMS_V4_NAME);
       expect(markup).not.toContain("icloud.com");
       expect(markup).not.toContain(BANK_RULES_PROJECT);
       expect(markup).toContain("设置截图记账");

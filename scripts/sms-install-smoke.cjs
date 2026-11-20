@@ -168,7 +168,7 @@ async function publishedRulesWorkflow(browser,app){
   assert.equal(service.secrets.length,0,'checking a rule version cannot rotate a personal token');
   fail=false;await status.getByRole('button',{name:'检查网页规则版本',exact:true}).click();
   await status.getByText(/网页已发布规则 v1/).waitFor();
-  assert((await status.innerText()).includes('现有 v3 不会自动读取此清单'));
+  assert((await status.innerText()).includes('此清单供本机缓存版使用'));
   await status.getByRole('button',{name:'复制已发布匹配规则',exact:true}).click();
   const pattern=await page.evaluate(()=>window.__fixtureCopied);assert(new RegExp(pattern,'iu').test('尾号0000卡11月10日14:50工商银行收入(2026年10月工资)18,000元，余额1xxx元。【工商银行】'));
   for(const request of requests){assert.equal(request.method(),'GET');assert.equal(request.headers().authorization,undefined);assert.equal(request.headers().cookie,undefined);assert.equal(request.postData(),null);}
@@ -181,6 +181,7 @@ async function bankActivityWorkflow(browser,app){
  try{
   await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});
   const activity=page.getByRole('region',{name:'收入与支出快捷指令',exact:true});await activity.waitFor();
+  await activity.getByText('维护者选项：制作与签名收支模板',{exact:true}).click();
   const source=activity.getByRole('link',{name:'下载收支模板源文件',exact:true});await source.waitFor();
   assert.equal(await source.getAttribute('href'),BANK_ACTIVITY_SOURCE);
   const sourceText=await(await page.request.get(app.origin+BANK_ACTIVITY_SOURCE)).text();assert.match(sourceText,/<plist\b/);assert(!sourceText.includes('mt_sms_'));

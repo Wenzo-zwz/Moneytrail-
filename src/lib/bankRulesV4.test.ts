@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BANK_RULES_PROJECT } from "./bankRulesValidation";
-import { BANK_RULES_V4_PROFILE, getReleasedBankRulesV4, type BankRulesV4Profile } from "./bankRulesV4";
+import { BANK_RULES_V4_PROFILE, BANK_SMS_V4_NAME, getReleasedBankRulesV4, getReleasedBankSmsV4, type BankRulesV4Profile } from "./bankRulesV4";
 
 export const releaseFixture: BankRulesV4Profile = {
   version: 4, projectUrl: BANK_RULES_PROJECT, releaseVerified: true,
@@ -9,6 +9,13 @@ export const releaseFixture: BankRulesV4Profile = {
 };
 
 describe("public v4 release gate", () => {
+  it("offers the single shortcut only with a valid published link for the official project", () => {
+    const sms = { version: 4, projectUrl: BANK_RULES_PROJECT, url: releaseFixture.smsUrl };
+    expect(getReleasedBankSmsV4(BANK_RULES_PROJECT, sms)).toEqual({ name: BANK_SMS_V4_NAME, url: sms.url });
+    expect(getReleasedBankSmsV4(BANK_RULES_PROJECT, { ...sms, url: null })).toBeNull();
+    expect(getReleasedBankSmsV4(BANK_RULES_PROJECT, { ...sms, url: `${sms.url}?token=secret` })).toBeNull();
+    expect(getReleasedBankSmsV4("https://other.supabase.co", sms)).toBeNull();
+  });
   it("keeps the live profile structurally valid and consistent with its release gate", () => {
     expect(BANK_RULES_V4_PROFILE.version).toBe(4);
     expect(BANK_RULES_V4_PROFILE.projectUrl).toBe(BANK_RULES_PROJECT);

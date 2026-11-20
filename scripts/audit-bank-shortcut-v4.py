@@ -1,4 +1,4 @@
-"""Audit two public iCloud shares against the portable v4 Shortcuts sources."""
+"""Audit signed public iCloud shares against the v4 Shortcuts sources."""
 
 import argparse
 import hashlib
@@ -98,13 +98,15 @@ def compare_workflows(exported, expected):
             raise ValueError(f"Action {index} differs from the portable source; review the Apple export")
 
 
-def audit(url, source):
+def audit(url, source, expected_name=None):
     match = SHARE_URL.fullmatch(url)
     if match is None:
         raise ValueError("Use a complete https://www.icloud.com/shortcuts/... share link")
     record = json.loads(read_url(
         f"https://www.icloud.com/shortcuts/api/records/{match[1].lower()}", lambda host: host == "www.icloud.com"))
     fields = record["fields"]
+    if expected_name is not None and fields["name"]["value"] != expected_name:
+        raise ValueError(f"Name the shared shortcut {expected_name}")
     if fields["signingStatus"]["value"] != "APPROVED":
         raise ValueError("Apple has not approved the signed shortcut")
     def asset(key):
@@ -112,19 +114,23 @@ def audit(url, source):
     raw, signed = asset("shortcut"), asset("signedShortcut")
     if not signed.startswith(b"AEA1"):
         raise ValueError("Signed asset is missing the Apple archive header")
-    compare_workflows(plistlib.loads(raw), json.loads(source.read_text(encoding="utf-8")))
+    expected = plistlib.loads(source.read_bytes()) if source.suffix == ".plist" else json.loads(source.read_text(encoding="utf-8"))
+    compare_workflows(plistlib.loads(raw), expected)
     print(f"{source.name}: portable action graph verified; signed SHA-256 {hashlib.sha256(signed).hexdigest()}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sms_url")
-    parser.add_argument("update_url")
+    parser.add_argument("update_url", nargs="?")
     args = parser.parse_args()
-    if args.sms_url.lower() == args.update_url.lower():
+    if args.update_url and args.sms_url.lower() == args.update_url.lower():
         parser.error("Provide two distinct iCloud shares")
     try:
-        audit(args.sms_url, ROOT / "shortcuts/moneytrail-bank-v4.template.json")
-        audit(args.update_url, ROOT / "shortcuts/moneytrail-rule-update-v4.template.json")
+        if args.update_url:
+            audit(args.sms_url, ROOT / "shortcuts/moneytrail-bank-v4.template.json")
+            audit(args.update_url, ROOT / "shortcuts/moneytrail-rule-update-v4.template.json")
+        else:
+            audit(args.sms_url, ROOT / "public/shortcuts/moneytrail-bank-sms-v4.unsigned.plist", "MoneyTrail 银行短信记账")
     except (OSError, URLError, KeyError, TypeError, ValueError, plistlib.InvalidFileException) as error:
         parser.exit(1, f"v4 audit failed: {error}\n")

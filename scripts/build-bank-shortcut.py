@@ -47,6 +47,7 @@ V4_SOURCES = (
     (ROOT / "shortcuts/moneytrail-bank-v4.template.json", ROOT / "public/shortcuts/moneytrail-bank-v4.unsigned.plist", False),
     (ROOT / "shortcuts/moneytrail-rule-update-v4.template.json", ROOT / "public/shortcuts/moneytrail-rule-update-v4.unsigned.plist", True),
 )
+SMS_V4_OUTPUT = ROOT / "public/shortcuts/moneytrail-bank-sms-v4.unsigned.plist"
 RULE_URL = "https://wenzo-zwz.github.io/Moneytrail-/shortcuts/bank-rules.txt"
 V4_CACHE_PATH = "bank-rules-v4.txt"
 # Independently reviewed local guard, including split OTP and dangerous control characters.
@@ -238,6 +239,20 @@ def build_v4_bytes(source, updater):
     return workflow, declaration + b'\n<!-- UNSIGNED v4 SOURCE: Apple signing and first-run folder selection required. -->\n' + remainder
 
 
+def build_sms_v4_bytes(validated_workflow):
+    """Use the validated SMS workflow's built-in rule without reading a cache."""
+    workflow = deepcopy(validated_workflow)
+    actions = workflow["WFWorkflowActions"]
+    builtin_rule = actions[6]["WFWorkflowActionParameters"]["WFTextActionText"]
+    match = actions[18]
+    match["WFWorkflowActionParameters"]["WFMatchTextPattern"] = builtin_rule
+    workflow["WFWorkflowActions"] = actions[:6] + [match] + actions[19:]
+    check_v4_flow(workflow)
+    xml = plistlib.dumps(workflow, fmt=plistlib.FMT_XML, sort_keys=False)
+    declaration, remainder = xml.split(b"\n", 1)
+    return workflow, declaration + b"\n<!-- UNSIGNED SMS SOURCE: Apple signing is required before installation. -->\n" + remainder
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Check committed XML against the JSON source without changing files")
@@ -273,6 +288,15 @@ def main():
         else:
             output.write_bytes(xml)
             print(f"Built {output.relative_to(ROOT)} (unsigned; Apple signing and folder selection required).")
+        if not updater:
+            sms_workflow, sms_xml = build_sms_v4_bytes(workflow)
+            if args.check:
+                if not SMS_V4_OUTPUT.exists() or SMS_V4_OUTPUT.read_bytes() != sms_xml or plistlib.loads(sms_xml) != sms_workflow:
+                    parser.error(f"Unsigned XML differs from the validated SMS actions: {SMS_V4_OUTPUT.name}; run the builder")
+                print(f"Unsigned {SMS_V4_OUTPUT.name} matches the validated folder-free SMS workflow.")
+            else:
+                SMS_V4_OUTPUT.write_bytes(sms_xml)
+                print(f"Built {SMS_V4_OUTPUT.relative_to(ROOT)} (unsigned; Apple signing required).")
     for output in (RULES_OUTPUT, RULES_TEXT_OUTPUT):
         if args.check:
             if not output.exists() or output.read_bytes() != rules:

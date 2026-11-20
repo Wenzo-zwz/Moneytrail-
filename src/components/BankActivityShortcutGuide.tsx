@@ -16,9 +16,9 @@ export default function BankActivityShortcutGuide({ projectUrl, bankCode, enable
     {enabled && installer ? <a className="button primary sms-shortcut-install" href={installer.url} target="_blank" rel="noopener noreferrer">安装收支快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装收支快捷指令</button>}
     {!compatible ? <p className="sms-shortcut-caution">收支模板固定连接生产服务，与当前部署不匹配。请使用当前项目的接收地址与公开密钥制作配套指令，勿把当前账户令牌填入生产模板。</p> : <>
       {!enabled && <p className="sms-shortcut-caution">请先启用个人接入并保存自己的令牌。</p>}
-      {!installer && <p className="sms-shortcut-caution">收支新版共享安装链接尚未发布。已发布的工行版和农中建版只筛选支出，不能用来接收工资收入；请按下方步骤更新匹配规则，制作并分享收支新版。</p>}
-      <details className="three-bank-maker" open={!installer}>
-        <summary>制作与更新收支新版（仅需一次）</summary>
+      {!installer && <p className="sms-shortcut-caution">收支新版共享安装链接尚未发布。已发布的工行版和农中建版仅接收支出。</p>}
+      <details className="three-bank-maker">
+        <summary>维护者选项：制作与签名收支模板</summary>
         <p>从空白农中建模板复制后，替换现有“匹配文本”的整条规则，保留请求与通知。个人令牌和导入默认答案在分享副本中留空。</p>
         <pre className="three-bank-pattern"><code>{BANK_ACTIVITY_TEMPLATE.matchPattern}</code></pre>
         <div className="three-bank-actions"><button className="button secondary small" type="button" onClick={() => void copy(BANK_ACTIVITY_TEMPLATE.matchPattern, "收支匹配规则已复制。")}>复制收支匹配规则</button><button className="button secondary small" type="button" onClick={() => void copy(BANK_ACTIVITY_IPHONE_STEPS, "收支制作步骤已复制。")}>复制收支iPhone步骤</button></div>

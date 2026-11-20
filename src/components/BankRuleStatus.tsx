@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { BANK_RULES_PATH, isBankRulesProjectCompatible, readPublishedBankRules } from "../lib/bankRules";
 import type { BankRuleManifest } from "../lib/bankRulesValidation";
-import { getReleasedBankRulesV4 } from "../lib/bankRulesV4";
+import { getReleasedBankRulesV4, getReleasedBankSmsV4 } from "../lib/bankRulesV4";
 
 type RuleState = { phase: "loading" | "ready" | "error"; rule?: BankRuleManifest };
 
 export default function BankRuleStatus({ projectUrl }: { projectUrl: string }) {
   const compatible = isBankRulesProjectCompatible(projectUrl);
   const v4 = getReleasedBankRulesV4(projectUrl);
+  const sms = getReleasedBankSmsV4(projectUrl);
   const [state, setState] = useState<RuleState>({ phase: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState("");
@@ -29,7 +30,7 @@ export default function BankRuleStatus({ projectUrl }: { projectUrl: string }) {
   return <section className="three-bank-guide" aria-label="银行规则发布状态">
     <h4>银行规则发布状态</h4>
     {!compatible ? <p className="sms-shortcut-caution">当前项目没有配套的规则发布清单。请使用当前部署维护的模板与规则。</p> : <>
-      <p>{v4 ? "v4 可通过独立更新指令下载规则；请在手机上核对更新结果。" : "v4 私有试用已有真机验证。签名链接审核和首次安装验收通过后开放公开入口。"}网页版本不能证明手机已更新。现有 v3 不会自动读取此清单。</p>
+      <p>{v4 ? "缓存版可通过独立更新指令下载规则，更新结果请在手机上核对。" : "v4 私有试用已有真机验证。此清单供本机缓存版使用。"}{sms ? "单条记账指令使用内置筛选规则。" : "现有 v3 使用模板内置规则。"}</p>
       {state.phase === "ready" && state.rule ? <>
         <p role="status">网页已发布规则 v{state.rule.version} · 最低快捷指令版本 v{state.rule.minShortcutVersion}</p>
         <p className="help-text">发布时间：<time dateTime={state.rule.publishedAt}>{state.rule.publishedAt}</time></p>
