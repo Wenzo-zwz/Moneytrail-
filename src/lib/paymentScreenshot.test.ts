@@ -21,7 +21,7 @@ describe("universal payment screenshot review", () => {
   it("recognizes WeChat without changing it into an Alipay source", () => {
     const result = parsePaymentScreenshot(details("微信支付", ["支付时间：2026年11月16日09:10:22"]));
     expect(result.error).toBeUndefined();
-    expect(result.candidates[0]).toMatchObject({ source: "wechat", kind: "expense", merchant: "示例便利店", amountCents: 2980, category: "购物", date: "2026-11-16T09:10" });
+    expect(result.candidates[0]).toMatchObject({ source: "wechat", kind: "expense", merchant: "示例便利店", amountCents: 2980, category: "待分类", date: "2026-11-16T09:10" });
   });
   it("keeps the existing Alipay adapter", () => {
     expect(parsePaymentScreenshot("支付宝\n" + notification).candidates[0]).toMatchObject({ source: "alipay", kind: "expense", amountCents: 3840, merchant: "滴滴出行" });
@@ -150,7 +150,7 @@ describe("observed domestic-wallet bill summary", () => {
   it("keeps the exact merchant text and uses existing personal classification rules", () => {
     const result = parsePaymentScreenshot(walletBill.replace("示例云南小吃店", "ＡＢＣ·示例小吃店").replace("-28.70", "−２８．７０"),
       [{ merchant: "ＡＢＣ·示例小吃店", category: "本地生活", subcategory: "餐饮" }]);
-    expect(result.candidates[0]).toMatchObject({ merchant: "ＡＢＣ·示例小吃店", amountCents: 2870, category: "本地生活", subcategory: "餐饮" });
+    expect(result.candidates[0]).toMatchObject({ merchant: "ＡＢＣ·示例小吃店", amountCents: 2870, category: "食品酒水", subcategory: "堂食聚餐" });
   });
   it("only suggests Alipay with explicit page branding, never from a wallet method alone", () => {
     expect(parsePaymentScreenshot(walletBill).candidates[0]?.source).toBe("manual");

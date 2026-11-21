@@ -74,6 +74,11 @@ import type { PaymentScreenshotCandidate } from "./lib/paymentScreenshot";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 import { clearLocalBackupMetadata, dismissLocalBackupReminder, localBackupReminderDue, observeLocalLedger, readLocalBackupMetadata, recordLocalBackupExport } from "./lib/backupMetadata";
 
+import { AnnualBudgetEditor, MonthlyReview, NextMonthBudgetEditor } from "./components/MonthlyReview";
+import type { AnnualBudget } from "./lib/reviewBudget";
+
+const EMPTY_ANNUAL_BUDGETS: AnnualBudget[] = [];
+
 type Page = "overview" | "transactions" | "capture" | "settings";
 type Preview = {
   key: string;
@@ -162,11 +167,11 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : "操作未完成，请重试。";
 }
 function categoryIcon(category: string) {
-  return category === "本地生活"
+  return category === "食品酒水"
     ? Coffee
-    : category === "购物"
+    : category === "衣着与美妆"
       ? ShoppingBag
-      : category === "居住"
+      : category === "居住与家用"
         ? Home
         : Wallet;
 }
@@ -260,7 +265,7 @@ function TransactionEditor({
   const [explicitChoice, setExplicitChoice] = useState(initialRemember !== undefined);
   const [remember, setRemember] = useState(initialRemember ?? true);
   const automaticMerchant = useRef<string | null>(null);
-  const canRemember = canLearn && canOfferMerchantMemory(memoryOriginal, draft, explicitChoice, merchantRules, isNew);
+  const canRemember = canLearn && canOfferMerchantMemory(memoryOriginal, draft, explicitChoice, isNew);
   function withPersonalCategory(next: DraftTransaction) {
     if (!isNew || explicitChoice) return next;
     const match = next.kind === "expense" ? classifyMerchant(next.merchant, merchantRules) : null;
@@ -280,13 +285,13 @@ function TransactionEditor({
       return;
     }
     const classified = withPersonalCategory(draft);
-    const next = {
+    const next = normalizeTransactionCategory({
       ...classified,
       amountCents: cents,
       merchant: draft.merchant.trim(),
       note: draft.note.trim(),
       ...(classified.subcategory ? { subcategory: classified.subcategory.trim() || "未细分" } : {}),
-    };
+    });
     if (next.kind !== "refund") delete next.linkedTransactionId;
     if (!validateTransaction({ ...next, id: "validation" })) {
       setError("请检查金额、日期和商户，日期需为有效的本地时间。");
@@ -568,6 +573,9 @@ export default function App({
     previewKey?: string;
   } | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [reviewEditor, setReviewEditor] = useState<{ annualYear: number } | { baseMonth: string } | null>(null);
+  const annualBudgets = data.annualBudgets ?? EMPTY_ANNUAL_BUDGETS;
+  const today = localNow().slice(0, 10);
   const [screenshotSetupOpen, setScreenshotSetupOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [captureMode, setCaptureMode] = useState<"sms" | "csv" | "screenshot">("sms");
@@ -730,7 +738,7 @@ export default function App({
                 ...p,
                 draft,
                 duplicates,
-                remember: canOfferMerchantMemory(p.original, draft, true, merchantRules) ? (explicitChoice ? remember : p.remember) : false,
+                remember: canOfferMerchantMemory(p.original, draft, true) ? (explicitChoice ? remember : p.remember) : false,
                 selected: duplicates.length ? false : p.selected,
               }
             : p,
@@ -959,7 +967,7 @@ export default function App({
       persist(
         { ...data, transactions: [...data.transactions, ...tx] },
         `已保存 ${tx.length} 笔记录`,
-        { merchantRules: tx.flatMap((transaction, index) => selected[index].remember && canOfferMerchantMemory(selected[index].original, transaction, true, merchantRules) ? [memoryIntent(transaction, transaction.id)] : []) },
+        { merchantRules: tx.flatMap((transaction, index) => selected[index].remember && canOfferMerchantMemory(selected[index].original, transaction, true) ? [memoryIntent(transaction, transaction.id)] : []) },
       )
     ) {
       setPreviews((prev) => prev.filter((p) => !p.selected));
@@ -972,7 +980,8 @@ export default function App({
     try {
       if (file.size > 10 * 1024 * 1024)
         throw new Error("备份文件超过 10 MB，暂时无法导入。");
-      const restored = importBackup(await file.text());
+      const backup = importBackup(await file.text());
+      const restored = cloudMode && !backup.annualBudgets ? { ...backup, annualBudgets: [] } : backup;
       const rawBeforeRestore = readStoredRaw();
       if (
         !window.confirm(
@@ -1015,12 +1024,13 @@ export default function App({
         )
       )
         return;
-      const result = restoreData(emptyData(), rawBeforeClear);
+      const cleared = cloudMode ? { ...emptyData(), annualBudgets: [] } : emptyData();
+      const result = restoreData(cleared, rawBeforeClear);
       if (!result.ok) {
         setNotice(result.error ?? "清空失败");
         return;
       }
-      setData(emptyData());
+      setData(cleared);
       if (!cloudMode) { clearLocalBackupMetadata(); setBackupMetadata(null); }
       setRecoveryError("");
       setPreviews([]);
@@ -1334,6 +1344,17 @@ export default function App({
                       <ArrowRight size={15} />
                     </button>
                   </section>
+                  <MonthlyReview
+                    month={month}
+                    today={today}
+                    transactions={data.transactions}
+                    budgets={annualBudgets}
+                    checkedMonths={data.billCheckedMonths}
+                    onReviewMonth={setMonth}
+                    onEditAnnualBudget={annualYear => setReviewEditor({ annualYear })}
+                    onEditNextMonth={baseMonth => setReviewEditor({ baseMonth })}
+                    renderTransaction={row}
+                  />
                   <section className="panel">
                     <div className="panel-heading">
                       <div>
@@ -1695,7 +1716,7 @@ export default function App({
                           className="button ghost small"
                           onClick={() =>
                             download(
-                              "\uFEFF日期,类型,金额,商户,分类,细类,备注,交易编号\r\n2026-10-22 12:30,支出,38.50,示例餐厅,本地生活,餐饮,午餐,example-001\r\n",
+                              "\uFEFF日期,类型,金额,商户,分类,细类,备注,交易编号\r\n2026-10-22 12:30,支出,38.50,示例餐厅,食品酒水,堂食聚餐,午餐,example-001\r\n",
                               "moneytrail-导入模板.csv",
                               "text/csv;charset=utf-8",
                             )
@@ -1885,9 +1906,14 @@ export default function App({
                   <p className="help-text">
                     这个额度用于各月的预算对照。净支出按消费发生月份减去该月到账退款计算。
                   </p>
-                  <button className="button secondary" onClick={startBudget}>
-                    调整月预算
-                  </button>
+                  <div className="review-actions">
+                    <button className="button secondary" onClick={startBudget}>
+                      调整月预算
+                    </button>
+                    <button className="button secondary" onClick={() => setReviewEditor({ annualYear: Number(today.slice(0, 4)) })}>
+                      年度分类预算
+                    </button>
+                  </div>
                 </section>
                 <section className="setting-card data-location">
                   <div className="setting-heading">
@@ -2032,6 +2058,30 @@ export default function App({
           <div className="modal-body">
             <ScreenshotCaptureSettings onOpenCapture={() => { setScreenshotSetupOpen(false); navigate("capture"); setCaptureMode("screenshot"); }} />
           </div>
+        </Modal>
+      )}
+      {reviewEditor && (
+        <Modal title={"annualYear" in reviewEditor ? "年度分类预算" : "调整下月计划"} onClose={() => setReviewEditor(null)}>
+          {"annualYear" in reviewEditor ? (
+            <AnnualBudgetEditor
+              month={`${reviewEditor.annualYear}-${reviewEditor.annualYear === Number(month.slice(0, 4)) ? month.slice(5) : "01"}`}
+              today={today}
+              transactions={data.transactions}
+              budgets={annualBudgets}
+              onSave={budgets => persist({ ...data, annualBudgets: budgets }, "年度分类预算已保存")}
+              onClose={() => setReviewEditor(null)}
+            />
+          ) : (
+            <NextMonthBudgetEditor
+              month={reviewEditor.baseMonth}
+              today={today}
+              transactions={data.transactions}
+              budgets={annualBudgets}
+              onSave={budgets => persist({ ...data, annualBudgets: budgets }, "月度计划已保存")}
+              onClose={() => setReviewEditor(null)}
+              onEditAnnualBudget={annualYear => setReviewEditor({ annualYear })}
+            />
+          )}
         </Modal>
       )}
       {budgetOpen && (

@@ -1,5 +1,5 @@
+import { isStoredExpenseCategory } from "./expenseCategories";
 import {
-  CATEGORIES,
   normalizeTransactionCategory,
   validateTransaction,
   isValidLocalDateTime,
@@ -593,9 +593,7 @@ export function parseCsv(rawText: string): CsvParseResult {
       continue;
     }
     const originalCategory = value(columns.category);
-    const category = ([...CATEGORIES, "餐饮", "娱乐"] as readonly string[]).includes(
-      originalCategory,
-    )
+    const category = isStoredExpenseCategory(originalCategory)
       ? originalCategory
       : "待分类";
     if (

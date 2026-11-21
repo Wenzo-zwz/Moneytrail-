@@ -7,9 +7,9 @@ const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 let db: PGlite;
 type Tx = Record<string, unknown>;
-const tx = (overrides: Tx = {}): Tx => ({ id: 'manual-1', kind: 'expense', amountCents: 2000, date: '2026-10-24T12:00', merchant: '青禾馆(东店)', category: '本地生活', subcategory: '自选细分', source: 'manual', note: '', ...overrides });
+const tx = (overrides: Tx = {}): Tx => ({ id: 'manual-1', kind: 'expense', amountCents: 2000, date: '2026-10-24T12:00', merchant: '青禾馆(东店)', category: '休闲娱乐', subcategory: '自选细分', source: 'manual', note: '', ...overrides });
 const ledger = (...transactions: Tx[]) => ({ version: 1, transactions, budgetCents: 123456, billCheckedMonths: ['2026-09'] });
-const intent = (overrides: Tx = {}): Tx => ({ transactionId: 'manual-1', merchant: '青禾馆(东店)', category: '本地生活', subcategory: '自选细分', ...overrides });
+const intent = (overrides: Tx = {}): Tx => ({ transactionId: 'manual-1', merchant: '青禾馆(东店)', category: '休闲娱乐', subcategory: '自选细分', ...overrides });
 const sms = (merchant: string) => `尾号xxxx卡10月24日12:00支出(${merchant})20元，余额12,345.94元。【工商银行】`;
 
 async function rpc(name: string, args: unknown[] = []): Promise<any> {
@@ -43,28 +43,28 @@ beforeEach(async () => {
 });
 
 it('round trips explicit details and clears them through the new setter', async () => {
-  expect(await rpc('moneytrail_sms_set_merchant_rule', ['消费抖音支付-青禾馆（东店）', '本地生活', '未细分']))
-    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '本地生活', subcategory: '未细分' }] });
-  expect((await parse('微信支付-青禾馆(东店)')).draft).toMatchObject({ category: '本地生活', subcategory: '未细分' });
-  expect(await rpc('moneytrail_sms_set_category_rule', ['青禾馆(东店)', '本地生活']))
-    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '本地生活', subcategory: '未细分' }] });
-  expect(await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '本地生活', null]))
-    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '本地生活' }] });
+  expect(await rpc('moneytrail_sms_set_merchant_rule', ['消费抖音支付-青禾馆（东店）', '休闲娱乐', '未细分']))
+    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '休闲娱乐', subcategory: '未细分' }] });
+  expect((await parse('微信支付-青禾馆(东店)')).draft).toMatchObject({ category: '休闲娱乐', subcategory: '未细分' });
+  expect(await rpc('moneytrail_sms_set_category_rule', ['青禾馆(东店)', '休闲娱乐']))
+    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '休闲娱乐', subcategory: '未细分' }] });
+  expect(await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '休闲娱乐', null]))
+    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '休闲娱乐' }] });
   expect((await parse('青禾馆(东店)')).draft).not.toHaveProperty('subcategory');
-  await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '本地生活', '聚会']);
-  expect(await rpc('moneytrail_sms_set_category_rule', ['青禾馆(东店)', '学习']))
-    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '学习' }] });
+  await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '休闲娱乐', '聚会']);
+  expect(await rpc('moneytrail_sms_set_category_rule', ['青禾馆(东店)', '学习培训']))
+    .toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '学习培训' }] });
   expect(await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', null, null])).toEqual({ rules: [] });
 });
 
 it('normalizes legacy categories and explicit legacy details', async () => {
   await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'青禾馆(东店)','餐饮',null),($1,'青禾馆(西店)','娱乐','未细分')`, [A]);
   expect(await rules()).toEqual({ rules: [
-    { merchant: '青禾馆(东店)', category: '本地生活', subcategory: '餐饮' },
-    { merchant: '青禾馆(西店)', category: '本地生活', subcategory: '未细分' },
+    { merchant: '青禾馆(东店)', category: '食品酒水', subcategory: '堂食聚餐' },
+    { merchant: '青禾馆(西店)', category: '休闲娱乐', subcategory: '休闲娱乐' },
   ] });
-  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '本地生活', subcategory: '餐饮' });
-  expect((await parse('青禾馆(西店)')).draft).toMatchObject({ category: '本地生活', subcategory: '未细分' });
+  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '食品酒水', subcategory: '堂食聚餐' });
+  expect((await parse('青禾馆(西店)')).draft).toMatchObject({ category: '休闲娱乐', subcategory: '休闲娱乐' });
 });
 
 it.each(['抖音支付-青禾馆（东店）', '消费：快捷支付-抖音支付-微信支付-青禾馆(东店)', ' 支付－ＡＢＣ（东店） ', '青禾馆(西店)'])('normalizes exactly like TS: %s', async merchant => {
@@ -74,12 +74,12 @@ it.each(['抖音支付-青禾馆（东店）', '消费：快捷支付-抖音支�
 });
 
 it('normalizes 抖音支付 in the preserved Meituan platform path too', async () => {
-  expect((await parse('抖音支付-美团支付')).draft).toMatchObject({ category: '本地生活', platform: '美团' });
+  expect((await parse('抖音支付-美团支付')).draft).toMatchObject({ category: '待分类', platform: '美团' });
   expect((await db.query<{ v: boolean }>("select moneytrail_private.sms_is_platform_only_merchant('抖音支付-美团支付') v")).rows[0].v).toBe(true);
 });
 
 it.each(['未细分', '特别用途'])('prefers explicit %s to inferred store detail with TS parity', async subcategory => {
-  await rpc('moneytrail_sms_set_merchant_rule', ['松林咖啡(东店)', '本地生活', subcategory]);
+  await rpc('moneytrail_sms_set_merchant_rule', ['松林咖啡(东店)', '食品酒水', subcategory]);
   const sql = (await parse('抖音支付-松林咖啡(东店)')).draft;
   const ts = classifyMerchant('抖音支付-松林咖啡(东店)', (await rules()).rules);
   expect({ category: sql.category, subcategory: sql.subcategory }).toEqual({ category: ts.category, subcategory: ts.subcategory });
@@ -88,15 +88,15 @@ it.each(['未细分', '特别用途'])('prefers explicit %s to inferred store de
 });
 
 it('looks up old normalized aliases without globally rewriting conflicting rows', async () => {
-  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'抖音支付-青禾馆(东店)','学习','课程'),($1,'青禾馆(西店)','购物','纪念品')`, [A]);
-  expect((await parse('微信支付-青禾馆(东店)')).draft).toMatchObject({ category: '学习', subcategory: '课程' });
+  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'抖音支付-青禾馆(东店)','学习培训','课程'),($1,'青禾馆(西店)','购物','纪念品')`, [A]);
+  expect((await parse('微信支付-青禾馆(东店)')).draft).toMatchObject({ category: '学习培训', subcategory: '课程' });
   expect((await rules()).rules).toHaveLength(2);
-  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'青禾馆(东店)','医疗','检查')`, [A]);
-  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '医疗', subcategory: '检查' });
+  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'青禾馆(东店)','医疗保健','检查')`, [A]);
+  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '医疗保健', subcategory: '检查' });
   expect((await rules()).rules).toHaveLength(3);
   await rpc('moneytrail_sms_set_merchant_rule', ['微信支付-青禾馆(东店)', '本地生活', '餐饮']);
   expect(await rules()).toEqual({ rules: [
-    { merchant: '青禾馆(东店)', category: '本地生活', subcategory: '餐饮' },
+    { merchant: '青禾馆(东店)', category: '食品酒水', subcategory: '堂食聚餐' },
     { merchant: '青禾馆(西店)', category: '购物', subcategory: '纪念品' },
   ] });
 });
@@ -114,8 +114,8 @@ it.each(['', ' ', 'x'.repeat(41)])('rejects invalid detail %s', async detail => 
 it('saves matching transaction and rule in one revisioned write', async () => {
   const result = await save();
   expect(result).toMatchObject({ user_id: A, revision: 1, data: ledger(tx()) });
-  expect(await rules()).toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '本地生活', subcategory: '自选细分' }] });
-  expect((await parse('消费抖音支付-青禾馆(东店)')).draft).toMatchObject({ category: '本地生活', subcategory: '自选细分' });
+  expect(await rules()).toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '休闲娱乐', subcategory: '自选细分' }] });
+  expect((await parse('消费抖音支付-青禾馆(东店)')).draft).toMatchObject({ category: '休闲娱乐', subcategory: '自选细分' });
   expect((await parse('青禾馆(西店)')).draft.category).toBe('待分类');
 });
 
@@ -128,7 +128,7 @@ it('fails stale revision without publishing the accompanying intent', async () =
 });
 
 it.each([
-  { transactionId: 'missing' }, { merchant: '青禾馆(西店)' }, { category: '学习' }, { subcategory: '另外细分' },
+  { transactionId: 'missing' }, { merchant: '青禾馆(西店)' }, { category: '学习培训' }, { subcategory: '另外细分' },
   { extra: true }, { transactionId: null }, { category: '待分类' }, { subcategory: null },
 ])('rejects mismatching or malformed intent %j atomically', async patch => {
   await expect(save(ledger(tx()), 0, [intent(patch)])).rejects.toMatchObject({ code: '22023' });
@@ -140,8 +140,8 @@ it('validates rule array bounds, duplicate transactions and conflicting merchant
   for (const intents of [null, {}, [intent(), intent()], Array.from({ length: 201 }, () => intent())]) {
     await expect(save(ledger(tx()), 0, intents)).rejects.toMatchObject({ code: '22023' });
   }
-  const second = tx({ id: 'manual-2', category: '学习' });
-  await expect(save(ledger(tx(), second), 0, [intent(), intent({ transactionId: 'manual-2', category: '学习' })])).rejects.toMatchObject({ code: '22023' });
+  const second = tx({ id: 'manual-2', category: '学习培训' });
+  await expect(save(ledger(tx(), second), 0, [intent(), intent({ transactionId: 'manual-2', category: '学习培训' })])).rejects.toMatchObject({ code: '22023' });
   expect(await saved()).toBeUndefined();
 });
 
@@ -177,14 +177,14 @@ it('lets an explicit matching alias update at capacity without learning another 
   await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category) values($1,'抖音支付-青禾馆(东店)','购物')`, [A]);
   await save();
   expect((await rules()).rules).toHaveLength(200);
-  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '本地生活', subcategory: '自选细分' });
+  expect((await parse('青禾馆(东店)')).draft).toMatchObject({ category: '休闲娱乐', subcategory: '自选细分' });
 });
 
 it('supports category-only intents and keeps the old save API unchanged', async () => {
   const categoryOnly = tx(); delete categoryOnly.subcategory;
   const rule = intent(); delete rule.subcategory;
   await save(ledger(categoryOnly), 0, [rule]);
-  expect(await rules()).toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '本地生活' }] });
+  expect(await rules()).toEqual({ rules: [{ merchant: '青禾馆(东店)', category: '休闲娱乐' }] });
   expect(await rpc('save_moneytrail_ledger', [ledger(tx({ note: 'ordinary save' })), 1])).toMatchObject({ revision: 2 });
 });
 
@@ -204,20 +204,20 @@ it.each([
   { refundFirst: false, changedLink: false }, { refundFirst: true, changedLink: false },
   { refundFirst: false, changedLink: true }, { refundFirst: true, changedLink: true },
 ])('new or changed refunds inherit the final explicit detail clear: %j', async ({ refundFirst, changedLink }) => {
-  const original = tx({ category: '购物', subcategory: '旧细类', platform: '京东' });
-  const previous = tx({ id: 'previous', merchant: '另一馆', category: '学习', subcategory: '教材' });
-  const refund = tx({ id: 'refund', kind: 'refund', category: '购物', subcategory: '旧细类', linkedTransactionId: changedLink ? 'previous' : 'manual-1', smsEvidence: { text: '退款自己的凭据' } });
+  const original = tx({ category: '其他', subcategory: '旧细类', platform: '京东' });
+  const previous = tx({ id: 'previous', merchant: '另一馆', category: '学习培训', subcategory: '教材' });
+  const refund = tx({ id: 'refund', kind: 'refund', category: '其他', subcategory: '旧细类', linkedTransactionId: changedLink ? 'previous' : 'manual-1', smsEvidence: { text: '退款自己的凭据' } });
   await rpc('save_moneytrail_ledger', [ledger(original, previous, ...(changedLink ? [refund] : [])), 0]);
   const cleared = { ...original }; delete cleared.subcategory;
   const finalRefund = { ...refund, linkedTransactionId: 'manual-1' };
-  const rule = intent({ category: '购物' }); delete rule.subcategory;
+  const rule = intent({ category: '其他' }); delete rule.subcategory;
   await save(ledger(...(refundFirst ? [finalRefund, cleared] : [cleared, finalRefund])), 1, [rule]);
   const entries = (await saved()).data.transactions;
   expect(entries.find((entry: Tx) => entry.id === 'manual-1')).not.toHaveProperty('subcategory');
   expect(entries.find((entry: Tx) => entry.id === 'refund')).toEqual({ ...finalRefund, subcategory: undefined, platform: '京东' });
   expect(entries.find((entry: Tx) => entry.id === 'refund')).not.toHaveProperty('subcategory');
   // A later save with the same link preserves a deliberate refund detail edit.
-  const manualRefund = { ...finalRefund, category: '学习', subcategory: '手工细类', platform: '京东' };
+  const manualRefund = { ...finalRefund, category: '学习培训', subcategory: '手工细类', platform: '京东' };
   await save(ledger(cleared, manualRefund), 2, [rule]);
   expect((await saved()).data.transactions[1]).toEqual(manualRefund);
 });
@@ -226,8 +226,8 @@ it('normalizes a legacy ledger intent and its detail to the same stored transact
   const legacy = tx({ category: '娱乐' }); delete legacy.subcategory;
   const legacyIntent = intent({ category: '娱乐' }); delete legacyIntent.subcategory;
   await save(ledger(legacy), 0, [legacyIntent]);
-  expect((await saved()).data.transactions[0]).toMatchObject({ category: '本地生活', subcategory: '休闲娱乐' });
-  expect((await rules()).rules[0]).toMatchObject({ category: '本地生活', subcategory: '休闲娱乐' });
+  expect((await saved()).data.transactions[0]).toMatchObject({ category: '休闲娱乐', subcategory: '休闲娱乐' });
+  expect((await rules()).rules[0]).toMatchObject({ category: '休闲娱乐', subcategory: '休闲娱乐' });
 });
 
 it('uses all matching safe intents when multiple transactions share a merchant', async () => {
@@ -237,40 +237,40 @@ it('uses all matching safe intents when multiple transactions share a merchant',
 });
 
 it('ignores preexisting unsafe platform and placeholder rules during account classification', async () => {
-  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'京东','学习','伪造'),($1,'待补充商户','医疗','伪造')`, [A]);
-  expect((await parse('京东')).draft).toMatchObject({ category: '购物' });
+  await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category,subcategory) values($1,'京东','学习培训','伪造'),($1,'待补充商户','医疗保健','伪造')`, [A]);
+  expect((await parse('京东')).draft).toMatchObject({ category: '待分类' });
   expect((await parse('京东')).draft).not.toHaveProperty('subcategory');
   expect((await parse('待补充商户')).draft.category).toBe('待分类');
-  expect(await rpc('moneytrail_sms_set_merchant_rule', ['京东', null, null])).toEqual({ rules: [{ merchant: '待补充商户', category: '医疗', subcategory: '伪造' }] });
+  expect(await rpc('moneytrail_sms_set_merchant_rule', ['京东', null, null])).toEqual({ rules: [{ merchant: '待补充商户', category: '医疗保健', subcategory: '伪造' }] });
 });
 
 it('confirms with an explicit detail, rebuilds evidence, and remains idempotent', async () => {
   const entry = await pending('消费抖音支付-青禾馆(东店)');
-  const draft = { ...entry.draft, category: '本地生活', subcategory: '未细分', smsEvidence: { text: '伪造凭证' } };
+  const draft = { ...entry.draft, category: '休闲娱乐', subcategory: '未细分', smsEvidence: { text: '伪造凭证' } };
   const result = await rpc('moneytrail_sms_confirm_with_rule', [entry.id, draft, true]);
   expect(result).toEqual({ status: 'recorded', transaction_id: `sms-${entry.id}` });
-  expect((await saved()).data.transactions[0]).toMatchObject({ merchant: entry.draft.merchant, subcategory: '未细分', smsEvidence: { classificationReason: '人工确认：本地生活' } });
+  expect((await saved()).data.transactions[0]).toMatchObject({ merchant: entry.draft.merchant, subcategory: '未细分', smsEvidence: { classificationReason: '人工确认：休闲娱乐' } });
   expect((await saved()).data.transactions[0].smsEvidence.text).toContain('[已隐藏]');
   expect((await saved()).data.transactions[0].smsEvidence.text).not.toContain('伪造凭证');
-  await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '学习', '后来修改']);
+  await rpc('moneytrail_sms_set_merchant_rule', ['青禾馆(东店)', '学习培训', '后来修改']);
   const before = await saved();
   expect(await rpc('moneytrail_sms_confirm_with_rule', [entry.id, {}, true])).toEqual(result);
   expect(await saved()).toEqual(before);
-  expect((await rules()).rules[0]).toMatchObject({ category: '学习', subcategory: '后来修改' });
+  expect((await rules()).rules[0]).toMatchObject({ category: '学习培训', subcategory: '后来修改' });
 });
 
 it('can confirm without remembering and can learn only an unchanged normalized identity', async () => {
   const entry = await pending('青禾馆(东店)');
-  await rpc('moneytrail_sms_confirm_with_rule', [entry.id, { ...entry.draft, category: '本地生活', subcategory: '聚会' }, false]);
+  await rpc('moneytrail_sms_confirm_with_rule', [entry.id, { ...entry.draft, category: '休闲娱乐', subcategory: '聚会' }, false]);
   expect(await rules()).toEqual({ rules: [] });
   const next = await pending('微信支付-青禾馆(西店)');
-  await rpc('moneytrail_sms_confirm_with_rule', [next.id, { ...next.draft, merchant: '抖音支付-青禾馆（西店）', category: '本地生活', subcategory: '聚会' }, true]);
-  expect((await rules()).rules).toEqual([{ merchant: '青禾馆(西店)', category: '本地生活', subcategory: '聚会' }]);
+  await rpc('moneytrail_sms_confirm_with_rule', [next.id, { ...next.draft, merchant: '抖音支付-青禾馆（西店）', category: '休闲娱乐', subcategory: '聚会' }, true]);
+  expect((await rules()).rules).toEqual([{ merchant: '青禾馆(西店)', category: '休闲娱乐', subcategory: '聚会' }]);
 });
 
 it.each(['群收款', '转账张三', '本人账户互转', '财付通', '待补充商户', '美团', '京东', '青禾馆(西店)'])('does not learn by renaming original SMS %s', async original => {
   const entry = await pending(original);
-  const draft = { ...entry.draft, merchant: '青禾馆(东店)', kind: 'expense', category: '本地生活', subcategory: '聚会' };
+  const draft = { ...entry.draft, merchant: '青禾馆(东店)', kind: 'expense', category: '休闲娱乐', subcategory: '聚会' };
   await expect(rpc('moneytrail_sms_confirm_with_rule', [entry.id, draft, true])).rejects.toMatchObject({ code: '22023' });
   expect(await saved()).toBeUndefined();
   expect(await rules()).toEqual({ rules: [] });
@@ -280,7 +280,7 @@ it.each(['群收款', '转账张三', '本人账户互转', '财付通', '待补
 it('rolls back confirmation and evidence removal when learning hits the account rule limit', async () => {
   await db.query(`insert into moneytrail_private.sms_category_rules(user_id,merchant,category) select $1,'已有商店'||n,'购物' from generate_series(1,200)n`, [A]);
   const entry = await pending('青禾馆(东店)');
-  await expect(rpc('moneytrail_sms_confirm_with_rule', [entry.id, { ...entry.draft, category: '本地生活', subcategory: '聚会' }, true])).rejects.toMatchObject({ code: '54000' });
+  await expect(rpc('moneytrail_sms_confirm_with_rule', [entry.id, { ...entry.draft, category: '休闲娱乐', subcategory: '聚会' }, true])).rejects.toMatchObject({ code: '54000' });
   expect(await saved()).toBeUndefined();
   expect((await db.query<{ status: string; raw_text: string }>('select status,raw_text from moneytrail_private.sms_inbox where id=$1', [entry.id])).rows[0]).toEqual({ status: 'pending', raw_text: sms('青禾馆(东店)') });
 });
@@ -290,7 +290,7 @@ it('isolates owners for rules, ledger writes and SMS confirmation', async () => 
   const foreign = await pending('青禾馆(西店)');
   await user(B);
   expect(await rules()).toEqual({ rules: [] });
-  await expect(rpc('moneytrail_sms_confirm_with_rule', [foreign.id, { ...foreign.draft, category: '本地生活' }, true])).rejects.toMatchObject({ code: '42501' });
+  await expect(rpc('moneytrail_sms_confirm_with_rule', [foreign.id, { ...foreign.draft, category: '休闲娱乐' }, true])).rejects.toMatchObject({ code: '42501' });
   await expect(save(ledger(tx()), 1)).rejects.toMatchObject({ code: 'PT409' });
   expect(await rules()).toEqual({ rules: [] });
   expect((await saved()).revision).toBe(1);

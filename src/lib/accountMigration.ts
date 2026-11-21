@@ -100,6 +100,11 @@ export function planLegacyMigration(
     if (item.kind === "refund") plan(item);
   }
 
+  const budgetKey = ({ year, category, subcategory }: NonNullable<AppData["annualBudgets"]>[number]) =>
+    JSON.stringify([year, category, subcategory]);
+  const budgets = new Map(
+    [...(oldBook.annualBudgets ?? []), ...(accountBook.annualBudgets ?? [])].map(budget => [budgetKey(budget), budget]),
+  );
   const data = importBackup(JSON.stringify({
     version: 1,
     transactions: [
@@ -110,6 +115,7 @@ export function planLegacyMigration(
       }),
     ],
     budgetCents: accountBook.budgetCents || oldBook.budgetCents,
+    ...(budgets.size ? { annualBudgets: [...budgets.values()] } : {}),
     billCheckedMonths: accountBook.billCheckedMonths.filter((month) => !addedMonths.has(month)),
   }));
   return { data, added, duplicates, renamed };

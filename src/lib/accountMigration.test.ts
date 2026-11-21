@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { planLegacyMigration } from "./accountMigration";
 import type { Transaction } from "./ledger";
+import { setAnnualBudget, setMonthlyOverride } from "./reviewBudget";
 import { emptyData, type AppData } from "./storage";
 
 const expense = (id: string, overrides: Partial<Transaction> = {}): Transaction => ({
   id, kind: "expense", amountCents: 1800, date: "2026-10-20T12:30",
-  merchant: "午餐", category: "本地生活", source: "manual", note: "", ...overrides,
+  merchant: "午餐", category: "食品酒水", source: "manual", note: "", ...overrides,
 });
 const book = (transactions: Transaction[], overrides: Partial<AppData> = {}): AppData => ({
   ...emptyData(), transactions, ...overrides,
@@ -40,6 +41,17 @@ describe("explicit legacy account migration planning", () => {
     expect(result.data.transactions.map((item) => item.id)).toEqual(["same", "other"]);
     expect(result.data.budgetCents).toBe(300);
     expect(result.data.billCheckedMonths).toEqual([]);
+  });
+
+  it("retains distinct annual budget scopes while preferring the account's plan on a collision", () => {
+    const category = { category: "食品酒水" };
+    const detail = { ...category, subcategory: "外卖" };
+    const localBudget = setAnnualBudget([], category, "2026-04", 120_000);
+    const local = setAnnualBudget(localBudget, detail, "2026-05", 36_000);
+    const current = setMonthlyOverride(setAnnualBudget([], category, "2026-03", 140_000), category, "2026-06", 12_500);
+    const result = planLegacyMigration(book([], { annualBudgets: local }), book([], { annualBudgets: current }));
+    expect(result.data.annualBudgets).toEqual([current[0], local[1]]);
+    expect(planLegacyMigration(book([], { annualBudgets: local }), result.data).data).toEqual(result.data);
   });
 
   it("keeps checked months when every imported transaction is already present", () => {

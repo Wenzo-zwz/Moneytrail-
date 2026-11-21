@@ -102,7 +102,7 @@ async function addManual(page, values = {}) {
     .fill(values.date || "2026-10-22T12:30");
   await modal
     .getByLabel("分类", { exact: true })
-    .selectOption(values.category || "本地生活");
+    .selectOption(values.category || "食品酒水");
   if (values.linkedTransactionId)
     await modal
       .getByLabel("关联原消费（可选）")
@@ -407,19 +407,23 @@ async function localLifeDetailsAndEvidence(browser) {
       await go(page, "录入", mobile);
       await page.getByLabel("银行消费短信", { exact: true }).fill("尾号7890卡10月22日19:27支出(消费美团支付-美团北京三快在线科技有限公司)30.90元，余额12,345.94元。【工商银行】");
       await page.getByRole("button", { name: "识别短信", exact: true }).click();
+      const selection = page.locator(".preview-card").getByRole("checkbox");
+      assert.equal(await selection.isChecked(), false, "a platform-only SMS stays unselected until user review");
       await page.getByRole("button", { name: "修改信息", exact: true }).click();
       let editor = page.getByRole("dialog");
+      await editor.getByLabel("分类", { exact: true }).selectOption("食品酒水");
       await editor.getByLabel("细类（可选）", { exact: true }).fill("堂食");
       await editor.getByRole("button", { name: "确认保存", exact: true }).click();
+      await selection.check();
       await page.getByRole("button", { name: "确认保存 1 笔", exact: true }).click();
       await countIs(page, 1);
       const captured = (await data(page)).transactions[0];
-      assert.equal(captured.category, "本地生活"); assert.equal(captured.subcategory, "堂食"); assert.equal(captured.platform, "美团");
+      assert.equal(captured.category, "食品酒水"); assert.equal(captured.subcategory, "堂食聚餐"); assert.equal(captured.platform, "美团");
       assert(captured.smsEvidence?.text); assert(!captured.smsEvidence.text.includes("7890")); assert(!captured.smsEvidence.text.includes("12,345.94"));
       await addManual(page, { merchant: "用途未细分", amount: "10.00" });
       await addManual(page, { kind: "refund", merchant: "本次退款", amount: "5.00", linkedTransactionId: captured.id });
       await go(page, "总览", mobile);
-      const group = page.locator(".category-group").filter({ has: page.getByText("本地生活", { exact: true }) });
+      const group = page.locator(".category-group").filter({ has: page.getByText("食品酒水", { exact: true }) });
       await group.locator("summary").click();
       assert.match(await group.textContent(), /堂食/); assert.match(await group.textContent(), /未细分/);
       const parent = Number(await group.locator("summary").getAttribute("data-amount-cents"));
@@ -439,7 +443,7 @@ async function localLifeDetailsAndEvidence(browser) {
       await editor.getByRole("button", { name: "确认保存", exact: true }).click();
       await page.reload({ waitUntil: "networkidle" });
       const saved = (await data(page)).transactions.find(t => t.id === captured.id);
-      assert.deepEqual(saved.smsEvidence, captured.smsEvidence); assert.equal(saved.subcategory, "堂食");
+      assert.deepEqual(saved.smsEvidence, captured.smsEvidence); assert.equal(saved.subcategory, "堂食聚餐");
       assert.equal((await data(page)).transactions.find(t => t.merchant === "本次退款").smsEvidence, undefined, "refund must not copy original evidence");
       await go(page, "设置", mobile);
       const backupDownload = page.waitForEvent("download");
@@ -451,6 +455,61 @@ async function localLifeDetailsAndEvidence(browser) {
       assert.deepEqual(errors, []);
       passed(`${mobile ? 390 : 1440}px detail edit/search/stat sums, masked evidence and refund metadata survive refresh`);
     } finally { await context.close(); }
+  }
+}
+
+async function annualCategoryBudgetWorkflow(browser) {
+  const { page, context, errors } = await fixture(browser, true);
+  try {
+    await page.clock.setFixedTime(new Date("2026-01-22T04:30:00Z"));
+    await page.evaluate(({ key }) => {
+      const base = { kind: "expense", merchant: "午餐外卖", category: "食品酒水", subcategory: "外卖", source: "manual", note: "" };
+      localStorage.setItem(key, JSON.stringify({
+        version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [
+          { ...base, id: "new-takeout", amountCents: 65000, date: "2026-01-10T12:30" },
+          { ...base, id: "last-takeout", amountCents: 50000, date: "2025-12-10T12:30" },
+          { ...base, id: "later-takeout", amountCents: 10000, date: "2025-12-25T12:30" },
+        ],
+      }));
+    }, { key: KEY });
+    await page.reload({ waitUntil: "networkidle" });
+    const report = page.locator(".review-card");
+    await report.locator("summary").click();
+    await report.getByText(/1–22 日/).waitFor();
+    const takeout = report.locator(".review-spend-entry").filter({ has: page.getByRole("button", { name: "外卖", exact: true }) });
+    assert.match(await takeout.innerText(), /150[.]00/);
+    await takeout.getByRole("button", { name: "外卖", exact: true }).click();
+    await takeout.getByText("午餐外卖", { exact: true }).waitFor();
+    for (const [detail, amount] of [["", "12000"], ["外卖", "6000"]]) {
+      await report.getByRole("button", { name: "年度分类预算", exact: true }).click();
+      const editor = page.getByRole("dialog");
+      await editor.getByLabel("细类", { exact: true }).selectOption(detail);
+      await editor.getByLabel("全年额度（元）", { exact: true }).fill(amount);
+      await editor.getByRole("button", { name: "保存年度预算", exact: true }).click();
+      await editor.waitFor({ state: "detached" });
+    }
+    await report.getByRole("button", { name: "调整 2 月预算", exact: true }).click();
+    const editor = page.getByRole("dialog");
+    const detailPlan = editor.getByLabel("食品酒水 · 外卖（元）", { exact: true });
+    const detailRow = editor.locator(".review-next-budget-row").filter({ has: page.getByLabel("食品酒水 · 外卖（元）", { exact: true }) });
+    await detailRow.getByRole("button", { name: /采用建议.*486[.]36/ }).click();
+    assert.equal(await detailPlan.inputValue(), "486.36");
+    await detailPlan.fill("350.00");
+    await editor.getByRole("button", { name: "保存月度调整", exact: true }).click();
+    await editor.waitFor({ state: "detached" });
+    await page.reload({ waitUntil: "networkidle" });
+    await report.locator("summary").click();
+    await report.getByRole("button", { name: "调整 2 月预算", exact: true }).click();
+    assert.equal(await detailPlan.inputValue(), "350.00");
+    const budgets = (await data(page)).annualBudgets;
+    assert.equal(budgets.length, 2);
+    assert.deepEqual(budgets.find(budget => budget.subcategory === "外卖").monthlyOverrides, [{ month: "2026-02", amountCents: 35000 }]);
+    assert.deepEqual(budgets.find(budget => budget.subcategory === undefined).monthlyOverrides, []);
+    assert.deepEqual(errors, []);
+    await noOverflow(page, "390px monthly review and annual budget");
+    passed("monthly review compares the same dates, drills down, and persists an individual next-month plan without changing the category budget");
+  } finally {
+    await context.close();
   }
 }
 
@@ -489,7 +548,7 @@ async function refundRelinkDatabaseRegression(browser) {
       await editor.waitFor({ state: "detached" });
       const incoming = await data(page);
       const incomingRefund = incoming.transactions.find(entry => entry.id === refund.id);
-      assert.equal(incomingRefund.category, "购物");
+      assert.equal(incomingRefund.category, "待分类");
       assert.equal(incomingRefund.subcategory, undefined);
       assert.equal(incomingRefund.platform, undefined);
       // Run the exact serialized UI snapshot through the production SQL save, including old-client preservation.
@@ -862,6 +921,7 @@ async function staleEditorRegression(browser) {
     await fullWorkflow(browser);
     await mobileWorkflow(browser);
     await localLifeDetailsAndEvidence(browser);
+    await annualCategoryBudgetWorkflow(browser);
     await refundRelinkDatabaseRegression(browser);
     await recoveryAndFragment(browser);
     await ledgerRegressions(browser);

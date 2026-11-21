@@ -16,7 +16,8 @@ const transaction = (patch: Partial<Transaction> = {}): Transaction => ({
   amountCents: 1234,
   date: "2026-10-22T12:30",
   merchant: "午饭",
-  category: "餐饮",
+  category: "食品酒水",
+  subcategory: "堂食聚餐",
   source: "manual",
   note: "",
   ...patch,
@@ -120,7 +121,7 @@ describe("monthly financial meaning", () => {
       budgetRemainingCents: 930,
       count: 3,
       uncategorizedCount: 0,
-      categories: [{ category: "本地生活", amountCents: 70, subcategories: [{ subcategory: "餐饮", amountCents: 70 }] }],
+      categories: [{ category: "食品酒水", amountCents: 70, subcategories: [{ subcategory: "堂食聚餐", amountCents: 70 }] }],
     });
   });
   it("accounts for a cross-month refund when it is received", () => {

@@ -1,4 +1,4 @@
-import { CATEGORIES } from "./ledger";
+import { isStoredExpenseCategory, normalizeExpenseCategory } from "./expenseCategories";
 import { canRememberMerchant, merchantKey, type MerchantRuleIntent } from "./merchantClassification";
 import type { AppData } from "./storage";
 
@@ -7,18 +7,19 @@ export function readMerchantRuleIntents(value: unknown): MerchantRuleIntent[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 200) throw new Error("商户记忆队列无效或过大。");
   const ids = new Set<string>();
-  return value.map(item => {
+  return value.flatMap(item => {
     if (!item || typeof item !== "object" || Array.isArray(item)
       || Object.keys(item).some(key => !["transactionId", "merchant", "category", "subcategory"].includes(key))
       || typeof item.transactionId !== "string" || !item.transactionId.trim() || item.transactionId.length > 200
       || ids.has(item.transactionId) || typeof item.merchant !== "string" || item.merchant.length > 200
-      || !canRememberMerchant(item.merchant) || !CATEGORIES.includes(item.category) || item.category === "待分类"
+      || !canRememberMerchant(item.merchant) || !isStoredExpenseCategory(item.category) || item.category === "待分类"
       || (item.subcategory !== undefined && (typeof item.subcategory !== "string" || !item.subcategory.trim() || item.subcategory.length > 40))) {
       throw new Error("商户记忆内容无效，请重新选择具体商户和分类。");
     }
     ids.add(item.transactionId);
-    return { transactionId: item.transactionId, merchant: item.merchant, category: item.category,
-      ...(item.subcategory !== undefined ? { subcategory: item.subcategory } : {}) };
+    const normalized = normalizeExpenseCategory({ transactionId: item.transactionId, merchant: item.merchant, category: item.category,
+      ...(item.subcategory !== undefined ? { subcategory: item.subcategory } : {}) });
+    return normalized.category === "待分类" ? [] : [normalized];
   });
 }
 

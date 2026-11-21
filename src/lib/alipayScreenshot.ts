@@ -1,5 +1,5 @@
 import { isValidLocalDateTime, parseAmount, type Platform } from "./ledger";
-import { classifyMerchant, type MerchantRule } from "./merchantClassification";
+import { classifyMerchant, merchantKey, type MerchantRule } from "./merchantClassification";
 import { parseAlipayNotification } from "./alipayNotification";
 
 export type AlipayScreenshotCandidate = {
@@ -37,7 +37,7 @@ function failure(error: string): AlipayScreenshotResult {
 function candidate(merchant: string, amountCents: number, index: number, rules: MerchantRule[], date?: string): AlipayScreenshotCandidate | null {
   if (!merchant || merchant.length > 200 || unsafeControls.test(merchant) || pageOrStatus.test(merchant.normalize("NFKC"))) return null;
   const classification = classifyMerchant(merchant, rules);
-  if (classification.requiresReview) return null;
+  if (!merchantKey(merchant)) return null;
   return {
     // A local preview position, not a payment ID or an idempotency key.
     key: `alipay-screenshot-${index}`, merchant, amountCents,

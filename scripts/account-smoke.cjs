@@ -19,7 +19,7 @@ const PASSWORD = "Fixture-password-123!";
 const CACHE = (id) => `moneytrail:cloud:v1:${encodeURIComponent(PROJECT)}:${id}`;
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const empty = () => ({ version: 1, transactions: [], budgetCents: 0, billCheckedMonths: [] });
-const transaction = (id, merchant, cents = 1000) => ({ id, kind: "expense", amountCents: cents, date: "2026-10-22T12:30", merchant, category: "本地生活", subcategory: "餐饮", source: "manual", note: "" });
+const transaction = (id, merchant, cents = 1000) => ({ id, kind: "expense", amountCents: cents, date: "2026-10-22T12:30", merchant, category: "食品酒水", subcategory: "堂食聚餐", source: "manual", note: "" });
 let checks = 0;
 const passed = (name) => { checks += 1; process.stdout.write(`PASS ${name}\n`); };
 
@@ -157,7 +157,7 @@ async function addManual(page, merchant) {
   await modal.getByLabel("金额（元）", { exact: true }).fill("12.34");
   await modal.getByLabel("商户 / 对方", { exact: true }).fill(merchant);
   await modal.getByLabel("发生时间", { exact: true }).fill("2026-10-22T13:30");
-  await modal.getByLabel("分类", { exact: true }).selectOption("本地生活");
+  await modal.getByLabel("分类", { exact: true }).selectOption("食品酒水");
   const acceptDuplicate = (confirmation) => confirmation.accept();
   page.on("dialog", acceptDuplicate);
   await modal.getByRole("button", { name: "确认保存", exact: true }).click();

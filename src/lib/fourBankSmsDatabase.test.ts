@@ -129,7 +129,7 @@ it('retains existing ICBC auto posting and account merchant memory', async () =>
   const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
   const stamp = (await db.query<{ d: string }>(`select to_char(now() at time zone 'Asia/Shanghai','FMMM月FMDD日HH24:MI') d`)).rows[0].d;
   expect((await receive(token, icbc(stamp))).status).toBe('recorded');
-  expect((await ledger()).data.transactions[0]).toMatchObject({ category: '学习', subcategory: '课程' });
+  expect((await ledger()).data.transactions[0]).toMatchObject({ category: '学习培训', subcategory: '课程' });
 });
 
 it.each([
@@ -210,7 +210,7 @@ it('allows explicit new-bank confirmation while rebuilding evidence and refusing
   const result = await rpc('moneytrail_sms_confirm_with_rule', [receipt.id, fixed, false]);
   expect(result.status).toBe('recorded');
   const saved = (await ledger()).data.transactions[0];
-  expect(saved.category).toBe('居住');
+  expect(saved.category).toBe('居住与家用');
   expect(saved.smsEvidence.text).toContain('建设银行');
   expect(saved.smsEvidence.text).not.toMatch(/forged|工商银行|1234|6900\.12/);
   expect((await rpc('moneytrail_sms_inbox')).items[0].raw_text).toBeNull();

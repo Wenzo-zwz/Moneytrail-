@@ -1,13 +1,6 @@
-export const CATEGORIES = [
-  "本地生活",
-  "购物",
-  "交通",
-  "居住",
-  "医疗",
-  "学习",
-  "其他",
-  "待分类",
-] as const;
+import { EXPENSE_CATEGORIES, isStoredExpenseCategory, normalizeExpenseCategory } from "./expenseCategories";
+
+export const CATEGORIES: readonly string[] = EXPENSE_CATEGORIES;
 
 export type TransactionKind = "expense" | "refund" | "transfer" | "income";
 export type Source = "manual" | "sms" | "wechat" | "alipay" | "csv";
@@ -44,9 +37,10 @@ const KINDS: readonly string[] = ["expense", "refund", "transfer", "income"];
 const SOURCES: readonly string[] = ["manual", "sms", "wechat", "alipay", "csv"];
 
 /** Deterministic legacy conversion: retain any already-known purpose detail. */
-export function normalizeTransactionCategory<T extends { category: string; subcategory?: string }>(transaction: T): T {
-  if (transaction.category !== "餐饮" && transaction.category !== "娱乐") return { ...transaction };
-  return { ...transaction, category: "本地生活", subcategory: transaction.subcategory ?? (transaction.category === "餐饮" ? "餐饮" : "休闲娱乐") };
+export function normalizeTransactionCategory<T extends { category: string; subcategory?: string; merchant?: string; kind?: TransactionKind }>(transaction: T): T {
+  return transaction.kind === "income" || transaction.kind === "transfer"
+    ? transaction
+    : normalizeExpenseCategory(transaction);
 }
 
 export function copyTransaction(transaction: Transaction): Transaction {
@@ -153,7 +147,7 @@ export function validateTransaction(value: unknown): value is Transaction {
     isValidLocalDateTime(item.date) &&
     nonemptyString(item.merchant, 200) &&
     typeof item.category === "string" &&
-    [...CATEGORIES, "餐饮", "娱乐"].includes(item.category) &&
+    isStoredExpenseCategory(item.category) &&
     typeof item.source === "string" &&
     SOURCES.includes(item.source) &&
     typeof item.note === "string" &&

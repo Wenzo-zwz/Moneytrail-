@@ -1,3 +1,4 @@
+import { isStoredExpenseCategory } from "./expenseCategories";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureAccountBearer } from "./cloudClient";
 import { CATEGORIES, isValidLocalDateTime, normalizeTransactionCategory, type TransactionKind, type DraftTransaction } from "./ledger";
@@ -120,7 +121,7 @@ function readDraft(value: unknown): SmsDraft {
 }
 
 function validReadCategory(category: unknown): boolean {
-  return CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "餐饮" || category === "娱乐";
+  return isStoredExpenseCategory(category);
 }
 
 function readConfig(value: unknown): SmsConfig {
@@ -301,7 +302,7 @@ export async function fetchSmsCategoryRules(client: SupabaseClient, userId: stri
 }
 export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal, subcategory?: string): Promise<SmsCategoryRule[]> {
   const platformOnly = typeof merchant === "string" && isPlatformOnlyMerchant(merchant);
-  if (category !== null && platformOnly) throw new Error("美团平台默认归入本地生活，细类未细分；请填写具体门店，不能保存整个平台的分类规则。");
+  if (category !== null && platformOnly) throw new Error("仅显示美团平台，实际用途待确认；请填写具体门店再保存规则。");
   if (typeof merchant !== "string" || merchant.length > 200 || (!merchantKey(merchant) && !(category === null && platformOnly)) || (category !== null && (!canRememberMerchant(merchant) || !CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
   if (subcategory !== undefined && (typeof subcategory !== "string" || !subcategory.trim() || subcategory.length > 40 || subcategory.includes("\u0000"))) throw new Error("请填写有效的细分类，最多 40 字。");
   const response = subcategory !== undefined

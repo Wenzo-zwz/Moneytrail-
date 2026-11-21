@@ -22,7 +22,6 @@ interface SmsAutomationPanelProps {
   projectUrl: string;
   onBack: () => void;
   store: CloudStore;
-  merchantRules?: MerchantRule[];
   onRulesChanged?: () => void;
 }
 type Result = { owner: string; key: string; config: SmsConfig; inbox: SmsInbox };
@@ -37,7 +36,7 @@ function receivedTime(value: string | null) {
   return Number.isFinite(date.getTime()) ? `${dateTime.format(date)}（北京时间）` : "—";
 }
 
-function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; merchantRules: MerchantRule[]; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
+function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<SmsDraft["kind"] | "">(item.draft?.kind ?? "");
   const [amount, setAmount] = useState(item.draft ? (item.draft.amountCents / 100).toFixed(2) : "");
@@ -49,7 +48,7 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
   const [error, setError] = useState("");
   const [explicitChoice, setExplicitChoice] = useState(false);
   const [remember, setRemember] = useState(true);
-  const canRemember = Boolean(item.draft && kind !== "" && item.warnings.length === 0 && canOfferMerchantMemory(item.draft, { ...item.draft, kind, merchant, category, subcategory }, explicitChoice, merchantRules));
+  const canRemember = Boolean(item.draft && kind !== "" && item.warnings.length === 0 && canOfferMerchantMemory(item.draft, { ...item.draft, kind, merchant, category, subcategory }, explicitChoice));
   const pending = item.status === "pending";
   const kindLabel = kinds.find(option => option.value === item.draft?.kind)?.label ?? "交易类型待核对";
   const amountPrefix = item.draft?.kind === "expense" ? "−" : item.draft?.kind === "income" || item.draft?.kind === "refund" ? "+" : "";
@@ -90,7 +89,7 @@ function InboxCard({ item, busy, canConfirm, merchantRules, onConfirm, onDismiss
   </article>;
 }
 
-export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store, merchantRules = [], onRulesChanged }: SmsAutomationPanelProps) {
+export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store, onRulesChanged }: SmsAutomationPanelProps) {
   const syncState = useSyncExternalStore(store.subscribeState, store.getState);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -237,7 +236,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
           <section className="sms-inbox" aria-labelledby="sms-inbox-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2><p>{inbox.total} 条接收记录</p></div><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()} aria-label="刷新收件箱"><RefreshCw size={15} />刷新</button></div>
 
             {config.pending_count > 0 && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
-            {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} merchantRules={merchantRules} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>收入与群收款先待确认 · 相同短信 24 小时内去重</span></div>}
+            {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>收入与群收款先待确认 · 相同短信 24 小时内去重</span></div>}
             {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}
           </section>
         </div>

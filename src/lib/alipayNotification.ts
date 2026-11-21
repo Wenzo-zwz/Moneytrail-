@@ -1,5 +1,5 @@
 import { parseAmount, type Platform } from "./ledger";
-import { classifyMerchant, type MerchantRule } from "./merchantClassification";
+import { classifyMerchant, merchantKey, type MerchantRule } from "./merchantClassification";
 
 /** Input must first be extracted from a real notification by its caller. */
 export type AlipayNotificationInput = { title: string; body: string };
@@ -53,7 +53,7 @@ export function parseAlipayNotification(input: unknown, rules: MerchantRule[] = 
   const classification = classifyMerchant(merchant, rules);
   // The observed purchase format must not reinterpret an uncertain transfer or
   // reversal identity as a new expense. Phone-service purchases remain supported.
-  if (classification.requiresReview) return null;
+  if (!merchantKey(merchant)) return null;
   return {
     kind: "expense", source: "alipay", amountCents, merchant,
     category: classification.category,

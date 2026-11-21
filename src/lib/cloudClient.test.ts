@@ -5,6 +5,7 @@ import {
   pushCloudLedger, readCloudConfig,
 } from "./cloudClient";
 import { emptyData } from "./storage";
+import { setAnnualBudget } from "./reviewBudget";
 
 const project = "https://one.supabase.co";
 const key = "sb_publishable_unit_test";
@@ -69,13 +70,21 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("authenticated ledger transport", () => {
   it("submits matching explicit merchant memory in the same CAS RPC as the ledger", async () => {
-    const transaction = { id: "one", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "星辰小馆", category: "本地生活", subcategory: "堂食", source: "manual" as const, note: "" };
+    const transaction = { id: "one", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "星辰小馆", category: "食品酒水", subcategory: "堂食聚餐", source: "manual" as const, note: "" };
     const data = { ...emptyData(), transactions: [transaction] };
-    const rule = { transactionId: "one", merchant: "星辰小馆", category: "本地生活", subcategory: "堂食" };
+    const rule = { transactionId: "one", merchant: "星辰小馆", category: "食品酒水", subcategory: "堂食聚餐" };
     fetchMock.mockResolvedValue(response([{ data, revision: 2, updated_at: timestamp }]));
     await pushCloudLedger(client, data, 1, userA, undefined, [rule]);
     expect(String(fetchMock.mock.calls[0][0])).toBe(`${project}/rest/v1/rpc/save_moneytrail_ledger_with_rules`);
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ p_data: data, p_expected_revision: 1, p_rules: [rule] });
+  });
+
+  it("includes annual category budgets in the versioned ledger sent to and read from the cloud", async () => {
+    const annualBudgets = setAnnualBudget([], { category: "食品酒水", subcategory: "外卖" }, "2026-10", 240_000);
+    const data = { ...emptyData(), annualBudgets };
+    fetchMock.mockResolvedValue(response([{ data, revision: 5, updated_at: timestamp }]));
+    expect(await pushCloudLedger(client, data, 4, userA)).toEqual({ data, revision: 5, updatedAt: timestamp });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ p_data: data, p_expected_revision: 4 });
   });
   it("binds a read to the captured account bearer and its own row filter", async () => {
     vi.mocked(client.auth.getSession)

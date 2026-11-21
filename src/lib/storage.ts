@@ -1,9 +1,11 @@
+import { parseAnnualBudgets, type AnnualBudget } from "./reviewBudget";
 import { copyTransaction, normalizeTransactionCategory, validateTransaction, type Transaction } from "./ledger";
 
 export type AppData = {
   version: 1;
   transactions: Transaction[];
   budgetCents: number;
+  annualBudgets?: AnnualBudget[];
   billCheckedMonths: string[];
 };
 
@@ -76,6 +78,11 @@ function validateAppData(value: unknown): AppData {
         `第 ${index + 1} 条账目的退款关联无效，原消费必须存在，备份未导入。`,
       );
     }
+    if (transaction.category === "待分类" && original.category !== "待分类") {
+      const { subcategory: _previous, ...refund } = transaction;
+      transactions[index] = { ...refund, category: original.category,
+        ...(original.subcategory ? { subcategory: original.subcategory } : {}) };
+    }
   }
 
   if (
@@ -96,6 +103,7 @@ function validateAppData(value: unknown): AppData {
     transactions,
     budgetCents: value.budgetCents as number,
     billCheckedMonths: [...value.billCheckedMonths] as string[],
+    ...(Object.hasOwn(value, "annualBudgets") ? { annualBudgets: parseAnnualBudgets(value.annualBudgets) } : {}),
   };
 }
 

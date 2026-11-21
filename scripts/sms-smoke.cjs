@@ -22,7 +22,7 @@ const PASSWORD = "Fixture-password-123!";
 const RAW = "尾号xxxx卡10月22日19:27支出(转账财付通-群收款)30.90元，余额8xxxx元。【工商银行】";
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const empty = () => ({ version: 1, transactions: [], budgetCents: 0, billCheckedMonths: [] });
-const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "本地生活", subcategory: "餐饮", source: "manual", note: "保留原账目" };
+const manual = { id: "existing-manual", kind: "expense", amountCents: 5800, date: "2026-10-22T10:30", merchant: "已有消费", category: "食品酒水", subcategory: "堂食聚餐", source: "manual", note: "保留原账目" };
 let checks = 0;
 const passed = (message) => { checks += 1; process.stdout.write(`PASS ${message}\n`); };
 
@@ -72,14 +72,14 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
   }
   if (groupedBalancePending) {
     const id = "35000000-0000-4000-8000-000000000001";
-    const draft = { kind: "expense", amountCents: 37500, date: "2026-10-23T09:47", merchant: "消费支付宝-阿里健康大药房医药连锁有限公", category: "医疗", source: "sms", note: "" };
+    const draft = { kind: "expense", amountCents: 37500, date: "2026-10-23T09:47", merchant: "消费支付宝-阿里健康大药房医药连锁有限公", category: "医疗保健", source: "sms", note: "" };
     ordinaryIds.add(id); reprocessedDrafts.set(id, draft);
     inboxes.get(OWNER).unshift({ id, received_at: "2026-10-23T01:47:24Z", status: "pending", raw_text: "尾号xxxx卡10月23日09:47支出(消费支付宝-阿里健康大药房医药连锁有限公)375元，余额12,345.94元。【工商银行】", draft: null, warnings: [], reason: "暂不支持这条短信的格式，请手动核对后记账。", transaction_id: null });
     configs.set(OWNER, { ...configs.get(OWNER), enabled: true, created_at: "2026-10-22T11:00:00Z", last_received_at: "2026-10-23T01:47:24Z" });
     ledgers.get(OWNER).data.billCheckedMonths.push("2026-10");
   }
   if (ordinaryPending) {
-    const examples = [["街角咖啡店", 1200, "本地生活"], ["滴滴出行", 2350, "交通"], ["美团外卖", 880, "本地生活"], ["某某便利店", 1680, "购物"]];
+    const examples = [["街角咖啡店", 1200, "食品酒水"], ["滴滴打车", 2350, "交通出行"], ["美团外卖", 880, "食品酒水"], ["社区日用品店", 1680, "居住与家用"]];
     const records = examples.map(([merchant, amountCents, category], index) => {
       const id = `34000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
       ordinaryIds.add(id); reprocessedDrafts.set(id, { kind: "expense", amountCents, date: `2026-10-22T19:1${index}`, merchant, category, source: "sms", note: "" });
@@ -325,7 +325,7 @@ async function ownerWorkflow(browser) {
     await group.getByRole("button", { name: "核对并记录", exact: true }).click();
     await page.screenshot({ path: path.join(ARTIFACTS, "desktop-sms.png"), fullPage: true, animations: "disabled" });
     await group.getByLabel("商户或用途", { exact: true }).fill("朋友聚餐AA");
-    await group.getByRole("combobox", { name: /^分类/ }).selectOption("本地生活");
+    await group.getByRole("combobox", { name: /^分类/ }).selectOption("食品酒水");
     await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     await until(() => backend.ledgers.get(OWNER).data.transactions.length === 2, "confirmed SMS append");
     assert.deepEqual(backend.ledgers.get(OWNER).data.transactions[0], manual);
@@ -466,7 +466,7 @@ async function reprocessWorkflow(browser) {
     await until(async () => await page.locator(".sms-message.recorded").count() === 4, "refreshed inbox");
     const book = backend.ledgers.get(OWNER).data;
     assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 5); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]);
-    assert.deepEqual(book.transactions.slice(1).map(t => t.category), ["本地生活", "交通", "本地生活", "购物"]);
+    assert.deepEqual(book.transactions.slice(1).map(t => t.category), ["食品酒水", "交通出行", "食品酒水", "居住与家用"]);
     assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending"); assert.equal(backend.inboxes.get(OWNER).find(item => item.id === OTHER).status, "pending");
     const request = backend.requests.find(request => request.path.endsWith("moneytrail_sms_apply_pending")); assert.equal(request.body.p_items.length, 4);
     assert(backend.inboxes.get(OWNER).filter(item => item.status === "recorded").every(item => item.raw_text === null));
@@ -488,8 +488,8 @@ async function groupedBalanceReprocessWorkflow(browser) {
     await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).click();
     await until(async () => /已入账 1 笔，仍有 2 笔待确认/.test(await page.locator(".sms-notice").innerText()), "pharmacy apply");
     const recorded = page.locator(".sms-message.recorded").filter({ hasText: "阿里健康大药房" }); await recorded.waitFor(); assert((await recorded.innerText()).includes("375.00"));
-    const book = backend.ledgers.get(OWNER).data; assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 2); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]); assert.equal(book.transactions[1].category, "医疗"); assert.equal(book.transactions[1].amountCents, 37500);
-    const item = backend.inboxes.get(OWNER).find(item => item.id === pharmacyId); assert.equal(item.raw_text, null); assert.equal(item.draft.category, "医疗");
+    const book = backend.ledgers.get(OWNER).data; assert.deepEqual(book.transactions[0], manual); assert.equal(book.transactions.length, 2); assert.equal(book.budgetCents, 900000); assert.deepEqual(book.billCheckedMonths, ["2026-09"]); assert.equal(book.transactions[1].category, "医疗保健"); assert.equal(book.transactions[1].amountCents, 37500);
+    const item = backend.inboxes.get(OWNER).find(item => item.id === pharmacyId); assert.equal(item.raw_text, null); assert.equal(item.draft.category, "医疗保健");
     assert.equal(backend.inboxes.get(OWNER).find(item => item.id === GROUP).status, "pending"); assert.equal(backend.requests.filter(r => r.path.endsWith("moneytrail_sms_confirm")).length, 0);
     await page.getByRole("button", { name: "预览待确认短信", exact: true }).click(); await page.getByText("待确认预览：可入账 0 笔，保留确认 2 笔").waitFor(); assert.equal(await page.getByRole("button", { name: "确认应用可入账记录", exact: true }).isEnabled(), false);
     await noOverflow(page, "393px grouped balance preview"); await page.screenshot({ path: path.join(ARTIFACTS, "mobile-pharmacy-reprocessed-393.png"), fullPage: true, animations: "disabled" });
@@ -668,7 +668,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
       const group = page.locator(".sms-message").filter({ hasText: "财付通-群收款" });
       await group.getByRole("button", { name: "核对并记录", exact: true }).click();
       await group.getByLabel("商户或用途", { exact: true }).fill("核对后的消费");
-      await group.getByRole("combobox", { name: /^分类/ }).selectOption("购物");
+      await group.getByRole("combobox", { name: /^分类/ }).selectOption("居住与家用");
       backend.ledgerRead.fail = true;
       await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     }
