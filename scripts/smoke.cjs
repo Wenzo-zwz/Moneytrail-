@@ -458,6 +458,56 @@ async function localLifeDetailsAndEvidence(browser) {
   }
 }
 
+async function mobileCategoryChartWorkflow(browser) {
+  const { page, context, errors } = await fixture(browser, true);
+  try {
+    await page.setViewportSize({ width: 320, height: 740 });
+    await page.evaluate(({ key }) => {
+      const base = { kind: "expense", date: "2026-10-22T12:30", source: "manual", note: "" };
+      localStorage.setItem(key, JSON.stringify({
+        version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [
+          { ...base, id: "housing", category: "居住与家用", merchant: "测试房租", amountCents: 838015 },
+          { ...base, id: "food", category: "食品酒水", merchant: "测试餐馆", amountCents: 106440 },
+          { ...base, id: "pending-a", category: "待分类", merchant: "待整理消费", amountCents: 354000 },
+          { ...base, id: "pending-b", category: "待分类", merchant: "待整理退款", kind: "refund", amountCents: 541 },
+          { ...base, id: "transfer", category: "待分类", merchant: "本人转账", kind: "transfer", amountCents: 50000 },
+        ],
+      }));
+    }, { key: KEY });
+    await page.reload({ waitUntil: "networkidle" });
+    const chart = page.locator(".panel").filter({ has: page.getByRole("heading", { name: "钱都花在哪了", exact: true }) });
+    const row = chart.locator(".category-row").filter({ hasText: "居住与家用" });
+    const name = await row.locator(".category-name").boundingBox();
+    const amount = await row.locator(".category-amount").boundingBox();
+    const bar = await row.locator(".category-bar").boundingBox();
+    assert(name && amount && bar, "long category label, amount, and bar are visible");
+    assert(Math.abs(name.y - amount.y) < 2 && amount.x >= name.x + name.width, "the category label and amount fit on the first row");
+    assert(bar.y >= Math.max(name.y + name.height, amount.y + amount.height) + 1, "the category bar is on its own row below the label and amount");
+    assert.equal(await chart.locator(".category-row").filter({ hasText: "待分类" }).count(), 0);
+    const pending = chart.locator(".category-pending");
+    await pending.getByText(/2\s*笔/).waitFor();
+    await pending.getByText(/3,534[.]59/).waitFor();
+    await money(page, ".hero-amount", 12979.14);
+    await noOverflow(page, "320px category chart");
+
+    await go(page, "账目", true);
+    await page.getByLabel("搜索商户或备注").fill("旧搜索");
+    await page.getByLabel("筛选分类").selectOption("居住与家用");
+    await page.getByLabel("筛选记录类型").selectOption("income");
+    await go(page, "总览", true);
+    await pending.getByRole("button", { name: "去整理", exact: true }).click();
+    assert.equal(await page.getByLabel("筛选分类").inputValue(), "待分类");
+    assert.equal(await page.getByLabel("搜索商户或备注").inputValue(), "");
+    assert.equal(await page.getByLabel("筛选记录类型").inputValue(), "spending");
+    const records = await page.locator(".transaction-row .transaction-title").allTextContents();
+    assert.deepEqual(records.sort(), ["待整理消费", "待整理退款"]);
+    assert.deepEqual(errors, []);
+    passed("320px category chart pairs names with amounts and opens the pending expenses and refunds from its action");
+  } finally {
+    await context.close();
+  }
+}
+
 async function annualCategoryBudgetWorkflow(browser) {
   const { page, context, errors } = await fixture(browser, true);
   try {
@@ -918,6 +968,7 @@ async function staleEditorRegression(browser) {
         : {}),
       args: ["--no-sandbox"],
     });
+    await mobileCategoryChartWorkflow(browser);
     await fullWorkflow(browser);
     await mobileWorkflow(browser);
     await localLifeDetailsAndEvidence(browser);
