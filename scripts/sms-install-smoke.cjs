@@ -80,6 +80,15 @@ async function publishedSmsWorkflow(browser,app){
   assert.equal(await compatibility.evaluate(element=>element.open),false);
   const advanced=guide.getByText('高级配置：本机规则缓存与更新',{exact:true}).locator('..');
   assert.equal(await advanced.evaluate(element=>element.open),false);
+  assert.equal(await guide.getByText('仅接收支出：旧版模板与配置',{exact:true}).count(),0);
+  assert.equal(await guide.getByRole('button',{name:'刷新接收状态',exact:true}).count(),0);
+  assert.equal(await guide.getByText('服务器最近接收',{exact:true}).count(),0);
+  assert.equal(await page.locator('summary').filter({hasText:'iPhone 配置步骤'}).count(),0);
+  const ruleStatus=advanced.locator('[aria-label="银行规则发布状态"]');
+  assert.equal(await ruleStatus.isVisible(),false);
+  await advanced.locator('summary').first().click();
+  await ruleStatus.getByRole('button',{name:'检查网页规则版本',exact:true}).waitFor();
+  await advanced.locator('summary').first().click();
   await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();
   const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});
   const install=modal.getByRole('link',{name:'打开收支模板安装页',exact:true});
@@ -94,7 +103,11 @@ async function publishedSmsWorkflow(browser,app){
   await popup.close();
   await modal.getByRole('button',{name:'我已保存',exact:true}).click();
   assert.equal(await guide.getByRole('link',{name:'安装收支快捷指令',exact:true}).getAttribute('href'),smsProfile.url);
+  assert.equal(await guide.getByRole('link',{name:'安装收支快捷指令',exact:true}).count(),1);
+  await page.getByRole('button',{name:'刷新收件箱',exact:true}).click();
+  assert.equal(service.secrets.length,1,'the remaining receipt refresh must not rotate the token');
   await safe(page,service,errors);
+  await page.screenshot({path:path.join(OUT,'install-single-320.png'),fullPage:true,animations:'disabled'});
   passed('published single shortcut: direct trigger instructions and token-free installer for every bank');
  }finally{await context.close();}
 }
@@ -206,10 +219,18 @@ async function publishedRulesWorkflow(browser,app){
  const requests=[];let fail=true;
  try{
   await context.route('**/shortcuts/bank-rules.json',async route=>{const request=route.request();requests.push(request);if(fail)return route.fulfill({status:503,contentType:'application/json',body:'{}'});return route.continue();});
-  await login(page);const status=page.getByRole('region',{name:'银行规则发布状态',exact:true});
+  await login(page);
+  const advanced = page.getByText('高级配置：本机规则缓存与更新',{exact:true});
+  await advanced.click();
+  const status=page.getByRole('region',{name:'银行规则发布状态',exact:true});
   await status.getByText('规则版本读取未完成。现有快捷指令与收件箱继续按原配置运行，可稍后重试。',{exact:true}).waitFor();
   await page.getByRole('heading',{name:'等待第一条银行交易短信',exact:true}).waitFor();
+  const inboxReads = () => service.requests.filter(request=>request.path.endsWith('/moneytrail_sms_inbox')).length;
+  const beforeRefresh = inboxReads();
   await page.getByRole('button',{name:'刷新接收状态',exact:true}).click();
+  await until(()=>inboxReads()>beforeRefresh,'receipt refresh should still work when the rules are unavailable');
+  await advanced.waitFor();
+  if(!await advanced.evaluate(element=>element.parentElement.open))await advanced.click();
   assert.equal(service.secrets.length,0,'checking a rule version cannot rotate a personal token');
   fail=false;await status.getByRole('button',{name:'检查网页规则版本',exact:true}).click();
   await status.getByText(/网页已发布规则 v1/).waitFor();

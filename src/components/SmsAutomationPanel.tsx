@@ -1,7 +1,6 @@
 import SmsClassificationTools from "./SmsClassificationTools";
 import SmsShortcutSetup from "./SmsShortcutSetup";
 import SmsActivitySummary from "./SmsActivitySummary";
-import BankRuleStatus from "./BankRuleStatus";
 import { getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
 import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
 import { categoryText, DetailField } from "./TransactionMetadata";
@@ -115,7 +114,8 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const loading = !current && !currentFailure;
   const token = secret?.owner === userId ? secret.value : "";
   const selectedSetupBank = setupBank.owner === userId ? setupBank.code : "icbc";
-  const selectedActivityTemplate = getReleasedBankSmsV4(projectUrl) ?? getCompatibleBankActivityTemplate(projectUrl, selectedSetupBank);
+  const simpleTemplate = getReleasedBankSmsV4(projectUrl);
+  const selectedActivityTemplate = simpleTemplate ?? getCompatibleBankActivityTemplate(projectUrl, selectedSetupBank);
   const selectedTemplate = selectedActivityTemplate ?? getCompatibleSmsShortcutTemplate(projectUrl, selectedSetupBank);
   const canConfirm = syncState.ready && !syncState.dirty && syncState.phase === "saved" && !syncState.recoveryError;
   const canRefreshLedger = syncState.ready && !syncState.dirty && syncState.phase !== "conflict" && !syncState.recoveryError;
@@ -224,15 +224,14 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
             <p className="sms-forward-consent">启用表示你同意：由自己配置的 iPhone 自动化，将筛选后的银行收支短信转发至当前慢慢记账账户。请勿转发验证码或其他私人短信。</p>
             <div className="sms-setup-actions">{config.enabled ? <><button className="button primary" disabled={busy || mode === config.mode} onClick={() => void run(async signal => { await setSmsMode(client, userId, mode, signal); return "记录方式已更新，仅对之后收到的短信生效。"; })}>保存记录方式</button><button className="button secondary" disabled={busy} onClick={() => void createToken()}><KeyRound size={15} />更换接入令牌</button><button className="button ghost" disabled={busy} onClick={() => void run(async signal => { await revokeSmsToken(client, userId, signal); clearSecret(); return "已停用接入，手机里的旧令牌立即失效。已有待确认短信仍可处理。"; })}>停用接入</button></> : <button className="button primary" disabled={busy} onClick={() => void createToken()}><KeyRound size={16} />同意转发并启用</button>}</div>
             <SmsShortcutSetup projectUrl={projectUrl} config={config} busy={busy} bankCode={selectedSetupBank} onBankChange={code => setSetupBank({ owner: userId, code })} onRefresh={() => void refreshInbox()} />
-            <BankRuleStatus projectUrl={projectUrl} />
-            <details className="sms-guide"><summary><span><Smartphone size={17} />iPhone 配置步骤</span><ChevronDown size={16} /></summary><div>
+            {!simpleTemplate && <details className="sms-guide"><summary><span><Smartphone size={17} />iPhone 配置步骤</span><ChevronDown size={16} /></summary><div>
               <p className="sms-guide-intro">以下为高级手动配置。收入接入使用上方收支新版；旧工行和农中建安装链接仅用于支出。其他部署需按当前项目地址和公开密钥制作配套指令，以下网络字段共用。</p>
               <p className="sms-guide-intro">新收支自动化使用实际发件人、完整短信输入和本地收支筛选。创建个人自动化后，新短信才能触发；网站无法直接读取短信历史。</p>
               <ol><li>打开 iPhone「快捷指令」→「自动化」→「＋」→「信息」。发件人选择银行短信的实际号码，“信息包含”留空，选择「立即运行」。</li><li>添加「从输入中获取文本」，输入选择「快捷指令输入／信息正文」。使用配套收支模板的「匹配文本」规则核对唯一银行来源与交易动作，排除验证码；仅在匹配有值时继续网络请求。</li><li>添加「获取 URL 内容」，填入下方接收地址，方法选 <strong>POST</strong>，请求体选 <strong>JSON</strong>。添加两个文本字段：<code>p_token</code> 填刚保存的接入令牌；<code>p_message</code> 选择上一步的短信文本变量。</li><li>在请求头添加 <code>apikey</code>，值填下方公开密钥；添加 <code>Content-Type</code>，值为 <code>application/json</code>。保存自动化。</li><li>下一条真实银行交易短信到达后，打开这里点击「刷新收件箱」，核对最近接收时间、金额与状态。请勿为了测试通知而提交虚构交易。</li></ol>
               <div className="sms-copy-field"><span>接收地址</span><code>{endpoint}</code><button className="button secondary small" onClick={() => void copy(endpoint, "接收地址已复制。")}><Copy size={14} />复制接收地址</button></div>
               <div className="sms-copy-field"><span>公开密钥（apikey）</span>{publicConfig?.url === projectUrl.replace(/\/$/, "") ? <><code>{publicConfig.publishableKey}</code><button className="button secondary small" onClick={() => void copy(publicConfig.publishableKey, "公开密钥已复制。")}><Copy size={14} />复制公开密钥</button></> : <p>请使用此 Supabase 项目的 Publishable key。不要填写 Secret key。</p>}</div>
               <p className="sms-guide-footnote">接入令牌仅允许提交短信，不能读取账本。请保存在自己的快捷指令中，不要分享。离线发送失败不会自动补传，已有短信也不会自动导入；漏记时仍可粘贴短信补录。</p>
-            </div></details>
+            </div></details>}
           </section>
 
           <section className="sms-inbox" aria-labelledby="sms-inbox-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2><p>{inbox.total} 条接收记录</p></div><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()} aria-label="刷新收件箱"><RefreshCw size={15} />刷新</button></div>

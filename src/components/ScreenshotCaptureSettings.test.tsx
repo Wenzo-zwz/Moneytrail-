@@ -16,6 +16,8 @@ describe("published screenshot setup", () => {
     expect(html).toContain("安装截图记账快捷指令");
     expect(html).toContain("MoneyTrail截图记账");
     expect(html).toContain("无需填写接入令牌");
+    expect(html).not.toContain("配置 iPhone 截图快捷指令");
+    expect(html).not.toContain("复制地址前缀");
   });
   it("keeps another deployment on its own manual capture address", () => {
     vi.stubGlobal("location", { protocol: "https:", origin: "https://example.test" });

@@ -1866,7 +1866,7 @@ export default function App({
               </div>
             {page === "settings" && (
               <div className="page settings-grid">
-                <QuickStartSettings projectUrl={cloudProjectUrl} onSmsAutomation={onSmsAutomation} onScreenshotSetup={() => setScreenshotSetupOpen(true)} onRecord={() => setEditor({ draft: newDraft() })} onBudget={startBudget} />
+                <QuickStartSettings projectUrl={cloudProjectUrl} onSmsAutomation={onSmsAutomation} onScreenshotSetup={() => setScreenshotSetupOpen(true)} />
                 {accountPanel}
                 <AppUpdateSettings />
                 <section className="setting-card">
@@ -1906,6 +1906,7 @@ export default function App({
                   <p className="help-text">截图在手机上提取文字，图片不上传；账单文件在本机解析。{cloudMode ? "确认保存的账目会同步到当前账户。短信自动记账会将筛选后的短信正文发送到服务器解析，待确认期间保留原文，入账后移除原文并保留脱敏凭据。" : "此模式新建或导入的账目不上传，也不提供云端短信接入操作。连接账户时，本机账本仍需你确认迁移后才会上传。"}</p>
                   {!cloudMode && <p className="help-text">切换本机模式不会停用手机上已配置的短信自动化。若要停止短信上传，请先在账号短信设置停用接入，或关闭对应自动化。</p>}
                   {!cloudMode && <p className="help-text">{backupMetadata?.lastExportAt ? `上次发起完整备份下载：${new Date(backupMetadata.lastExportAt).toLocaleString("zh-CN")}` : "尚无完整备份下载记录。提醒会在打开应用时检查，不会在网页关闭后主动推送。"}</p>}
+                  <p className="help-text">CSV 适合用表格查看。完整 JSON 备份会保留账目、预算、原始来源和退款关联，可用来恢复账本。</p>
                   <div className="form-actions">
                     <button
                       className="button primary"
@@ -1921,22 +1922,19 @@ export default function App({
                       <ArrowDownToLine size={17} />
                       恢复备份
                     </button>
-                  </div>
-                </section>
-                <section className="setting-card">
-                  <div className="setting-heading">
-                    <Smartphone size={23} />
-                    <h2>在 iPhone 上使用</h2>
-                  </div>
-                  <p>
-                    使用 Safari
-                    打开已部署的网站，点“分享”，再选择“添加到主屏幕”。
-                  </p>
-                  <p className="help-text">
-                    {cloudMode ? "首次联网登录并读取账本后可离线记账，联网后同步。账单文件在本机解析，经你确认保存的记录会同步至当前账户。" : "首次联网加载后，生产版本支持离线记账。数据保存在本机，导入的账单不会上传到服务器。"}
-                  </p>
-                  <div className="notice warning">
-                    {onSmsAutomation ? "短信自动接收需要在 iPhone 快捷指令中配置一次。仅明确识别的工行消费可自动入账，群收款和不明确的记录每次待确认。" : "当前支持粘贴短信与账单导入。登录云端账户后可配置 iPhone 快捷指令接收短信。"}
+                    <button
+                      className="button secondary"
+                      disabled={!data.transactions.length}
+                      onClick={() =>
+                        download(
+                          exportCsv(data.transactions),
+                          "moneytrail-全部账目.csv",
+                          "text/csv;charset=utf-8",
+                        )
+                      }
+                    >
+                      导出全部 CSV
+                    </button>
                   </div>
                 </section>
                 <section className="setting-card">
@@ -1954,29 +1952,6 @@ export default function App({
                   <p className="help-text">
                     相同来源交易编号会跳过重复导入；其他相近记录只给出提醒，不会自动删除。
                   </p>
-                </section>
-                <section className="setting-card">
-                  <div className="setting-heading">
-                    <ArrowUpToLine size={23} />
-                    <h2>带走你的账本</h2>
-                  </div>
-                  <p>
-                    CSV 适合表格查看；完整 JSON
-                    备份可以恢复记录、预算、原始来源及退款关联。
-                  </p>
-                  <button
-                    className="button secondary"
-                    disabled={!data.transactions.length}
-                    onClick={() =>
-                      download(
-                        exportCsv(data.transactions),
-                        "moneytrail-全部账目.csv",
-                        "text/csv;charset=utf-8",
-                      )
-                    }
-                  >
-                    导出全部 CSV
-                  </button>
                 </section>
                 <section className="setting-card">
                   <div className="setting-heading">
