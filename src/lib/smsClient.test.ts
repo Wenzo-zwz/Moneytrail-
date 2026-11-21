@@ -98,15 +98,15 @@ describe("account-bound SMS automation transport", () => {
     const value = inbox(); Object.assign(value.items[0].draft!, metadata, { category: "本地生活" });
     fetchMock.mockResolvedValueOnce(response(value)).mockResolvedValueOnce(response({ status: "recorded", transaction_id: `sms-${inboxId}` }));
     const received = (await fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).items[0].draft!;
-    expect(received).toEqual(value.items[0].draft);
+    expect(received).toEqual({ ...value.items[0].draft, category: "食品酒水" });
     await confirmSms(client, alice, inboxId, { ...received, subcategory: "堂食" });
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).p_draft).toEqual({ ...received, subcategory: "堂食" });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).p_draft).toEqual({ ...received, subcategory: "堂食聚餐" });
   });
 
   it("normalizes legacy response categories while retaining explicit details", async () => {
     const value = inbox(); Object.assign(value.items[0].draft!, { category: "餐饮" });
     fetchMock.mockResolvedValueOnce(response(value));
-    expect((await fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).items[0].draft).toMatchObject({ category: "本地生活", subcategory: "餐饮" });
+    expect((await fetchSmsInbox(client, alice, { page: 1, pageSize: 20 })).items[0].draft).toMatchObject({ category: "食品酒水", subcategory: "堂食聚餐" });
   });
 
   it.each([
@@ -228,7 +228,7 @@ describe("account-bound SMS automation transport", () => {
   it("explains merchant rule capacity without exposing backend diagnostics", async () => {
     const { setSmsCategoryRule } = await import("./smsClient");
     fetchMock.mockResolvedValue(response({ code: "54000", message: "PRIVATE" }, 400));
-    await expect(setSmsCategoryRule(client, alice, "星辰小馆", "本地生活")).rejects.toThrow("商户规则已达上限");
+    await expect(setSmsCategoryRule(client, alice, "星辰小馆", "食品酒水")).rejects.toThrow("商户规则已达上限");
   });
 
   it("rejects invalid inputs before session access or network calls", async () => {
@@ -300,20 +300,20 @@ describe("classification RPCs", () => {
     const { fetchSmsCategoryRules } = await import("./smsClient");
     const rules = [{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }, { merchant: "巷口咖啡", category: "本地生活", subcategory: "未细分" }, { merchant: "示例饭馆", category: "餐饮" }, { merchant: "示例俱乐部", category: "娱乐" }];
     fetchMock.mockResolvedValueOnce(response({ rules }));
-    expect(await fetchSmsCategoryRules(client, alice)).toEqual([rules[0], rules[1], { merchant: "示例饭馆", category: "本地生活", subcategory: "餐饮" }, { merchant: "示例俱乐部", category: "本地生活", subcategory: "休闲娱乐" }]);
+    expect(await fetchSmsCategoryRules(client, alice)).toEqual([{ ...rules[0], category: "交通出行" }, { ...rules[1], category: "待分类" }, { merchant: "示例饭馆", category: "食品酒水", subcategory: "堂食聚餐" }, { merchant: "示例俱乐部", category: "休闲娱乐", subcategory: "休闲娱乐" }]);
   });
   it("saves detail through the new RPC and keeps category-only calls compatible", async () => {
     const { setSmsCategoryRule } = await import("./smsClient");
-    fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }] })).mockResolvedValueOnce(response({ rules: [] }));
-    expect(await setSmsCategoryRule(client, alice, "消费抖音支付-北京轨道交通", "交通", undefined, "公共交通")).toEqual([{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }]);
-    await setSmsCategoryRule(client, alice, "北京轨道交通", "交通");
+    fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant: "北京轨道交通", category: "交通出行", subcategory: "公共交通" }] })).mockResolvedValueOnce(response({ rules: [] }));
+    expect(await setSmsCategoryRule(client, alice, "消费抖音支付-北京轨道交通", "交通出行", undefined, "公共交通")).toEqual([{ merchant: "北京轨道交通", category: "交通出行", subcategory: "公共交通" }]);
+    await setSmsCategoryRule(client, alice, "北京轨道交通", "交通出行");
     expect(fetchMock.mock.calls.map(([url, init]) => ({ path: new URL(String(url)).pathname, body: JSON.parse(String(init?.body)) }))).toEqual([
-      { path: "/rest/v1/rpc/moneytrail_sms_set_merchant_rule", body: { p_merchant: "消费抖音支付-北京轨道交通", p_category: "交通", p_subcategory: "公共交通" } },
-      { path: "/rest/v1/rpc/moneytrail_sms_set_category_rule", body: { p_merchant: "北京轨道交通", p_category: "交通" } },
+      { path: "/rest/v1/rpc/moneytrail_sms_set_merchant_rule", body: { p_merchant: "消费抖音支付-北京轨道交通", p_category: "交通出行", p_subcategory: "公共交通" } },
+      { path: "/rest/v1/rpc/moneytrail_sms_set_category_rule", body: { p_merchant: "北京轨道交通", p_category: "交通出行" } },
     ]);
   });
   it("confirms and remembers a concrete merchant atomically only when requested", async () => {
-    const saved = { ...draft(), merchant: "消费抖音支付-北京轨道交通", category: "交通", subcategory: "未细分" };
+    const saved = { ...draft(), merchant: "消费抖音支付-北京轨道交通", category: "交通出行", subcategory: "未细分" };
     fetchMock.mockImplementation(async () => response({ status: "recorded", transaction_id: `sms-${inboxId}` }));
     await confirmSms(client, alice, inboxId, saved, undefined, true);
     await confirmSms(client, alice, inboxId, saved, undefined, false);
@@ -325,15 +325,15 @@ describe("classification RPCs", () => {
   it("rejects unsafe remembering and invalid detail before session access", async () => {
     const { setSmsCategoryRule } = await import("./smsClient");
     for (const merchant of ["待补充商户", "京东", "滴滴", "抖音支付", "财付通-群收款"]) {
-      await expect(setSmsCategoryRule(client, alice, merchant, "购物")).rejects.toThrow();
-      await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant, category: "购物" }, undefined, true)).rejects.toThrow();
+      await expect(setSmsCategoryRule(client, alice, merchant, "其他")).rejects.toThrow();
+      await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant, category: "其他" }, undefined, true)).rejects.toThrow();
     }
     for (const kind of ["refund", "transfer", "income"] as const) {
-      await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant: "示例商店", category: "购物", kind }, undefined, true)).rejects.toThrow();
+      await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant: "示例商店", category: "其他", kind }, undefined, true)).rejects.toThrow();
     }
     await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant: "示例商店" }, undefined, true)).rejects.toThrow();
     for (const subcategory of ["", " ", "x".repeat(41), "x\u0000"]) {
-      await expect(setSmsCategoryRule(client, alice, "示例商店", "购物", undefined, subcategory)).rejects.toThrow();
+      await expect(setSmsCategoryRule(client, alice, "示例商店", "其他", undefined, subcategory)).rejects.toThrow();
     }
     expect(client.auth.getSession).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -341,12 +341,12 @@ describe("classification RPCs", () => {
   it("explains missing upgraded RPCs when remembering a merchant", async () => {
     const { setSmsCategoryRule } = await import("./smsClient");
     fetchMock.mockImplementation(async () => response({ code: "PGRST202" }, 404));
-    await expect(setSmsCategoryRule(client, alice, "北京轨道交通", "交通", undefined, "公共交通")).rejects.toBeInstanceOf(SmsUpgradeError);
-    await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant: "北京轨道交通", category: "交通" }, undefined, true)).rejects.toBeInstanceOf(SmsUpgradeError);
+    await expect(setSmsCategoryRule(client, alice, "北京轨道交通", "交通出行", undefined, "公共交通")).rejects.toBeInstanceOf(SmsUpgradeError);
+    await expect(confirmSms(client, alice, inboxId, { ...draft(), merchant: "北京轨道交通", category: "交通出行" }, undefined, true)).rejects.toBeInstanceOf(SmsUpgradeError);
   });
   it("retains optional metadata in pending previews and batch apply", async () => {
     const api = await import("./smsClient");
-    const metadataDraft = { ...draft(), category: "本地生活", subcategory: "外卖", platform: "美团" as const, smsEvidence: { text: "卡尾号****，消费30.90元，余额****。", classificationReason: "平台及外卖用途", ruleVersion: "local-life-v1" } };
+    const metadataDraft = { ...draft(), category: "食品酒水", subcategory: "外卖", platform: "美团" as const, smsEvidence: { text: "卡尾号****，消费30.90元，余额****。", classificationReason: "平台及外卖用途", ruleVersion: "local-life-v1" } };
     const item = { id: inboxId, draft: metadataDraft, eligible: true, reason: "明确用途" };
     fetchMock.mockResolvedValueOnce(response({ items: [item], recordable_count: 1, pending_count: 1 })).mockResolvedValueOnce(response({ recorded_count: 1, pending_count: 0 }));
     const preview = await api.previewPendingSms(client, alice);
@@ -357,7 +357,7 @@ describe("classification RPCs", () => {
   it.each(["美团", "消费美团支付-美团北京三快在线科技有限公司", "北京三快科技有限公司", "美团支付"])("rejects a platform-wide category rule for %s before IO", async merchant => {
     const api = await import("./smsClient");
     fetchMock.mockResolvedValue(response({ rules: [] }));
-    await expect(api.setSmsCategoryRule(client, alice, merchant, "本地生活")).rejects.toThrow("平台默认归入本地生活，细类未细分");
+    await expect(api.setSmsCategoryRule(client, alice, merchant, "休闲娱乐")).rejects.toThrow("实际用途待确认");
     expect(client.auth.getSession).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -371,17 +371,17 @@ describe("classification RPCs", () => {
     const api = await import("./smsClient");
     for (const merchant of ["美团酒店", "美团-巷口咖啡", "示例科技有限公司"]) {
       fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant, category: "娱乐" }] }));
-      expect(await api.setSmsCategoryRule(client, alice, merchant, "本地生活")).toEqual([{ merchant, category: "本地生活", subcategory: "休闲娱乐" }]);
+      expect(await api.setSmsCategoryRule(client, alice, merchant, "休闲娱乐")).toEqual([{ merchant, category: "休闲娱乐", subcategory: "休闲娱乐" }]);
     }
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
   it("reads rules, previews without writes and applies exactly the selected drafts", async () => {
     const api = await import("./smsClient");
-    const item = { id: inboxId, draft: { ...draft(), merchant: "滴滴", category: "交通" }, eligible: true, reason: "交通商户" };
-    fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant: "滴滴", category: "交通" }] }))
+    const item = { id: inboxId, draft: { ...draft(), merchant: "滴滴", category: "交通出行" }, eligible: true, reason: "交通商户" };
+    fetchMock.mockResolvedValueOnce(response({ rules: [{ merchant: "滴滴", category: "交通出行" }] }))
       .mockResolvedValueOnce(response({ items: [item], recordable_count: 1, pending_count: 1 }))
       .mockResolvedValueOnce(response({ recorded_count: 1, pending_count: 0 }));
-    expect(await api.fetchSmsCategoryRules(client, alice)).toEqual([{ merchant: "滴滴", category: "交通" }]);
+    expect(await api.fetchSmsCategoryRules(client, alice)).toEqual([{ merchant: "滴滴", category: "交通出行" }]);
     expect((await api.previewPendingSms(client, alice)).items).toEqual([item]);
     expect(await api.applyPendingSms(client, alice, [{ id: item.id, draft: item.draft }])).toEqual({ recorded_count: 1, pending_count: 0 });
     expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ p_items: [{ id: item.id, draft: item.draft }] });
@@ -391,7 +391,7 @@ describe("classification RPCs", () => {
     const api = await import("./smsClient");
     await expect(api.applyPendingSms(client, alice, [])).rejects.toThrow();
     await expect(api.applyPendingSms(client, alice, [{ id: inboxId, draft: draft() }, { id: inboxId, draft: draft() }])).rejects.toThrow();
-    await expect(api.setSmsCategoryRule(client, alice, "财付通-群收款", "购物")).rejects.toThrow();
+    await expect(api.setSmsCategoryRule(client, alice, "财付通-群收款", "其他")).rejects.toThrow();
     expect(fetchMock).not.toHaveBeenCalled();
     fetchMock.mockResolvedValueOnce(response({ items: [{ id: inboxId, draft: null, eligible: true, reason: "x" }], recordable_count: 1, pending_count: 1 }));
     await expect(api.previewPendingSms(client, alice)).rejects.toThrow("格式不正确");
@@ -409,17 +409,17 @@ describe("classification RPCs", () => {
 });
 
 it.each([
-  { rules: [{ merchant: "", category: "购物" }] },
+  { rules: [{ merchant: "", category: "其他" }] },
   { rules: [{ merchant: "店铺", category: "待分类" }] },
   { rules: [{ merchant: "店铺", category: "未知" }] },
-  { rules: [{ merchant: "店铺", category: "购物", owner: alice }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: "" }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: " " }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: "x".repeat(41) }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: null }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: 1 }] },
-  { rules: [{ merchant: "店铺", category: "购物", subcategory: "x\u0000" }] },
-  { rules: [{ merchant: "店铺", category: "购物" }, { merchant: "店铺", category: "购物" }] },
+  { rules: [{ merchant: "店铺", category: "其他", owner: alice }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: "" }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: " " }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: "x".repeat(41) }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: null }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: 1 }] },
+  { rules: [{ merchant: "店铺", category: "其他", subcategory: "x\u0000" }] },
+  { rules: [{ merchant: "店铺", category: "其他" }, { merchant: "店铺", category: "其他" }] },
 ])("rejects malformed personal rule responses", async value => {
   const { fetchSmsCategoryRules } = await import("./smsClient");
   fetchMock.mockResolvedValueOnce(response(value));

@@ -308,7 +308,7 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   return <>
     {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>
       <div hidden={view !== "ledger"}>{ledger}</div>
-      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} merchantRules={merchantRules.rules} onRulesChanged={merchantRules.retry} onBack={() => onView("ledger")} /></Suspense>}
+      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} onRulesChanged={merchantRules.retry} onBack={() => onView("ledger")} /></Suspense>}
       {view === "admin" && notice && <div className="account-panel" role="alert">{notice}</div>}
       {view === "admin" && (adminAccess.status === "allowed"
         ? <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开管理后台</h1></main>}><AdminPanel client={client} user={session.user} onBack={() => onView("ledger")} onSignOut={() => void signOut()} /></Suspense>

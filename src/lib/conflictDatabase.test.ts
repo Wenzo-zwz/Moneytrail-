@@ -7,9 +7,9 @@ const B = '22222222-2222-4222-8222-222222222222';
 let db: PGlite;
 type Transaction = Record<string, unknown>;
 type Selection = { id: string; draft: Transaction };
-const transaction = (patch: Transaction = {}): Transaction => ({ id: 'manual-1', kind: 'expense', amountCents: 9000, date: '2026-10-31T12:00', merchant: '青禾馆(东店)', category: '购物', source: 'manual', note: '', ...patch });
+const transaction = (patch: Transaction = {}): Transaction => ({ id: 'manual-1', kind: 'expense', amountCents: 9000, date: '2026-10-31T12:00', merchant: '青禾馆(东店)', category: '其他', source: 'manual', note: '', ...patch });
 const ledger = (transactions = [transaction()], budgetCents = 123456) => ({ version: 1, transactions, budgetCents, billCheckedMonths: ['2026-09'] });
-const intent = { transactionId: 'manual-1', merchant: '青禾馆(东店)', category: '学习' };
+const intent = { transactionId: 'manual-1', merchant: '青禾馆(东店)', category: '学习培训' };
 
 async function user(id: string | null = A) {
   await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify(id ? { sub: id } : {})]);
@@ -65,7 +65,7 @@ it.each(['save_moneytrail_ledger', 'save_moneytrail_ledger_with_rules'])('%s rej
 it('rejects a stale rule save without publishing either the ledger or merchant intent', async () => {
   await rpc('save_moneytrail_ledger', [ledger(), 0]);
   const before = await snapshot();
-  await expect(rpc('save_moneytrail_ledger_with_rules', [ledger([transaction({ category: '学习' })]), 0, [intent]]))
+  await expect(rpc('save_moneytrail_ledger_with_rules', [ledger([transaction({ category: '学习培训' })]), 0, [intent]]))
     .rejects.toMatchObject({ code: 'PT409' });
   expect(await snapshot()).toEqual(before);
 });
@@ -87,7 +87,7 @@ it.each(['altered draft', 'changed classification', 'dismissed entry'])('rolls b
   const valid = selected.find(item => item.id === validId)!;
   const stale = selected.find(item => item.id === staleId)!;
   if (reason === 'altered draft') stale.draft = { ...stale.draft, amountCents: 1 };
-  if (reason === 'changed classification') await rpc('moneytrail_sms_set_category_rule', ['松林咖啡', '学习']);
+  if (reason === 'changed classification') await rpc('moneytrail_sms_set_category_rule', ['松林咖啡', '学习培训']);
   if (reason === 'dismissed entry') await rpc('moneytrail_sms_dismiss', [staleId]);
   const before = await snapshot();
   await expect(rpc('moneytrail_sms_apply_pending', [[valid, stale]])).rejects.toMatchObject({ code: 'PT409' });
@@ -113,7 +113,7 @@ it('preserves valid old-client saves, matching rule saves and account isolation 
   const saved = await rpc<{ revision: number; data: ReturnType<typeof ledger> }>('save_moneytrail_ledger', [legacyEdit, 1]);
   expect(saved.revision).toBe(2);
   expect(saved.data.transactions).toEqual([{ ...original, note: 'old-client edit' }]);
-  expect(await rpc('save_moneytrail_ledger_with_rules', [ledger([transaction({ category: '学习' })]), 2, [intent]]))
+  expect(await rpc('save_moneytrail_ledger_with_rules', [ledger([transaction({ category: '学习培训' })]), 2, [intent]]))
     .toMatchObject({ user_id: A, revision: 3 });
   const aliceRows = await rows('public.moneytrail_ledgers');
   await user(B);

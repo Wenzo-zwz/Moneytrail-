@@ -10,7 +10,7 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const client = {} as SupabaseClient;
 const at = "2026-10-22T12:00:00.000Z";
 const data = (budgetCents = 10000): AppData => ({ ...emptyData(), budgetCents });
-const remembered = { id: "remembered", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "消费抖音支付-星辰小馆", category: "本地生活", subcategory: "堂食", source: "manual" as const, note: "" };
+const remembered = { id: "remembered", kind: "expense" as const, amountCents: 2000, date: "2026-10-31T12:00", merchant: "消费抖音支付-星辰小馆", category: "食品酒水", subcategory: "堂食聚餐", source: "manual" as const, note: "" };
 const intent = { transactionId: remembered.id, merchant: remembered.merchant, category: remembered.category, subcategory: remembered.subcategory };
 const snapshot = (budget = 10000, revision = 1): CloudSnapshot => ({ data: data(budget), revision, updatedAt: at });
 const deferred = <T>() => {
@@ -108,7 +108,7 @@ describe("account cloud store", () => {
     await settle();
     expect(loadAccountCache(projectUrl, userId).cache?.pendingMerchantRules).toEqual([intent]);
     const shown = offline.getPendingMerchantRules();
-    expect(shown).toEqual([intent]); shown[0].category = "购物";
+    expect(shown).toEqual([intent]); shown[0].category = "居住与家用";
     expect(offline.getPendingMerchantRules()).toEqual([intent]);
     expect(push).not.toHaveBeenCalled(); offline.dispose();
     const restarted = create({ load: vi.fn(), push });
@@ -164,7 +164,7 @@ describe("account cloud store", () => {
   it("does not queue learning after failed storage and never publishes mismatched intents", async () => {
     seed(); const store = create({ load: vi.fn(), push: vi.fn() }, () => false);
     const next = { ...data(), transactions: [remembered] };
-    expect(store.saveData(next, data(), { merchantRules: [{ ...intent, category: "购物" }] }).ok).toBe(false);
+    expect(store.saveData(next, data(), { merchantRules: [{ ...intent, category: "居住与家用" }] }).ok).toBe(false);
     expect(store.loadData().data).toEqual(data());
     vi.mocked(local.setItem).mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
     expect(store.saveData(next, data(), { merchantRules: [intent] }).ok).toBe(false);

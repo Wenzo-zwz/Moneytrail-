@@ -8,7 +8,7 @@ describe("Alipay automatic-payment notification preview", () => {
   it("extracts the observed ride payment and reuses purpose details", () => {
     expect(parseAlipayNotification(notification(payment()))).toMatchObject({
       kind: "expense", source: "alipay", merchant: "滴滴出行", amountCents: 3840,
-      category: "交通", subcategory: "打车", platform: "滴滴", requiresReview: true,
+      category: "待分类", platform: "滴滴", requiresReview: true,
     });
   });
 
@@ -22,7 +22,7 @@ describe("Alipay automatic-payment notification preview", () => {
   it("uses an exact personal merchant rule without allowing automatic booking", () => {
     expect(parseAlipayNotification(notification(payment("示例科技有限公司")), [
       { merchant: "示例科技有限公司", category: "学习", subcategory: "课程培训" },
-    ])).toMatchObject({ category: "学习", subcategory: "课程培训", classificationReason: "个人商户规则", requiresReview: true });
+    ])).toMatchObject({ category: "学习培训", subcategory: "课程培训", classificationReason: "个人商户规则", requiresReview: true });
   });
 
   it("does not fabricate a transaction date, source reference or SMS evidence", () => {

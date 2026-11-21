@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Transaction } from "./ledger";
 import { parseCsv } from "./parsers";
+import { setAnnualBudget, setMonthlyOverride } from "./reviewBudget";
 import {
   STORAGE_KEY,
   clearStoredData,
@@ -22,7 +23,7 @@ function transaction(overrides: Partial<Transaction> = {}): Transaction {
     amountCents: 2_890,
     date: "2026-10-22T12:30",
     merchant: "午餐小馆",
-    category: "本地生活",
+    category: "食品酒水",
     source: "wechat",
     note: "午饭",
     sourceRef: "wx-202610221230",
@@ -223,6 +224,31 @@ describe("backup validation", () => {
     expect(restored).toEqual(appData());
     expect(importBackup(exportBackup(restored))).toEqual(appData());
     expect(restored).not.toHaveProperty("extra");
+  });
+
+  it("round-trips annual budget revisions and one-month overrides through backup and local storage", () => {
+    const scope = { category: "食品酒水", subcategory: "外卖" };
+    const initial = setAnnualBudget([], scope, "2026-08", 84_251);
+    const revised = setAnnualBudget(initial, scope, "2026-10", 96_300);
+    const annualBudgets = setMonthlyOverride(revised, scope, "2026-11", 8100);
+    const data = { ...appData(), annualBudgets };
+    expect(importBackup(exportBackup(data))).toEqual(data);
+    expect(saveData(data)).toEqual({ ok: true });
+    expect(loadData()).toEqual({ data });
+    expect(importBackup(exportBackup(appData()))).not.toHaveProperty("annualBudgets");
+    expect(() => importBackup(JSON.stringify({ ...data, annualBudgets: [...annualBudgets, ...annualBudgets] }))).toThrow();
+  });
+
+  it("restores a legacy refund to its linked purchase category when its own category is ambiguous", () => {
+    const original = transaction({ category: "餐饮", subcategory: "外卖" });
+    const refund = transaction({
+      id: "refund", kind: "refund", category: "本地生活", linkedTransactionId: original.id,
+      date: "2026-11-01T10:00", amountCents: 200,
+    });
+    const restored = importBackup(JSON.stringify({ ...appData(), transactions: [refund, original] }));
+    expect(restored.transactions[0]).toMatchObject({
+      category: "食品酒水", subcategory: "外卖", date: "2026-11-01T10:00", amountCents: 200, linkedTransactionId: original.id,
+    });
   });
 
   it.each([

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import cases from "./merchantClassification.cases.json";
+import legacyCases from "./merchantClassification.cases.json";
+import { normalizeExpenseCategory } from "./expenseCategories";
 import { applyCategoryChanges, classifyMerchant, merchantKey, planCategoryChanges } from "./merchantClassification";
 import * as merchantClassification from "./merchantClassification";
 import { emptyData } from "./storage";
@@ -9,12 +10,27 @@ const transaction = (id: string, merchant: string, category = "待分类", kind:
   id, merchant, category, kind, amountCents: 2000, date: "2026-10-24T00:59", source: "sms", note: "保留备注", sourceRef: `ref-${id}`,
 });
 
+// This fixture is also used to verify the historical SQL migration. Assert the
+// expected current mapping separately for details that now have clearer meaning.
+const cases = legacyCases.map(({ merchant, category, subcategory, platform }) => {
+  const changes: Record<string, { category: string; subcategory: string }> = {
+    手机话费充值: { category: "通讯", subcategory: "手机话费与流量" },
+    手机充值: { category: "通讯", subcategory: "手机话费与流量" },
+    燃气缴费: { category: "居住与家用", subcategory: "水电燃气" },
+    示例电影院: { category: "休闲娱乐", subcategory: "电影演出" },
+  };
+  const current = changes[merchant] ?? normalizeExpenseCategory({ category, subcategory });
+  return { merchant, category: current.category, review: current.category === "待分类",
+    ...(current.category !== "待分类" && current.subcategory ? { subcategory: current.subcategory } : {}),
+    ...(platform ? { platform } : {}) };
+});
+
 describe("merchant classification", () => {
   it("prefers a canonical rule over a conflicting historical payment-prefix alias", () => {
     expect(classifyMerchant("消费抖音支付-星辰小馆", [
       { merchant: "抖音支付-星辰小馆", category: "购物" },
       { merchant: "星辰小馆", category: "本地生活", subcategory: "堂食" },
-    ])).toMatchObject({ category: "本地生活", subcategory: "堂食" });
+    ])).toMatchObject({ category: "食品酒水", subcategory: "堂食聚餐" });
   });
   it.each(cases)("classifies $merchant as $category (review=$review)", ({ merchant, category, review, ...metadata }) => {
     const match = classifyMerchant(merchant);
@@ -34,17 +50,17 @@ describe("merchant classification", () => {
     const rules = [{ merchant: "北京轨道交通", category: "交通", subcategory: "公共交通" }];
     expect(merchantKey("消费抖音支付-北京轨道交通")).toBe(merchantKey("北京轨道交通"));
     for (const merchant of ["消费抖音支付-北京轨道交通", "微信支付-北京轨道交通", "支付宝-北京轨道交通"]) {
-      expect(classifyMerchant(merchant, rules)).toMatchObject({ category: "交通", subcategory: "公共交通", reason: "个人商户规则" });
+      expect(classifyMerchant(merchant, rules)).toMatchObject({ category: "交通出行", subcategory: "公共交通", reason: "个人商户规则" });
     }
     expect(classifyMerchant("消费抖音支付-北京轨道交通(东站)", rules).reason).not.toBe("个人商户规则");
   });
   it("uses remembered detail before keyword inference and preserves an explicit 未细分", () => {
-    for (const subcategory of ["餐饮", "未细分"]) {
-      expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "本地生活", subcategory }])).toMatchObject({
-        category: "本地生活", subcategory, reason: "个人商户规则",
+    for (const subcategory of ["堂食聚餐", "未细分"]) {
+      expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "食品酒水", subcategory }])).toMatchObject({
+        category: "食品酒水", subcategory, reason: "个人商户规则",
       });
     }
-    expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "餐饮", subcategory: "未细分" }])).toMatchObject({ category: "本地生活", subcategory: "未细分" });
+    expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "餐饮", subcategory: "未细分" }])).toMatchObject({ category: "食品酒水", subcategory: "堂食聚餐" });
     expect(classifyMerchant("巷口咖啡", [{ merchant: "巷口咖啡", category: "本地生活" }]).subcategory).toBe("咖啡奶茶");
   });
   it("allows remembering only concrete merchants while retaining branch identity", () => {
@@ -59,24 +75,24 @@ describe("merchant classification", () => {
   });
   it("ignores unsafe historical rules for placeholders and shared platforms", () => {
     expect(classifyMerchant("待补充商户", [{ merchant: "待补充商户", category: "医疗" }]).category).toBe("待分类");
-    expect(classifyMerchant("淘宝", [{ merchant: "淘宝", category: "医疗" }])).toMatchObject({ category: "购物", reason: "电商平台默认购物" });
+    expect(classifyMerchant("淘宝", [{ merchant: "淘宝", category: "医疗" }])).toMatchObject({ category: "待分类", requiresReview: true });
   });
   it("remembers only explicit exact merchant rules and never bypasses ambiguity", () => {
     const rules = [{ merchant: "示例科技有限公司", category: "娱乐" }, { merchant: "财付通-群收款", category: "餐饮" }];
-    expect(classifyMerchant("消费财付通-示例科技有限公司", rules)).toMatchObject({ category: "本地生活", subcategory: "休闲娱乐", reason: "个人商户规则" });
+    expect(classifyMerchant("消费财付通-示例科技有限公司", rules)).toMatchObject({ category: "休闲娱乐", subcategory: "休闲娱乐", reason: "个人商户规则" });
     expect(classifyMerchant("示例科技有限公司东店", rules).category).toBe("待分类");
     expect(classifyMerchant("财付通-群收款", rules)).toMatchObject({ category: "待分类", requiresReview: true });
     expect(classifyMerchant("转账-示例科技有限公司", rules).requiresReview).toBe(true);
     expect(classifyMerchant("示例科技有限公司", [{ merchant: "示例科技有限公司", category: "无效类别" }]).category).toBe("待分类");
   });
-  it.each(["美团", "美团平台", "美团平台商户", "美团北京三快在线科技有限公", "美团网", "美团支付", "美团北京三快在线科技有限公司", "北京三快在线科技有限公司", "北京三快科技有限公司", "消费美团支付-美团北京三快在线科技有限公司", "微信支付：美团支付"])("ignores old platform rules for %s without requiring review", merchant => {
+  it.each(["美团", "美团平台", "美团平台商户", "美团北京三快在线科技有限公", "美团网", "美团支付", "美团北京三快在线科技有限公司", "北京三快在线科技有限公司", "北京三快科技有限公司", "消费美团支付-美团北京三快在线科技有限公司", "微信支付：美团支付"])("leaves platform-only %s for review even with a historical broad rule", merchant => {
     expect(classifyMerchant(merchant, [{ merchant, category: "餐饮" }])).toMatchObject({
-      category: "本地生活", platform: "美团", requiresReview: false, reason: "美团平台默认本地生活",
+      category: "待分类", platform: "美团", requiresReview: true,
     });
   });
   it("keeps real named stores and unknown merchants eligible for exact personal rules", () => {
     for (const merchant of ["美团-巷口咖啡", "美团-示例科技有限公司", "三快书店", "示例科技有限公司"]) {
-      expect(classifyMerchant(merchant, [{ merchant, category: "娱乐" }])).toMatchObject({ category: "本地生活", subcategory: "休闲娱乐", reason: "个人商户规则" });
+      expect(classifyMerchant(merchant, [{ merchant, category: "娱乐" }])).toMatchObject({ category: "休闲娱乐", subcategory: "休闲娱乐", reason: "个人商户规则" });
     }
     expect(merchantKey("美团支付")).toBe("");
   });
@@ -91,11 +107,11 @@ describe("category backfill", () => {
     ] };
     const original = structuredClone(data);
     const changes = planCategoryChanges(data);
-    expect(changes.map(change => [change.id, change.toCategory])).toEqual([["ride", "交通"], ["meal", "本地生活"]]);
+    expect(changes.map(change => [change.id, change.toCategory])).toEqual([["ride", "交通出行"]]);
     expect(data).toEqual(original);
     const next = applyCategoryChanges(data, changes);
     expect(next.transactions).toHaveLength(data.transactions.length);
-    expect(next.transactions[0]).toEqual({ ...data.transactions[0], category: "交通", subcategory: "打车", platform: "滴滴" });
+    expect(next.transactions[0]).toEqual({ ...data.transactions[0], category: "交通出行", subcategory: "打车", platform: "滴滴" });
     expect(next.transactions[2]).toEqual(data.transactions[2]);
     expect(next.budgetCents).toBe(50000);
     expect(next.billCheckedMonths).toEqual(["2026-09"]);

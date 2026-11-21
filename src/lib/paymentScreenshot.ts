@@ -1,5 +1,5 @@
 import { isValidLocalDateTime, parseAmount, type Platform } from "./ledger";
-import { classifyMerchant, type MerchantRule } from "./merchantClassification";
+import { classifyMerchant, merchantKey, type MerchantRule } from "./merchantClassification";
 import { parseAlipayScreenshot } from "./alipayScreenshot";
 
 export type PaymentScreenshotCandidate = {
@@ -238,7 +238,7 @@ function parseStructuredPaymentScreenshot(text: unknown, rules: MerchantRule[] =
     return fail("金额格式不正确或截图包含多个金额，请手动确定实际支出。");
   }
   const classification = classifyMerchant(merchant, rules);
-  if (classification.requiresReview) return fail("商户或交易性质不明确，请手动核对录入。");
+  if (!merchantKey(merchant)) return fail("商户或交易性质不明确，请手动核对录入。");
   const dates = fields(normalizedLines, dateLabels), parsedDates = dates.map(value => value ? dateValue(value) : undefined);
   const date = walletBill?.date ?? (dates.length && parsedDates.every(Boolean) && new Set(parsedDates).size === 1 ? parsedDates[0] : undefined);
   return {
@@ -343,7 +343,7 @@ function negativePaymentScreenshot(text: unknown, rules: MerchantRule[]): Paymen
   else if (!explicitMerchants.length) merchant = summaryMerchant;
   if (merchant.length > 150 || /^(?:[¥￥]|人民币|CNY|RMB)?[+\-]?\d[\d,.]*(?:元)?$/i.test(merchant.normalize("NFKC"))) merchant = "";
   let classification = merchant ? classifyMerchant(merchant, rules) : undefined;
-  if (classification?.requiresReview) { merchant = ""; classification = undefined; }
+  if (classification && !merchantKey(merchant)) { merchant = ""; classification = undefined; }
 
   let date: string | undefined;
   const dateFields = fields(normalizedLines, dateLabels);

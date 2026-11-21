@@ -17,7 +17,7 @@ describe("Alipay screenshot OCR review candidates", () => {
     ].join("\n"));
     expect(result.error).toBeUndefined();
     expect(result.candidates).toEqual([
-      { key: "alipay-screenshot-0", merchant: "滴滴出行", amountCents: 3840, category: "交通", subcategory: "打车", platform: "滴滴" },
+      { key: "alipay-screenshot-0", merchant: "滴滴出行", amountCents: 3840, category: "待分类", platform: "滴滴" },
       { key: "alipay-screenshot-1", merchant: "上海示例信息科技有限公司", amountCents: 14050, category: "待分类" },
     ]);
     expect(result.warnings.join(" ")).toContain("顶部时钟");
@@ -73,14 +73,14 @@ describe("Alipay screenshot OCR review candidates", () => {
 
   it("reuses a personal merchant classification while keeping a preview key local", () => {
     expect(parseAlipayScreenshot(payment("示例科技有限公司"), [{ merchant: "示例科技有限公司", category: "学习", subcategory: "课程培训" }]).candidates[0])
-      .toMatchObject({ merchant: "示例科技有限公司", category: "学习", subcategory: "课程培训", key: "alipay-screenshot-0" });
+      .toMatchObject({ merchant: "示例科技有限公司", category: "学习培训", subcategory: "课程培训", key: "alipay-screenshot-0" });
   });
 
   it("reads a single explicit CNY payment detail and a complete labelled transaction timestamp", () => {
     const result = parseAlipayScreenshot(details(["交易时间：2026年11月15日 12:01:59", "订单号：202611151234567890"]));
     expect(result.error).toBeUndefined();
     expect(result.candidates).toEqual([{
-      key: "alipay-screenshot-0", merchant: "滴滴出行", amountCents: 3840, date: "2026-11-15T12:01", category: "交通", subcategory: "打车", platform: "滴滴",
+      key: "alipay-screenshot-0", merchant: "滴滴出行", amountCents: 3840, date: "2026-11-15T12:01", category: "待分类", platform: "滴滴",
     }]);
     expect(result.candidates[0]).not.toHaveProperty("sourceRef");
   });

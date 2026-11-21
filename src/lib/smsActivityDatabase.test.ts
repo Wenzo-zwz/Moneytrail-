@@ -11,6 +11,8 @@ type Status = 'pending' | 'recorded' | 'dismissed';
 type Summary = { period_start: string; period_end: string; time_zone: string; received_count: number; recorded_count: number; pending_count: number; dismissed_count: number };
 let db: PGlite;
 let previousDefinitions: unknown[];
+let summaryKeptDefinitions = false;
+let summaryKeptRelations = false;
 let previousRelations: unknown[];
 
 async function rpc<T = any>(name: string, args: unknown[] = []): Promise<T> {
@@ -55,8 +57,15 @@ beforeAll(async () => {
     create function auth.uid() returns uuid language sql stable set search_path='' as $$select (nullif(pg_catalog.current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid$$;
     grant usage on schema public,auth to anon,authenticated;`);
   for (const file of Object.keys(migrations).sort()) {
-    if (file.endsWith('_sms_activity_summary.sql')) { previousDefinitions = await definitions(); previousRelations = await relations(); }
-    await db.exec(migrations[file]);
+    if (file.endsWith('_sms_activity_summary.sql')) {
+      previousDefinitions = await definitions();
+      previousRelations = await relations();
+      await db.exec(migrations[file]);
+      summaryKeptDefinitions = JSON.stringify(await definitions()) === JSON.stringify(previousDefinitions);
+      summaryKeptRelations = JSON.stringify(await relations()) === JSON.stringify(previousRelations);
+    } else {
+      await db.exec(migrations[file]);
+    }
   }
 }, 30000);
 afterAll(async () => { await db?.close(); });
@@ -199,5 +208,6 @@ it('adds only one stable, authenticated-only, argument-free definer function wit
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='${summaryFunction}'`)).rows;
   expect(metadata).toEqual([{ stable: true, definer: true, no_args: true, pinned: true, auth: true, anon: false, public_grant: false }]);
   expect(previousDefinitions).toBeDefined(); expect(previousRelations).toBeDefined();
-  expect(await definitions()).toEqual(previousDefinitions); expect(await relations()).toEqual(previousRelations);
+  expect(summaryKeptDefinitions).toBe(true);
+  expect(summaryKeptRelations).toBe(true);
 });
