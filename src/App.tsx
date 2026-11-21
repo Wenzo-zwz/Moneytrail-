@@ -606,6 +606,9 @@ export default function App({
     () => summarize(data.transactions, month, data.budgetCents),
     [data, month],
   );
+  const classifiedCategories = stats.categories.filter(item => item.category !== "待分类");
+  const unclassifiedNetCents = stats.categories.find(item => item.category === "待分类")?.amountCents ?? 0;
+  const categoryScale = Math.max(1, ...classifiedCategories.map(item => Math.abs(item.amountCents)));
   const monthTransactions = useMemo(
     () =>
       data.transactions
@@ -616,7 +619,8 @@ export default function App({
   const filtered = monthTransactions.filter(
     (t) =>
       (category === "全部" || t.category === category) &&
-      (kindFilter === "全部" || t.kind === kindFilter) &&
+      (kindFilter === "全部" || t.kind === kindFilter
+        || (kindFilter === "spending" && (t.kind === "expense" || t.kind === "refund"))) &&
       `${t.merchant} ${t.note} ${t.category} ${t.subcategory || "未细分"} ${t.platform || ""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -1365,82 +1369,71 @@ export default function App({
                       </div>
                       <BarChart3 size={20} className="text-muted" />
                     </div>
-                    {stats.categories.some((c) => c.amountCents !== 0) ? (
-                      <div className="category-list">
-                        {stats.categories
-                          .filter((c) => c.amountCents !== 0)
-                          .sort((a, b) => b.amountCents - a.amountCents)
-                          .map((c, i) => {
-                            const total = Math.max(
-                              ...stats.categories.map((x) =>
-                                Math.abs(x.amountCents),
-                              ),
-                              1,
-                            );
-                            return (
-                              <details className="category-group" key={c.category}>
-                              <summary className="category-row" data-amount-cents={c.amountCents}>
-                                <span
-                                  className="category-dot"
-                                  style={{
-                                    background: COLORS[i % COLORS.length],
-                                  }}
-                                />
-                                <span className="category-name">
-                                  {c.category}<ChevronRight size={11} aria-hidden="true" />
-                                </span>
-                                <div className="category-bar">
-                                  <div
-                                    className="category-fill"
-                                    style={{
-                                      width: `${(Math.abs(c.amountCents) / total) * 100}%`,
-                                      background: COLORS[i % COLORS.length],
-                                    }}
-                                  />
-                                </div>
-                                <span className="category-amount">
-                                  {formatMoney(c.amountCents)}
-                                </span>
-                              </summary>
-                              <div className="subcategory-list">{c.subcategories.map(detail => <div className="subcategory-row" data-amount-cents={detail.amountCents} key={detail.subcategory}><span>{detail.subcategory}</span><span>{formatMoney(detail.amountCents)}</span></div>)}</div>
-                              </details>
-                            );
-                          })}
+                    {stats.uncategorizedCount > 0 && (
+                      <div className="category-pending">
+                        <div>
+                          <strong>{stats.uncategorizedCount} 笔待分类</strong>
+                          <span>净支出 {formatMoney(unclassifiedNetCents)}</span>
+                        </div>
+                        <button
+                          className="button secondary small"
+                          type="button"
+                          onClick={() => {
+                            setQuery("");
+                            setCategory("待分类");
+                            setKindFilter("spending");
+                            navigate("transactions");
+                          }}
+                        >
+                          去整理 <ArrowRight size={16} aria-hidden="true" />
+                        </button>
                       </div>
-                    ) : (
+                    )}
+                    {classifiedCategories.length > 0 ? (
+                      <div className="category-list">
+                        {classifiedCategories.map((item, index) => {
+                          const color = COLORS[index % COLORS.length];
+                          return (
+                            <details className="category-group" key={item.category}>
+                              <summary className="category-row" data-amount-cents={item.amountCents}>
+                                <span className="category-dot" style={{ background: color }} />
+                                <span className="category-name">
+                                  {item.category}<ChevronRight size={11} aria-hidden="true" />
+                                </span>
+                                <span className="category-bar" aria-hidden="true">
+                                  <span
+                                    className="category-fill"
+                                    style={{ width: `${(Math.abs(item.amountCents) / categoryScale) * 100}%`, background: color }}
+                                  />
+                                </span>
+                                <span className="category-amount">{formatMoney(item.amountCents)}</span>
+                              </summary>
+                              <div className="subcategory-list">
+                                {item.subcategories.map(detail => (
+                                  <div className="subcategory-row" data-amount-cents={detail.amountCents} key={detail.subcategory}>
+                                    <span>{detail.subcategory}</span><span>{formatMoney(detail.amountCents)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    ) : stats.uncategorizedCount === 0 ? (
                       <Empty title="消费去向，慢慢就清楚了">
                         记下消费并选好分类，这里就会长出你的月度画像。
                       </Empty>
-                    )}
+                    ) : null}
                   </section>
                   <section className="insight-card">
                     <div className="section-label">
                       <Layers3 size={17} />
                       账本小提醒
                     </div>
-                    <h2>
-                      {stats.uncategorizedCount
-                        ? `${stats.uncategorizedCount} 笔，等你分个类`
-                        : monthTransactions.length
-                          ? "记得完整，比记得多更重要"
-                          : "一杯咖啡，也是一个开始"}
-                    </h2>
-                    <p>
-                      {stats.uncategorizedCount
-                        ? "给待分类消费找个归属，才更容易看清自己的消费习惯。"
-                        : "银行卡短信可能不包含零钱、余额支付。导入支付账单，补齐每月的消费拼图。"}
-                    </p>
-                    <button
-                      className="button ghost small"
-                      onClick={() => {
-                        if (stats.uncategorizedCount) {
-                          setCategory("待分类");
-                          navigate("transactions");
-                        } else navigate("capture");
-                      }}
-                    >
-                      {stats.uncategorizedCount ? "去整理账目" : "补充我的账单"}
-                      <ArrowRight size={16} />
+                    <h2>{monthTransactions.length ? "记得完整，比记得多更重要" : "一杯咖啡，也是一个开始"}</h2>
+                    <p>银行卡短信可能不包含零钱、余额支付。导入支付账单，补齐每月的消费拼图。</p>
+                    <button className="button ghost small" onClick={() => navigate("capture")}>
+                      补充我的账单 <ArrowRight size={16} />
                     </button>
                     <div className="stat-card">
                       <span className="stat-label">本月消费与退款记录</span>
@@ -1581,6 +1574,7 @@ export default function App({
                       onChange={(e) => setKindFilter(e.target.value)}
                     >
                       <option value="全部">全部类型</option>
+                      <option value="spending">支出与退款</option>
                       {Object.entries(KIND_NAMES).map(([k, v]) => (
                         <option key={k} value={k}>
                           {v}

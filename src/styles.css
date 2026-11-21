@@ -258,12 +258,18 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .panel-actions { display: flex; align-items: center; gap: 4px; margin-top: -8px; margin-right: -9px; }
 .panel-actions .button { color: #b5aba1; font-size: 12px; }
 .category-list { display: flex; flex-direction: column; gap: 23px; padding: 6px 0 11px; }
-.category-row { display: grid; grid-template-columns: 7px 55px minmax(35px, 1fr) minmax(83px, auto); align-items: center; gap: 12px; }
-.category-dot { width: 6px; height: 6px; border-radius: 50%; background: #c6b395; }
-.category-name { color: #b4b3b2; font-size: 12px; }
+.category-row {
+  display: grid;
+  grid-template-areas: "dot name bar amount";
+  grid-template-columns: 7px minmax(88px, auto) minmax(35px, 1fr) minmax(83px, auto);
+  align-items: center;
+  gap: 12px;
+}
+.category-dot { grid-area: dot; width: 6px; height: 6px; border-radius: 50%; background: #c6b395; }
+.category-name { grid-area: name; display: flex; align-items: center; gap: 3px; overflow-wrap: anywhere; color: #b4b3b2; font-size: 12px; }
+.category-name svg { flex: 0 0 auto; }
 .category-group > summary { cursor: pointer; list-style: none; }
 .category-group > summary::-webkit-details-marker { display: none; }
-.category-name { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
 .category-group[open] .category-name svg { transform: rotate(90deg); }
 .subcategory-list { margin: 14px 0 0 19px; padding-left: 12px; border-left: 1px solid var(--line); }
 .subcategory-row { display: flex; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 12px; color: #a6a5a4; }
@@ -272,9 +278,25 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .sms-evidence summary { cursor: pointer; }
 .sms-evidence p { margin-top: 10px; overflow-wrap: anywhere; }
 .sms-evidence-text { white-space: pre-wrap; }
-.category-bar { height: 4px; overflow: hidden; border-radius: 5px; background: #323130; }
-.category-fill { height: 100%; max-width: 100%; min-width: 2px; border-radius: inherit; background: #bdb6a9; }
-.category-amount { color: #d6cec5; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.category-bar { grid-area: bar; height: 4px; overflow: hidden; border-radius: 5px; background: #323130; }
+.category-fill { display: block; height: 100%; max-width: 100%; min-width: 2px; border-radius: inherit; background: #bdb6a9; }
+.category-amount { grid-area: amount; color: #d6cec5; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.category-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #211e20;
+}
+.category-pending:last-child { margin-bottom: 0; }
+.category-pending strong, .category-pending span { display: block; font-size: 12px; line-height: 1.6; }
+.category-pending strong { color: #ded5cb; font-weight: 500; }
+.category-pending span { color: #a5a4a3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.category-pending .button { flex-shrink: 0; min-height: 44px; white-space: nowrap; }
 .insight-card { display: flex; flex-direction: column; padding: 23px 24px 21px; border-color: #333231; background: linear-gradient(140deg, #211e22, #171619); }
 .insight-card > svg { width: 22px; height: 22px; margin-bottom: 16px; color: #b7a28b; }
 .insight-card h2, .insight-card h3 { margin-bottom: 11px; color: #ded5cb; font-size: 17px; font-weight: 450; line-height: 1.8; letter-spacing: .2px; }
@@ -518,7 +540,11 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
   .panel-heading { gap: 10px; margin-bottom: 23px; }
   .panel-title { font-size: 15px; }
   .panel-subtitle { font-size: 12px; }
-  .category-row { grid-template-columns: 6px 46px minmax(30px, 1fr) minmax(69px, auto); gap: 9px; }
+  .category-row {
+    grid-template-areas: "dot name amount" "bar bar bar";
+    grid-template-columns: 6px minmax(0, 1fr) max-content;
+    gap: 8px 9px;
+  }
   .category-name, .category-amount { font-size: 12px; }
   .category-list { gap: 23px; }
   .insight-card { padding: 23px; }
