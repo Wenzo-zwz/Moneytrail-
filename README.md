@@ -6,15 +6,13 @@
 
 可选择仅在本机记账，或登录账户使用云端同步。登录不会自动上传原本机账本，迁移仍需先备份再确认。设置中的“数据在哪里”展示当前存储方式、云端地址和完整备份入口；本机账目不上传，账号账目同步至当前服务配置的 Supabase 项目并按账户隔离。首次打开为空账本，不混入演示消费。数据流与核对边界见[说明](docs/data-location-and-receipt-checks.md)。
 
-农行、中行、建行的储蓄卡与信用卡可安装同一份[农中建通用模板](https://www.icloud.com/shortcuts/90ce49ad282d490481700cfe8868b82d)，在导入时填写自己的个人接入令牌，再按[接入说明](docs/three-bank-shortcut.md)配置手机短信触发。三行短信仍全部先待确认；共享产物已做静态审核，真实 iPhone 导入、授权及锁屏触发尚待验收，见[交付审核记录](docs/three-bank-shortcut-audit-2026-11-15.md)。开发时使用 Python 3 和项目要求的 Node 24 构建、校验模板及规则清单：`python scripts/build-bank-shortcut.py --check`（Windows）或 `python3 scripts/build-bank-shortcut.py --check`（macOS/Linux），发布流水线会校验生成文件一致性。
+账号版通过[单条银行短信记账指令](docs/sms-automation.md)接入工行、农行、中行、建行和招行支持格式的收支短信。收入候选先待确认，本月收入单独展示。旧模板链接和迁移说明见同一份指引。
 
-招商银行已加入[通用银行 v2](docs/general-bank-shortcut.md)接收及制作流程，收到后先待确认。v2 源和匹配规则已准备，新的 iCloud 产物仍需分享审核；旧农中建链接不会转发招商银行短信。页面可选择招商银行并复制新版规则和手机更新步骤。
-
-银行收入短信接入见[收支模板 v3](docs/bank-income-sms.md)：工行工资句式可提取待确认收入，农中建招收入候选先核对；新版共享产物待分享审核，旧支出模板不会自动接收收入。本月收入单独展示，收入不增加消费预算。
+开发时使用 Python 3 和 Node.js 24 校验短信模板及规则清单。在 Windows 运行 `python scripts/build-bank-shortcut.py --check`，在 macOS 或 Linux 运行 `python3 scripts/build-bank-shortcut.py --check`。发布流水线会校验生成文件。
 
 接入步骤、数据库迁移和真实账号验证见 [独立账号部署说明](docs/cloud-accounts.md)。站点地址为 <https://wenzo-zwz.github.io/Moneytrail-/>。账号版首次发布用于注册和同步测试；迁移真实账目前应先验证邮箱、换设备读取与账户隔离。
 
-设置页提供“快速上手”，统一进入截图记账、短信自动记账、手动记账和月预算。截图记账按“安装快捷指令 → 绑定轻点背面 → 核对保存第一笔”完成配置；短信自动记账交付前，按[首次试用验收清单](docs/automatic-bookkeeping-rollout.md)完成模板交付、独立账号接收和真实短信验证。
+「设置 → 快速上手」提供截图记账、短信自动记账和添加到 iPhone 主屏幕的指引。「数据在哪里」提供 CSV 导出、完整备份和恢复。
 
 支付宝、微信及其他支付页面共用[截图记账](docs/screenshot-bookkeeping.md)：轻点背面两下运行“截屏 → 手机 OCR → 打开站点”，核对商户、金额、来源和时间后确认保存。统一指令为“MoneyTrail截图记账”，使用 `#screenshot=`，旧 `#alipay-screenshot=` 仍兼容但不强制来源；只有明确平台才标识支付宝／微信，未知来源按手动录入保存。流程不需要短信令牌或外部模型，图片不上传。iOS 27.2.1 已确认背面触发及快捷指令打开网页，完整识别保存、真实微信和其他版式仍待真机验收，不承诺任意截图可识别；通知能力与截图路线见[说明](docs/alipay-notification-setup.md)。
 

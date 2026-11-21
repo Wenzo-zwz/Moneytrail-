@@ -374,7 +374,7 @@ async function localBackupWorkflow(browser, mobile) {
     assert.match(await location.innerText(), /不会停用手机上已配置的短信自动化/);
     assert(!await location.innerText().then(text => text.includes("test-project.supabase.co")));
     const before = await page.evaluate(() => localStorage.getItem("moneytrail:local-backup:v1"));
-    const csvPromise = page.waitForEvent("download"); await page.getByRole("button", { name: "导出全部 CSV", exact: true }).click(); await csvPromise;
+    const csvPromise = page.waitForEvent("download"); await location.getByRole("button", { name: "导出全部 CSV", exact: true }).click(); await csvPromise;
     assert.equal(await page.evaluate(() => localStorage.getItem("moneytrail:local-backup:v1")), before, "CSV must not pretend to be a complete backup");
     const jsonPromise = page.waitForEvent("download"); await location.getByRole("button", { name: "导出完整备份", exact: true }).click(); const backup = await jsonPromise;
     assert.deepEqual(JSON.parse(await readFile(await backup.path(), "utf8")), legacy);

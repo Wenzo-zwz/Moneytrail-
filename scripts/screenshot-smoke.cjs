@@ -229,9 +229,18 @@ async function quickStartWorkflow(browser,app){const {context:ctx,page,errors}=a
   await page.evaluate(value=>{location.hash='screenshot='+encodeURIComponent(value);},WECHAT);
   await setup.waitFor({state:'detached'});await page.getByRole('heading',{name:'示例咖啡店',exact:true}).waitFor();
   assert.equal((await localBook(page)).transactions.length,0,'a first capture closes setup and previews without writing');
-  await page.getByRole('button',{name:'设置',exact:true}).click();await quick.getByRole('button',{name:'手动记一笔',exact:true}).click();await page.getByRole('dialog',{name:'记下一笔',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
-  await quick.getByRole('button',{name:'设置月预算',exact:true}).click();await page.getByRole('dialog',{name:'设置月预算',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
-  assert.equal((await localBook(page)).transactions.length,0);assert.deepEqual(errors,[]);pass('quick start offers screenshot setup in device mode, explains all three stages, copies the exact deployment address, fits 320px and preserves manual/budget actions');
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  assert.equal(await quick.getByRole('button',{name:'手动记一笔',exact:true}).count(),0);
+  assert.equal(await quick.getByRole('button',{name:'设置月预算',exact:true}).count(),0);
+  await quick.getByText('添加到 iPhone 主屏幕',{exact:true}).click();
+  await quick.getByText(/用 Safari 打开 MoneyTrail/).waitFor();
+  await page.getByRole('button',{name:'调整月预算',exact:true}).click();
+  await page.getByRole('dialog',{name:'设置月预算',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('button',{name:'录入',exact:true}).click();
+  await page.getByRole('tab',{name:'粘贴银行短信',exact:true}).click();
+  await page.getByRole('button',{name:'手动记一笔',exact:true}).click();
+  await page.getByRole('dialog',{name:'记下一笔',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
+  assert.equal((await localBook(page)).transactions.length,0);assert.deepEqual(errors,[]);pass('320px quick start keeps screenshot setup and the home-screen guide, with manual entry and budget available at their main locations');
 }finally{await ctx.close();}}
 (async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{
   const local=await start(false,5193);try{for(const width of [320,393,1440])await localWorkflow(browser,local,width);await quickStartWorkflow(browser,local);await platformWorkflow(browser,local,'wechat');await platformWorkflow(browser,local,'manual');await platformWorkflow(browser,local,'manual','wechat');await billWorkflow(browser,local);await billWorkflow(browser,local,true);await billWorkflow(browser,local,true,true);await editWorkflow(browser,local);await incompleteMerchantWorkflow(browser,local);await amountHintWorkflow(browser,local);await balanceWorkflow(browser,local);}finally{local.server.kill();}

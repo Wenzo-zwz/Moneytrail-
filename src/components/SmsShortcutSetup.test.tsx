@@ -203,11 +203,29 @@ describe("iPhone shortcut setup guidance", () => {
     expect(compatibility).toContain("添加「获取文本」");
     expect(primary).not.toMatch(/定时|特定时间|文件夹|使用 Mac 签名|安装 v4 更新指令/);
     expect(advanced).toContain(profile.updateUrl);
-    expect(markup).toContain("仅接收支出：旧版模板与配置");
+    expect(advanced).toContain('aria-label="银行规则发布状态"');
+    expect(primary).not.toContain("银行规则发布状态");
+    expect(markup).not.toContain("仅接收支出：旧版模板与配置");
+    expect(markup).not.toContain(SMS_SHORTCUT_TEMPLATE.url);
+    expect(markup).not.toContain(THREE_BANK_TEMPLATE.url);
+    expect(primary).not.toContain("服务器最近接收");
+    expect(primary).not.toContain("刷新接收状态");
+    expect(primary).not.toContain("历史接收时间");
+    expect(primary).toContain("点收件箱的「刷新」");
     const custom = render({ enabled: true }, "https://other.supabase.co");
     expect(custom).not.toContain(smsProfile.url);
     expect(custom).not.toContain(profile.smsUrl);
     expect(custom).not.toContain(profile.updateUrl);
     expect(custom).not.toContain("安装 v4");
+  });
+
+  it("keeps the single installer consent-gated without reintroducing legacy setup", () => {
+    vi.spyOn(v4, "getReleasedBankSmsV4").mockImplementation(projectUrl => realSmsResolver(projectUrl));
+    const markup = render();
+    expect(markup).toMatch(/<button[^>]+disabled=""[^>]*>安装收支快捷指令<\/button>/);
+    expect(markup).not.toContain("安装支出快捷指令");
+    expect(markup).not.toContain("复制匹配规则");
+    expect(markup).not.toContain("服务器最近接收");
+    expect(markup).toContain("编辑页找不到「自动化」时");
   });
 });

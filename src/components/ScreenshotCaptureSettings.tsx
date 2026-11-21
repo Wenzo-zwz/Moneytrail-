@@ -34,8 +34,7 @@ export default function ScreenshotCaptureSettings({ onOpenCapture }: Props) {
       {template ? <>
         <p>添加“{template.name}”，支付宝、微信支付等付款详情共用同一条指令，无需填写接入令牌。</p>
         <a className="button primary" href={template.url} target="_blank" rel="noopener noreferrer">安装截图记账快捷指令<ArrowRight size={17} /></a>
-      </> : <p>在 iPhone 添加“{SCREENSHOT_SHORTCUT_TEMPLATE.name}”，按下方步骤配置一次，之后共用同一条指令。</p>}
-      <details className="screenshot-setup-guide">
+      </> : <details className="screenshot-setup-guide">
         <summary>配置 iPhone 截图快捷指令</summary>
         <p>新建快捷指令并命名为“{SCREENSHOT_SHORTCUT_TEMPLATE.name}”，按下面顺序添加操作。截图应是第一步，付款详情保持在屏幕上。</p>
         <ol>
@@ -47,7 +46,7 @@ export default function ScreenshotCaptureSettings({ onOpenCapture }: Props) {
         </ol>
         {prefix ? <div className="screenshot-url-field"><span>“文本”操作使用的地址前缀</span><code>{prefix}</code><button type="button" className="button secondary small" onClick={() => void copyPrefix()}><Copy size={16} />复制地址前缀</button><p>前缀后面插入编码结果的变量，不要手写变量名称。</p></div> : <p className="help-text">在当前部署的网页中打开此设置，即可复制对应地址前缀。</p>}
         {notice && <p className="screenshot-copy-notice" role="status">{notice}</p>}
-      </details>
+      </details>}
     </section>
     <section className="screenshot-setup-step" aria-labelledby="screenshot-back-tap-title">
       <h3 id="screenshot-back-tap-title">2. 绑定轻点背面两下</h3>

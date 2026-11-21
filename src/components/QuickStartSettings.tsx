@@ -1,4 +1,4 @@
-import { ArrowRight, MessageSquare, Pencil, ScanText, Smartphone, Wallet } from "lucide-react";
+import { ArrowRight, MessageSquare, ScanText, Smartphone } from "lucide-react";
 import { SCREENSHOT_SHORTCUT_TEMPLATE } from "../lib/screenshotShortcutTemplate";
 import { BANK_ACTIVITY_TEMPLATE } from "../lib/bankOnboarding";
 import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
@@ -7,11 +7,9 @@ type Props = {
   projectUrl?: string;
   onSmsAutomation?: () => void;
   onScreenshotSetup: () => void;
-  onRecord: () => void;
-  onBudget: () => void;
 };
 
-export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScreenshotSetup, onRecord, onBudget }: Props) {
+export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScreenshotSetup }: Props) {
   const bankSms = projectUrl ? getReleasedBankSmsV4(projectUrl) : null;
   return <section className="setting-card quick-start-card" aria-labelledby="quick-start-title">
     <div className="setting-heading"><Smartphone size={23} /><h2 id="quick-start-title">快速上手</h2></div>
@@ -53,12 +51,9 @@ export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScre
         </>}
       </article>
     </div>
-    <div className="quick-start-other">
-      <p>{onSmsAutomation ? "也可以直接手动记账，或设置每月预算。" : "账目保存在当前设备与浏览器，换设备前请导出完整备份。"}</p>
-      <div className="quick-start-actions">
-        <button type="button" className="button secondary" onClick={onRecord}><Pencil size={17} />手动记一笔</button>
-        <button type="button" className="button secondary" onClick={onBudget}><Wallet size={17} />设置月预算</button>
-      </div>
-    </div>
+    <details className="quick-start-checklist">
+      <summary>添加到 iPhone 主屏幕</summary>
+      <p>用 Safari 打开 MoneyTrail，点「分享」，再选「添加到主屏幕」。首次联网打开账本后可以离线记账，账号模式会在联网后同步。</p>
+    </details>
   </section>;
 }

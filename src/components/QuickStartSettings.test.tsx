@@ -15,7 +15,7 @@ function enableFixtureRelease() {
 }
 
 describe("quick start bank income guidance", () => {
-  const handlers = { onScreenshotSetup: vi.fn(), onRecord: vi.fn(), onBudget: vi.fn() };
+  const handlers = { onScreenshotSetup: vi.fn() };
   it("explains the new income route and the limits of old shared installers", () => {
     const markup = renderToStaticMarkup(createElement(QuickStartSettings, { ...handlers, onSmsAutomation: vi.fn() }));
     expect(markup).toContain("银行收入与支出短信");
@@ -36,6 +36,8 @@ describe("quick start bank income guidance", () => {
     expect(markup).not.toMatch(/文件夹|更新指令|定时/);
     expect(markup).toContain("开通短信自动记账");
     expect(markup).toContain("设置截图记账");
+    expect(markup).toContain("添加到 iPhone 主屏幕");
+    expect(markup).not.toMatch(/手动记一笔|设置月预算/);
     expect(markup).not.toContain("收支新版共享安装链接待发布");
   });
 

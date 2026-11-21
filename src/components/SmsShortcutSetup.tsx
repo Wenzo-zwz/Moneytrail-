@@ -5,7 +5,8 @@ import type { SmsConfig } from "../lib/smsClient";
 import ThreeBankShortcutGuide from "./ThreeBankShortcutGuide";
 import BankActivityShortcutGuide from "./BankActivityShortcutGuide";
 import BankRulesV4Setup from "./BankRulesV4Setup";
-import { getReleasedBankSmsV4, isBankRulesV4ProjectCompatible } from "../lib/bankRulesV4";
+import BankRuleStatus from "./BankRuleStatus";
+import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
 import { BANK_ACTIVITY_TEMPLATE, getCompatibleSmsShortcutTemplate, getGenericSmsShortcutSource } from "../lib/bankOnboarding";
 
 type Props = {
@@ -48,7 +49,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
           {config.enabled ? <a className="button primary sms-shortcut-install" href={sms.url} target="_blank" rel="noopener noreferrer">安装收支快捷指令</a>
             : <button className="button secondary sms-shortcut-install" type="button" disabled>安装收支快捷指令</button>}
         </> : <BankActivityShortcutGuide projectUrl={projectUrl} bankCode={bankCode} enabled={config.enabled} />}
-        <details className="three-bank-maker"><summary>仅接收支出：旧版模板与配置</summary>
+        {!sms && <details className="three-bank-maker"><summary>仅接收支出：旧版模板与配置</summary>
         <p>以下旧版指令仍可用于支出，不会因网页更新而新增收入筛选。要接收收入，请使用上方收支新版，并按第 3 步更新手机触发条件。</p>
         {bankCode === "icbc" ? <>
           <p>用 iPhone 添加「{SMS_SHORTCUT_TEMPLATE.name}」工行版模板。导入时，在令牌问题中粘贴自己的个人令牌，并保留模板名称。</p>
@@ -58,7 +59,7 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
           <ThreeBankShortcutGuide key={bankCode} projectUrl={projectUrl} bankCode={bankCode} enabled={config.enabled} />
         </>}
         <p className="sms-shortcut-note">若继续使用旧版支出指令：发件人仍按真实银行号码设置，{bankCode === "icbc" ? "信息包含「支出」" : bankCode === "cmb" ? "“信息包含”留空" : `信息包含「${bank.name}」`}，运行{bankCode === "icbc" ? SMS_SHORTCUT_TEMPLATE.name : getGenericSmsShortcutSource(bankCode).name}。这个旧配置不覆盖收入。</p>
-        </details>
+        </details>}
       </li>
       <li>
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">3</span><h4>{sms ? "绑定银行短信" : "创建短信自动化"}</h4></div>
@@ -80,18 +81,21 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
       </li>
       <li>
         <div className="sms-shortcut-step-heading"><span aria-hidden="true">4</span><h4>核对实际接收</h4></div>
-        <div className="sms-shortcut-receipt"><span>服务器最近接收</span>{received && Number.isFinite(received.getTime()) ? <time dateTime={config.last_received_at!}>{receiptTime.format(received)}（北京时间）</time> : <strong>{config.last_received_at ? "接收时间暂不可用" : "尚未收到短信"}</strong>}</div>
-        <button className="button secondary sms-shortcut-refresh" type="button" disabled={busy} onClick={onRefresh}>刷新接收状态</button>
-        {!config.last_received_at && <p>尚无接收记录不代表手机设置有误，请等候符合条件的新短信。</p>}
-        <p>历史接收时间不代表本次模板已验证。请等待一条新的真实{bank.name}收支短信，再刷新查看。</p>
+        {sms ? <p>新交易短信到达后，在上方「最近接收」与「短信收件箱」核对；需要时点收件箱的「刷新」。</p> : <>
+          <div className="sms-shortcut-receipt"><span>服务器最近接收</span>{received && Number.isFinite(received.getTime()) ? <time dateTime={config.last_received_at!}>{receiptTime.format(received)}（北京时间）</time> : <strong>{config.last_received_at ? "接收时间暂不可用" : "尚未收到短信"}</strong>}</div>
+          <button className="button secondary sms-shortcut-refresh" type="button" disabled={busy} onClick={onRefresh}>刷新接收状态</button>
+          {!config.last_received_at && <p>尚无接收记录不代表手机设置有误，请等候符合条件的新短信。</p>}
+          <p>历史接收时间不代表本次模板已验证。请等待一条新的真实{bank.name}收支短信，再刷新查看。</p>
+        </>}
         {bank.reviewOnly && <p>此银行收到后先待确认，不会自动增加消费。请核对或补齐金额、商户、日期和交易类型，再确认入账。</p>}
         <p>收到短信不等于已入账，请在收件箱核对「已入账」或「待确认」。</p>
       </li>
     </ol>
     <p className="sms-shortcut-boundary">「已启用」仅表示个人接入已打开，网页无法判断模板是否已安装、自动化是否已设置。手机上的安装与触发需按以上步骤实际核对。</p>
-    {isBankRulesV4ProjectCompatible(projectUrl) && <details className="three-bank-maker">
+    <details className="three-bank-maker">
       <summary>高级配置：本机规则缓存与更新</summary>
       <BankRulesV4Setup projectUrl={projectUrl} enabled={config.enabled} />
-    </details>}
+      <BankRuleStatus projectUrl={projectUrl} />
+    </details>
   </section>;
 }
