@@ -220,11 +220,17 @@ async function publishedRulesWorkflow(browser,app){
  try{
   await context.route('**/shortcuts/bank-rules.json',async route=>{const request=route.request();requests.push(request);if(fail)return route.fulfill({status:503,contentType:'application/json',body:'{}'});return route.continue();});
   await login(page);
-  await page.getByText('高级配置：本机规则缓存与更新',{exact:true}).click();
+  const advanced = page.getByText('高级配置：本机规则缓存与更新',{exact:true});
+  await advanced.click();
   const status=page.getByRole('region',{name:'银行规则发布状态',exact:true});
   await status.getByText('规则版本读取未完成。现有快捷指令与收件箱继续按原配置运行，可稍后重试。',{exact:true}).waitFor();
   await page.getByRole('heading',{name:'等待第一条银行交易短信',exact:true}).waitFor();
+  const inboxReads = () => service.requests.filter(request=>request.path.endsWith('/moneytrail_sms_inbox')).length;
+  const beforeRefresh = inboxReads();
   await page.getByRole('button',{name:'刷新接收状态',exact:true}).click();
+  await until(()=>inboxReads()>beforeRefresh,'receipt refresh should still work when the rules are unavailable');
+  await advanced.waitFor();
+  if(!await advanced.evaluate(element=>element.parentElement.open))await advanced.click();
   assert.equal(service.secrets.length,0,'checking a rule version cannot rotate a personal token');
   fail=false;await status.getByRole('button',{name:'检查网页规则版本',exact:true}).click();
   await status.getByText(/网页已发布规则 v1/).waitFor();
