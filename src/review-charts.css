@@ -1,0 +1,105 @@
+.review-chart {
+  --review-chart-surface: #1e1c1e;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--review-chart-surface);
+}
+
+.review-chart .panel-subtitle { margin-top: 4px; }
+.review-chart-empty { color: var(--muted); font-size: 12px; margin: 20px 0 4px; }
+.review-donut-ring { margin: 10px auto 4px; position: relative; width: min(100%, 240px); }
+.review-donut-ring svg, .review-trend-plot { width: 100%; height: auto; display: block; }
+.review-donut-wedge { cursor: pointer; transition: transform .22s cubic-bezier(.24,.8,.26,1); }
+.review-donut-wedge path { stroke: var(--review-chart-surface); stroke-width: 1; }
+.review-donut-wedge:focus-visible { outline: none; }
+.review-donut-wedge:focus-visible path { stroke: #f0e2d4; stroke-width: 2; }
+.review-donut-center {
+  position: absolute;
+  inset: 32% 21%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.review-donut-center strong { font-size: clamp(14px, 5vw, 21px); color: #ede3d9; font-variant-numeric: tabular-nums; }
+.review-donut-center span, .review-donut-center small { color: var(--muted); font-size: 11px; }
+.review-donut-legend { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.review-donut-legend button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(34px, auto);
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #ded7cf;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.review-donut-legend button:hover, .review-donut-legend button[aria-pressed="true"] { background: #332b27; border-color: #574638; }
+.review-donut-legend small { color: #bfb6ac; }
+.review-legend-dot { border-radius: 50%; width: 8px; height: 8px; }
+.review-legend-name { text-align: left; overflow-wrap: anywhere; }
+
+.review-trend-category, .review-trend-dates label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.review-trend-category { margin: 12px 0; }
+.review-trend-category select, .review-trend-dates input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #251f21;
+  color: #e5ded7;
+  font-size: max(16px, 1em);
+}
+.review-trend-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 8px;
+}
+.review-trend-error { grid-column: 1 / -1; margin: 0; color: #ebaaa4; font-size: 12px; }
+.review-trend-plot { margin: 12px auto 0; max-width: 560px; }
+.review-trend-plot text { fill: #bdb2a7; font-size: 14px; font-variant-numeric: tabular-nums; }
+.review-trend-guide, .review-trend-zero { vector-effect: non-scaling-stroke; }
+.review-trend-guide { stroke: #343038; }
+.review-trend-zero { stroke: #59515b; }
+.review-trend-edge { stroke-width: 2.5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.review-trend-edge-partial { stroke-dasharray: 4 5; }
+.review-trend-point { cursor: pointer; }
+.review-trend-point circle { stroke-width: 2; }
+.review-trend-point:focus-visible { outline: none; }
+.review-trend-point:focus-visible circle { stroke: #f8eee0; }
+.review-trend-readout { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+.review-trend-readout > div { display: grid; gap: 3px; min-width: 0; }
+.review-trend-readout span { color: var(--muted); font-size: 12px; }
+.review-trend-readout strong { font-size: 17px; color: #e5ded7; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+  .review-chart { padding: 12px; }
+  .review-trend-dates { grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr)); }
+  .review-trend-dates > button { grid-column: 1 / -1; justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-donut-wedge { transition: none; }
+}

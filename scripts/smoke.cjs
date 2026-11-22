@@ -137,6 +137,91 @@ async function fixture(browser, mobile = false) {
   return { page, context, errors };
 }
 
+async function visualReviewWorkflow(browser) {
+  const { page, context, errors } = await fixture(browser, true);
+  try {
+    await page.evaluate(key => {
+      const base = { kind: "expense", category: "食品酒水", source: "manual", note: "" };
+      localStorage.setItem(key, JSON.stringify({
+        version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [
+          { ...base, id: "oct-food", date: "2026-10-05T12:30", merchant: "本月外卖明细", amountCents: 65000, subcategory: "外卖" },
+          { ...base, id: "oct-refund", date: "2026-10-16T12:30", merchant: "本月外卖退款", amountCents: 15000, kind: "refund", subcategory: "外卖" },
+          { ...base, id: "oct-housing", date: "2026-10-01T12:30", merchant: "本月房租明细", amountCents: 100000, category: "居住与家用" },
+          { ...base, id: "oct-transit", date: "2026-10-12T12:30", merchant: "本月交通明细", amountCents: 8000, category: "交通出行" },
+          { ...base, id: "oct-future", date: "2026-10-28T12:30", merchant: "月内未来预记", amountCents: 999900 },
+          { ...base, id: "sep-food", date: "2026-09-05T12:30", merchant: "上月同期外卖", amountCents: 30000, subcategory: "外卖" },
+          { ...base, id: "sep-late", date: "2026-09-27T12:30", merchant: "上月月底外卖", amountCents: 80000 },
+          { ...base, id: "sep-housing", date: "2026-09-01T12:30", merchant: "上月同期房租", amountCents: 100000, category: "居住与家用" },
+          { ...base, id: "sep-transit", date: "2026-09-12T12:30", merchant: "上月同期交通", amountCents: 4000, category: "交通出行" },
+          { ...base, id: "apr-food", date: "2026-04-11T12:30", merchant: "四月单独记账", amountCents: 12000 },
+          { ...base, id: "jan-food", date: "2026-01-11T12:30", merchant: "一月趋势明细", amountCents: 45000 },
+          { ...base, id: "dec-food", date: "2025-12-11T12:30", merchant: "跨年趋势明细", amountCents: 25000 },
+        ],
+      }));
+    }, KEY);
+    await page.reload({ waitUntil: "networkidle" });
+    await go(page, "复盘", true);
+    const report = page.locator(".review-card");
+    const headline = report.locator(".review-headline");
+    await headline.waitFor({ state: "visible", timeout: 3000 });
+    const headlineText = (await headline.innerText()).replace(/\s+/g, " ");
+    assert.match(headlineText, /上月同期.*多花.*240[.]00/, "opening headline compares only matching days");
+    assert.match(headlineText, /食品酒水.*200[.]00/, "opening headline identifies the main category change");
+    assert(headlineText.indexOf("240.00") < headlineText.indexOf("1,580.00"), "spending difference precedes the month's net spending");
+    const donut = report.getByRole("region", { name: "支出构成", exact: true });
+    const trend = report.getByRole("region", { name: "支出趋势", exact: true });
+    const wedge = donut.locator(".review-donut-wedge[data-category='食品酒水']");
+    await wedge.scrollIntoViewIfNeeded();
+    const restTransform = await wedge.evaluate(element => element.style.transform);
+    const point = await wedge.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      for (let y = Math.ceil(bounds.top); y < bounds.bottom; y += 4) {
+        for (let x = Math.ceil(bounds.left); x < bounds.right; x += 4) {
+          const target = document.elementFromPoint(x, y);
+          if (target === element || (target && element.contains(target))) return { x, y };
+        }
+      }
+      throw new Error("the food wedge has no visible tap target");
+    });
+    await page.touchscreen.tap(point.x, point.y);
+    assert.equal(await wedge.getAttribute("aria-pressed"), "true");
+    assert.notEqual(await wedge.evaluate(element => element.style.transform), restTransform, "tapping the wedge translates the selected slice");
+    assert.match(await donut.innerText(), /¥650[.]00/, "composition uses gross spending before the ¥150 refund");
+    const details = report.getByRole("region", { name: "分类明细", exact: true });
+    await details.getByText("本月外卖明细", { exact: true }).waitFor();
+    assert.equal(await details.getByText("本月房租明细", { exact: true }).count(), 0);
+    assert.equal(await trend.getByRole("combobox", { name: "趋势分类", exact: true }).inputValue(), "食品酒水");
+    assert.equal(await trend.locator(".review-trend-point[data-month='2026-10']").getAttribute("data-amount-cents"), "50000", "trend uses net spending and excludes future receipts");
+    await trend.getByLabel("起始月份", { exact: true }).fill("2025-12");
+    await trend.getByLabel("结束月份", { exact: true }).fill("2026-10");
+    await trend.getByRole("button", { name: "应用区间", exact: true }).click();
+    assert.equal(await trend.locator(".review-trend-point[data-month='2025-12']").getAttribute("data-amount-cents"), "25000");
+    const january = trend.locator(".review-trend-point[data-month='2026-01']");
+    assert.equal(await january.getAttribute("data-amount-cents"), "45000");
+    await january.press("Enter");
+    await trend.getByRole("button", { name: "查看该月复盘", exact: true }).waitFor();
+    assert.equal(await page.locator("#month").inputValue(), "2026-10", "inspecting a point keeps the selected review month");
+    await donut.getByRole("button", { name: "查看食品酒水", exact: true }).click();
+    assert.equal(await wedge.getAttribute("aria-pressed"), "false");
+    assert.equal(await wedge.evaluate(element => element.style.transform), restTransform);
+    assert.equal(await trend.getByRole("combobox", { name: "趋势分类", exact: true }).inputValue(), "");
+    assert.equal(await trend.locator(".review-trend-point[data-month='2026-10']").getAttribute("data-amount-cents"), "158000", "clearing selection restores the full trend");
+    await page.locator("#month").fill("2026-04");
+    const withoutPrior = await headline.innerText();
+    assert.match(withoutPrior, /120[.]00/);
+    assert.match(withoutPrior, /最大|最多/);
+    assert.match(withoutPrior, /食品酒水/);
+    assert.doesNotMatch(withoutPrior, /(?:多花|少花)/, "no prior ledger period does not invent a comparison");
+    assert.deepEqual(errors, []);
+    await noOverflow(page, "390px visual monthly review");
+    await page.setViewportSize({ width: 320, height: 740 });
+    await noOverflow(page, "320px visual monthly review");
+    passed("mobile review leads with comparable spending and links the donut, filtered details, and custom-range trend");
+  } finally {
+    await context.close();
+  }
+}
+
 async function reviewNavigationWorkflow(browser) {
   const { page, context, errors } = await fixture(browser, true);
   try {
@@ -1039,6 +1124,7 @@ async function staleEditorRegression(browser) {
         : {}),
       args: ["--no-sandbox"],
     });
+    await visualReviewWorkflow(browser);
     await reviewNavigationWorkflow(browser);
     await mobileCategoryChartWorkflow(browser);
     await fullWorkflow(browser);

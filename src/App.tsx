@@ -1070,6 +1070,12 @@ export default function App({
     setNotice("");
     window.scrollTo({ top: 0, behavior: "instant" });
   }
+  function reviewUnclassified() {
+    setQuery("");
+    setCategory("待分类");
+    setKindFilter("spending");
+    navigate("transactions");
+  }
   const row = (t: Transaction) => (
     <TransactionRow
       key={t.id}
@@ -1376,12 +1382,7 @@ export default function App({
                         <button
                           className="button secondary small"
                           type="button"
-                          onClick={() => {
-                            setQuery("");
-                            setCategory("待分类");
-                            setKindFilter("spending");
-                            navigate("transactions");
-                          }}
+                          onClick={reviewUnclassified}
                         >
                           去整理 <ArrowRight size={16} aria-hidden="true" />
                         </button>
@@ -1527,6 +1528,7 @@ export default function App({
                   budgets={annualBudgets}
                   checkedMonths={data.billCheckedMonths}
                   onReviewMonth={setMonth}
+                  onReviewUnclassified={reviewUnclassified}
                   onEditAnnualBudget={annualYear => setReviewEditor({ annualYear })}
                   onEditNextMonth={baseMonth => setReviewEditor({ baseMonth })}
                   renderTransaction={row}
