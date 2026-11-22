@@ -106,7 +106,7 @@ async function addManual(page, values = {}) {
     .getByLabel("发生时间", { exact: true })
     .fill(values.date || "2026-10-22T12:30");
   await modal
-    .getByLabel("分类", { exact: true })
+    .getByLabel("一级分类", { exact: true })
     .selectOption(values.category || "食品酒水");
   if (values.linkedTransactionId)
     await modal
@@ -144,8 +144,8 @@ async function visualReviewWorkflow(browser) {
       const base = { kind: "expense", category: "食品酒水", source: "manual", note: "" };
       localStorage.setItem(key, JSON.stringify({
         version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [
-          { ...base, id: "oct-food", date: "2026-10-05T12:30", merchant: "本月外卖明细", amountCents: 65000, subcategory: "外卖" },
-          { ...base, id: "oct-refund", date: "2026-10-16T12:30", merchant: "本月外卖退款", amountCents: 15000, kind: "refund", subcategory: "外卖" },
+          { ...base, id: "oct-food", date: "2026-10-05T12:30", merchant: "本月外卖明细", amountCents: 120000, subcategory: "外卖" },
+          { ...base, id: "oct-refund", date: "2026-10-16T12:30", merchant: "本月外卖退款", amountCents: 70000, kind: "refund", subcategory: "外卖" },
           { ...base, id: "oct-housing", date: "2026-10-01T12:30", merchant: "本月房租明细", amountCents: 100000, category: "居住与家用" },
           { ...base, id: "oct-transit", date: "2026-10-12T12:30", merchant: "本月交通明细", amountCents: 8000, category: "交通出行" },
           { ...base, id: "oct-future", date: "2026-10-28T12:30", merchant: "月内未来预记", amountCents: 999900 },
@@ -153,6 +153,7 @@ async function visualReviewWorkflow(browser) {
           { ...base, id: "sep-late", date: "2026-09-27T12:30", merchant: "上月月底外卖", amountCents: 80000 },
           { ...base, id: "sep-housing", date: "2026-09-01T12:30", merchant: "上月同期房租", amountCents: 100000, category: "居住与家用" },
           { ...base, id: "sep-transit", date: "2026-09-12T12:30", merchant: "上月同期交通", amountCents: 4000, category: "交通出行" },
+          { ...base, id: "aug-food", date: "2026-08-31T12:30", merchant: "八月月底外卖", amountCents: 20000 },
           { ...base, id: "apr-food", date: "2026-04-11T12:30", merchant: "四月单独记账", amountCents: 12000 },
           { ...base, id: "jan-food", date: "2026-01-11T12:30", merchant: "一月趋势明细", amountCents: 45000 },
           { ...base, id: "dec-food", date: "2025-12-11T12:30", merchant: "跨年趋势明细", amountCents: 25000 },
@@ -164,10 +165,10 @@ async function visualReviewWorkflow(browser) {
     const report = page.locator(".review-card");
     const headline = report.locator(".review-headline");
     const headlineText = (await headline.innerText()).replace(/\s+/g, " ");
-    assert.match(headlineText, /比上月暂少花.*560[.]00/, "opening headline compares spending to the whole prior month");
-    assert.match(headlineText, /截至\s*10\s*月\s*22\s*日.*9\s*月全月/, "opening headline gives the cutoff and reference month");
-    assert.match(headlineText, /食品酒水.*600[.]00/, "opening headline identifies the main category change");
-    assert(headlineText.indexOf("560.00") < headlineText.indexOf("1,580.00"), "spending difference precedes the month's net spending");
+    assert.equal(await headline.getByRole("heading").innerText(), "本月已记净支出 ¥1,580.00");
+    assert.match(headlineText, /本月截至 10 月 22 日/);
+    assert.match(headlineText, /已分类支出最多：居住与家用 ¥1,000[.]00/);
+    assert.doesNotMatch(headlineText, /多花|少花|持平|9 月全月|560[.]00/, "the active month only reports recorded spending");
     await report.getByRole("region", { name: "月度复盘结论", exact: true }).waitFor({ state: "visible", timeout: 3000 });
     const donut = report.getByRole("region", { name: "支出构成", exact: true });
     const trend = report.getByRole("region", { name: "支出趋势", exact: true });
@@ -194,9 +195,10 @@ async function visualReviewWorkflow(browser) {
     await page.touchscreen.tap(point.x, point.y);
     assert.equal(await wedge.getAttribute("aria-pressed"), "true");
     assert.notEqual(await wedge.evaluate(element => element.style.transform), restTransform, "tapping the wedge translates the selected slice");
-    assert.match(await donut.innerText(), /¥650[.]00/, "composition uses gross spending before the ¥150 refund");
+    assert.match(await donut.innerText(), /¥1,200[.]00/, "composition uses gross spending before the ¥700 refund");
     await details.getByText("本月外卖明细", { exact: true }).waitFor();
     assert.equal(await details.getByText("本月房租明细", { exact: true }).count(), 0);
+    assert.doesNotMatch(await details.innerText(), /较上月|9 月 1–30 日/);
     assert.equal(await trend.getByRole("combobox", { name: "趋势分类", exact: true }).inputValue(), "食品酒水");
     assert.equal(await trend.locator(".review-trend-point[data-month='2026-10']").getAttribute("data-amount-cents"), "50000", "trend uses net spending and excludes future receipts");
     await trend.getByLabel("起始月份", { exact: true }).fill("2025-12");
@@ -213,6 +215,14 @@ async function visualReviewWorkflow(browser) {
     assert.equal(await wedge.evaluate(element => element.style.transform), restTransform);
     assert.equal(await trend.getByRole("combobox", { name: "趋势分类", exact: true }).inputValue(), "");
     assert.equal(await trend.locator(".review-trend-point[data-month='2026-10']").getAttribute("data-amount-cents"), "158000", "clearing selection restores the full trend");
+    await page.locator("#month").fill("2026-09");
+    const archivedHeadline = (await headline.innerText()).replace(/\s+/g, " ");
+    assert.equal(await headline.getByRole("heading").innerText(), "比上月多花 ¥1,940.00");
+    assert.match(archivedHeadline, /9 月全月.*8 月全月/, "a completed month compares both full months including late transactions");
+    const archivedFood = details.locator(".review-spend-entry").filter({ has: page.getByRole("button", { name: "食品酒水", exact: true }) });
+    assert.match((await archivedFood.innerText()).replace(/\s+/g, " "), /较上月 \+¥900[.]00/);
+    await archivedFood.getByRole("button", { name: "食品酒水", exact: true }).click();
+    await archivedFood.getByText(/2026 年 8 月 1–31 日.*1 笔支出/).waitFor();
     await page.locator("#month").fill("2026-04");
     const withoutPrior = await headline.innerText();
     assert.match(withoutPrior, /120[.]00/);
@@ -223,7 +233,7 @@ async function visualReviewWorkflow(browser) {
     await noOverflow(page, "390px visual monthly review");
     await page.setViewportSize({ width: 320, height: 740 });
     await noOverflow(page, "320px visual monthly review");
-    passed("mobile review leads with comparable spending and links the donut, filtered details, and custom-range trend");
+    passed("mobile review uses recorded spending for the active month and full-month comparisons for archived months");
   } finally {
     await context.close();
   }
@@ -563,6 +573,81 @@ async function mobileWorkflow(browser) {
   }
 }
 
+async function mobileTransactionEditorWorkflow(browser) {
+  const { page, context, errors } = await fixture(browser, true);
+  try {
+    const initial = {
+      id: "pending-mobile-editor", kind: "expense", date: "2026-10-22T12:30",
+      merchant: "手机待分类消费", amountCents: 3850, category: "待分类", source: "manual", note: "",
+    };
+    await page.evaluate(({ key, initial }) => localStorage.setItem(key, JSON.stringify({
+      version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [initial],
+    })), { key: KEY, initial });
+    await page.reload({ waitUntil: "networkidle" });
+    await go(page, "账目", true);
+    const edit = page.getByRole("button", { name: `编辑${initial.merchant}`, exact: true });
+    await edit.click();
+    const editor = page.getByRole("dialog");
+    const date = editor.getByLabel("发生时间", { exact: true });
+    const category = editor.getByRole("combobox", { name: "一级分类", exact: true });
+    const subcategory = editor.getByRole("combobox", { name: "二级分类（可选）", exact: true });
+    const custom = editor.getByLabel("自定义二级分类", { exact: true });
+    const save = editor.getByRole("button", { name: "确认保存", exact: true });
+    assert.equal(await date.getAttribute("type"), "datetime-local");
+    assert.equal(await editor.locator("input[list]").count(), 0, "the editor must use a native select for predefined subcategories");
+    assert.equal(await category.inputValue(), "待分类");
+    assert.equal(await subcategory.isDisabled(), true);
+    assert.equal(await subcategory.locator("option:checked").innerText(), "请先选择一级分类");
+    await category.selectOption("食品酒水");
+    assert.equal(await subcategory.isEnabled(), true);
+    assert.deepEqual(await subcategory.locator("option").allTextContents(), [
+      "未细分", "买菜食材", "堂食聚餐", "外卖", "咖啡奶茶", "零食饮料", "酒水", "烟酒副食", "自定义…",
+    ]);
+    for (const [width, height] of [[390, 844], [320, 740]]) {
+      await page.setViewportSize({ width, height });
+      const dateBox = await date.boundingBox();
+      const categoryBox = await category.boundingBox();
+      const dialogBox = await editor.boundingBox();
+      assert(dateBox && categoryBox && dialogBox, `${width}px: edit controls are visible`);
+      assert(dateBox.y + dateBox.height <= categoryBox.y, `${width}px: the time field has its own row above the primary category`);
+      assert(dateBox.x >= dialogBox.x && dateBox.x + dateBox.width <= dialogBox.x + dialogBox.width, `${width}px: the native time field fits within the dialog`);
+      await noOverflow(page, `${width}px transaction editor`);
+    }
+    await subcategory.selectOption("外卖");
+    assert.equal(await custom.count(), 0);
+    await save.click();
+    await editor.waitFor({ state: "detached" });
+    let saved = (await data(page)).transactions[0];
+    assert.equal(saved.category, "食品酒水");
+    assert.equal(saved.subcategory, "外卖");
+    assert.equal(saved.date, initial.date);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await edit.click();
+    assert.equal(await subcategory.inputValue(), "外卖");
+    await subcategory.selectOption({ label: "自定义…" });
+    await custom.fill("值班夜宵");
+    await save.click();
+    await editor.waitFor({ state: "detached" });
+    await page.reload({ waitUntil: "networkidle" });
+    await go(page, "账目", true);
+    await edit.click();
+    assert.equal(await subcategory.locator("option:checked").innerText(), "自定义…");
+    assert.equal(await custom.inputValue(), "值班夜宵");
+    await page.screenshot({ path: path.join(ARTIFACTS, "mobile-transaction-editor.png"), fullPage: true, animations: "disabled" });
+    await editor.getByLabel("备注（可选）", { exact: true }).fill("仅编辑备注");
+    await save.click();
+    await editor.waitFor({ state: "detached" });
+    saved = (await data(page)).transactions[0];
+    assert.equal(saved.note, "仅编辑备注");
+    assert.equal(saved.subcategory, "值班夜宵");
+    assert.deepEqual(errors, []);
+    passed("390px and 320px transaction editors keep the time field clear and save predefined and custom subcategories");
+  } finally {
+    await context.close();
+  }
+}
+
 async function localLifeDetailsAndEvidence(browser) {
   for (const mobile of [false, true]) {
     const { page, context, errors } = await fixture(browser, mobile);
@@ -574,8 +659,8 @@ async function localLifeDetailsAndEvidence(browser) {
       assert.equal(await selection.isChecked(), false, "a platform-only SMS stays unselected until user review");
       await page.getByRole("button", { name: "修改信息", exact: true }).click();
       let editor = page.getByRole("dialog");
-      await editor.getByLabel("分类", { exact: true }).selectOption("食品酒水");
-      await editor.getByLabel("细类（可选）", { exact: true }).fill("堂食");
+      await editor.getByLabel("一级分类", { exact: true }).selectOption("食品酒水");
+      await editor.getByLabel("二级分类（可选）", { exact: true }).selectOption("堂食聚餐");
       await editor.getByRole("button", { name: "确认保存", exact: true }).click();
       await selection.check();
       await page.getByRole("button", { name: "确认保存 1 笔", exact: true }).click();
@@ -689,13 +774,16 @@ async function annualCategoryBudgetWorkflow(browser) {
     const report = page.locator(".review-card");
     await go(page, "复盘", true);
     const headline = report.getByRole("region", { name: "月度复盘结论", exact: true });
-    await headline.getByText(/截至\s*1\s*月\s*22\s*日.*12\s*月全月/).waitFor();
-    assert.match(await headline.innerText(), /已比上月多花.*¥50[.]00/);
+    await headline.getByText("本月截至 1 月 22 日", { exact: true }).waitFor();
+    assert.equal(await headline.getByRole("heading").innerText(), "本月已记净支出 ¥650.00");
+    assert.doesNotMatch(await headline.innerText(), /12 月全月|多花|少花/);
     const takeout = report.locator(".review-spend-entry").filter({ has: page.getByRole("button", { name: "外卖", exact: true }) });
-    assert.match(await takeout.innerText(), /¥50[.]00/);
+    assert.match(await takeout.innerText(), /¥650[.]00/);
+    assert.doesNotMatch(await takeout.innerText(), /较上月|¥50[.]00/);
     await takeout.getByRole("button", { name: "外卖", exact: true }).click();
     await takeout.getByText("午餐外卖", { exact: true }).waitFor();
-    await takeout.getByText(/2025 年 12 月 1–31 日.*2 笔支出/).waitFor();
+    assert.equal(await takeout.locator(".review-detail-period").count(), 1);
+    assert.doesNotMatch(await takeout.innerText(), /2025 年 12 月/);
     for (const [detail, amount] of [["", "12000"], ["外卖", "6000"]]) {
       await report.getByRole("button", { name: "年度分类预算", exact: true }).click();
       const editor = page.getByRole("dialog");
@@ -723,7 +811,7 @@ async function annualCategoryBudgetWorkflow(browser) {
     assert.deepEqual(budgets.find(budget => budget.subcategory === undefined).monthlyOverrides, []);
     assert.deepEqual(errors, []);
     await noOverflow(page, "390px monthly review and annual budget");
-    passed("monthly review compares the previous calendar month, drills down, and persists an individual next-month plan without changing the category budget");
+    passed("active review drills down into current receipts and persists independent category and detail budgets");
   } finally {
     await context.close();
   }
@@ -776,7 +864,7 @@ async function refundRelinkDatabaseRegression(browser) {
       await go(page, "账目", mobile);
       await page.getByRole("button", { name: "编辑已有退款", exact: true }).click();
       editor = page.getByRole("dialog");
-      assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "");
+      assert.equal(await editor.getByLabel("二级分类（可选）", { exact: true }).isDisabled(), true);
       assert.equal(await editor.getByText("消费平台", { exact: true }).count(), 0);
       await editor.getByText("查看脱敏短信凭据", { exact: true }).click();
       assert.match(await editor.locator(".sms-evidence").textContent(), /退款自己的凭据/);
@@ -1139,6 +1227,7 @@ async function staleEditorRegression(browser) {
     await mobileCategoryChartWorkflow(browser);
     await fullWorkflow(browser);
     await mobileWorkflow(browser);
+    await mobileTransactionEditorWorkflow(browser);
     await localLifeDetailsAndEvidence(browser);
     await annualCategoryBudgetWorkflow(browser);
     await refundRelinkDatabaseRegression(browser);

@@ -107,10 +107,10 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
     return checkedMonths.includes(periodMonth) || transactions.some(transaction =>
       transaction.date.startsWith(`${periodMonth}-`) && transaction.date.slice(0, 10) <= through);
   }
-  const hasPrior = hasRecordedPeriod(report.priorMonth, report.priorThrough);
+  const ongoing = report.isMonthToDate;
+  const hasPrior = !ongoing && hasRecordedPeriod(report.priorMonth, report.priorThrough);
   const canCompare = hasPrior && hasRecordedPeriod(month, report.currentThrough);
   const netChange = actual.netCents - prior.netCents;
-  const ongoing = report.isMonthToDate;
   const priorLabel = month.slice(0, 4) === report.priorMonth.slice(0, 4)
     ? `${Number(report.priorMonth.slice(5, 7))} 月`
     : monthName(report.priorMonth);
@@ -118,10 +118,10 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
     ? `本月截至 ${Number(month.slice(5, 7))} 月 ${Number(report.currentThrough.slice(8, 10))} 日`
     : `${monthName(month)}全月`;
   const recordedText = `本月已记净支出 ${formatMoney(actual.netCents)}`;
-  const direction = netChange > 0 ? (ongoing ? "已比上月多花" : "比上月多花") : (ongoing ? "比上月暂少花" : "比上月少花");
+  const direction = netChange > 0 ? "多花" : "少花";
   const headline = !canCompare ? recordedText : netChange === 0
-    ? (ongoing ? "目前与上月持平" : "与上月持平")
-    : `${direction} ${formatMoney(Math.abs(netChange))}`;
+    ? "与上月持平"
+    : `比上月${direction} ${formatMoney(Math.abs(netChange))}`;
   const driver = canCompare ? findLargestReviewChange(report.rows, netChange) : undefined;
   const largestExpense = actual.categories.find(category => category.category !== "待分类" && category.amountCents > 0);
   const leadCategory = driver?.category ?? (!canCompare ? largestExpense?.category : undefined);
@@ -144,7 +144,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
     () => buildSpendingTrend(transactions, range, today, selectedCategory, checkedMonths),
     [transactions, range.startMonth, range.endMonth, today, selectedCategory, checkedMonths],
   );
-  const rows = report.rows.filter(row => row.currentCount || row.priorCount || row.annualCapCents !== null);
+  const rows = report.rows.filter(row => row.currentCount || (hasPrior && row.priorCount) || row.annualCapCents !== null);
   const shownCategories = selectedCategory === null ? EXPENSE_CATEGORIES : [selectedCategory];
   const ordered = shownCategories.flatMap(category => rows.filter(row => row.category === category));
   const selectedKey = detail?.month === month ? detail.key : selectedCategory === null ? null : scopeKey({ category: selectedCategory });
@@ -155,7 +155,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   }
   const periods = selected ? [
     { month, through: report.currentThrough },
-    { month: report.priorMonth, through: report.priorThrough },
+    ...(hasPrior ? [{ month: report.priorMonth, through: report.priorThrough }] : []),
   ].map(period => ({
     ...period,
     items: transactions.filter(transaction => {
@@ -181,7 +181,8 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
       {canCompare && <p className="review-headline-total">{recordedText}</p>}
       <div className="review-headline-period">
         <p className="panel-subtitle">
-          {currentLabel}{canCompare ? `，和 ${priorLabel}全月对比` : !hasPrior ? " · 上月暂无记录" : " · 本月暂无记录"}
+          {currentLabel}{canCompare && `，和 ${priorLabel}全月对比`}
+          {!ongoing && !canCompare && (hasPrior ? " · 本月暂无记录" : " · 上月暂无记录")}
         </p>
         {ongoing && onReviewMonth && <button className="button ghost small" type="button" onClick={() => onReviewMonth(report.priorMonth)}>回看上月</button>}
       </div>
@@ -192,6 +193,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
           detailRegion.current?.scrollIntoView({ block: "start" });
         }}>查看这类明细 <ChevronRight size={15} aria-hidden="true" /></button>
       </div>}
+      {!canCompare && !leadCategory && <p className="review-headline-total">本月暂无已分类支出</p>}
     </section>
       <SpendingDonut
         slices={slices}
@@ -239,7 +241,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
             </button>
             <dl className="review-row-values">
               <div><dt>净支出</dt><dd>{formatMoney(row.currentNetCents)}</dd></div>
-              <div><dt>较上月</dt><dd className={canCompare && difference > 0 ? "text-danger" : undefined}>{canCompare ? signedMoney(difference) : "—"}</dd></div>
+              {canCompare && <div><dt>较上月</dt><dd className={difference > 0 ? "text-danger" : undefined}>{signedMoney(difference)}</dd></div>}
               <div><dt>月参考</dt><dd>{row.monthlyReferenceCents === null ? "未设置" : formatMoney(row.monthlyReferenceCents)}</dd></div>
               <div><dt>{monthlyRemaining !== null && monthlyRemaining < 0 ? "超出" : "月剩余"}</dt><dd className={monthlyRemaining !== null && monthlyRemaining < 0 ? "text-danger" : undefined}>{monthlyRemaining === null ? "—" : formatMoney(Math.abs(monthlyRemaining))}</dd></div>
             </dl>
@@ -260,7 +262,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
           </div>}
         </div>;
       })}
-    </div> : <p className="help-text">{selectedCategory ? "所选分类在这段期间没有支出或退款。" : "所选两段期间暂无支出或退款，分类预算可随时设置。"}</p>}
+    </div> : <p className="help-text">{selectedCategory ? "所选分类在这段期间没有支出或退款。" : "暂无支出或退款，分类预算可随时设置。"}</p>}
     </section>
     </>}
     <div className="review-actions">

@@ -346,6 +346,8 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: #a58b70; }
 .form-field textarea { min-height: 170px; resize: vertical; line-height: 1.95; }
 .form-field input[type=checkbox] { width: 19px; height: 19px; min-height: 19px; padding: 0; margin: 0 7px 0 0; vertical-align: middle; }
+.transaction-editor input[type="datetime-local"] { display: block; max-width: 100%; overflow: hidden; }
+.transaction-editor-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: inherit; }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 11px; margin-top: 24px; }
 .help-text { margin: 9px 0 0; color: #a8a7a6; font-size: 12px; line-height: 1.9; }
 .notice { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; margin: 16px 0; padding: 13px 15px; border: 1px solid #434241; border-radius: 10px; color: #d0bdb8; background: #242322; font-size: 12px; line-height: 1.9; }
@@ -620,6 +622,10 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
   .modal-footer { padding: 0 20px 25px; }
   .modal-footer .button { flex: 1; }
   .toast { left: 50%; bottom: calc(92px + env(safe-area-inset-bottom)); padding: 13px 16px; font-size: 12px; }
+}
+@media (max-width: 420px) {
+  .transaction-editor-categories { grid-template-columns: minmax(0, 1fr); }
+  .transaction-editor textarea { min-height: 0; }
 }
 @media (max-width: 374px) {
   .main-content { padding-right: 15px; padding-left: 15px; }

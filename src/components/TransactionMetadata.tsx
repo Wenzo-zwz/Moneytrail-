@@ -1,18 +1,66 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import type { DraftTransaction, SmsEvidence } from "../lib/ledger";
 
 import { EXPENSE_DETAILS } from "../lib/expenseCategories";
+
+const CUSTOM_DETAIL = "__custom__";
 
 export function categoryText(transaction: Pick<DraftTransaction, "category" | "subcategory" | "platform">) {
   return `${transaction.category} · ${transaction.subcategory || "未细分"}${transaction.platform ? ` · ${transaction.platform}` : ""}`;
 }
 
-export function DetailField({ category, value, onChange, disabled = false }: { category: string; value?: string; onChange: (value: string) => void; disabled?: boolean }) {
+type DetailFieldProps = {
+  category: string;
+  value?: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+};
+
+export function DetailField(props: DetailFieldProps) {
+  return <DetailPicker key={props.category} {...props} />;
+}
+
+function DetailPicker({ category, value, onChange, disabled = false }: DetailFieldProps) {
   const id = useId();
+  const [customText, setCustomText] = useState<string | null>(null);
+  const details = EXPENSE_DETAILS[category];
+  const detail = value || "未细分";
+  const editingCustom = customText !== null && detail === (customText.trim() ? customText : "未细分");
+  const isCustom = editingCustom || (detail !== "未细分" && !details?.includes(detail));
+
   return <div className="form-field">
-    <label htmlFor={id}>细类（可选）</label>
-    <input id={id} list={`${id}-options`} value={value === "未细分" ? "" : value || ""} onChange={event => onChange(event.target.value.trim() ? event.target.value : "未细分")} maxLength={40} placeholder="未细分，可选择或填写" disabled={disabled} />
-    <datalist id={`${id}-options`}>{(EXPENSE_DETAILS[category] || []).map(detail => <option key={detail} value={detail} />)}</datalist>
+    <label htmlFor={id}>二级分类（可选）</label>
+    <select
+      id={id}
+      value={details ? (isCustom ? CUSTOM_DETAIL : detail) : ""}
+      disabled={disabled || !details}
+      onChange={event => {
+        const selected = event.target.value;
+        const custom = selected === CUSTOM_DETAIL;
+        setCustomText(custom ? "" : null);
+        onChange(custom ? "未细分" : selected);
+      }}
+    >
+      {details ? <>
+        <option value="未细分">未细分</option>
+        {details.map(option => <option key={option} value={option}>{option}</option>)}
+        <option value={CUSTOM_DETAIL}>自定义…</option>
+      </> : <option value="">请先选择一级分类</option>}
+    </select>
+    {details && isCustom && <div className="form-field">
+      <label htmlFor={`${id}-custom`}>自定义二级分类</label>
+      <input
+        id={`${id}-custom`}
+        value={editingCustom ? customText : detail}
+        maxLength={40}
+        disabled={disabled}
+        onChange={event => {
+          const next = event.target.value;
+          setCustomText(next);
+          onChange(next.trim() ? next : "未细分");
+        }}
+      />
+    </div>}
   </div>;
 }
 

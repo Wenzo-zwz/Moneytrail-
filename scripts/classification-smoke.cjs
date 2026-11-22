@@ -199,6 +199,11 @@ async function openSms(page) {
   await dialog.getByRole("button", { name: "短信自动记账", exact: true }).click();
 }
 
+async function fillCustomDetail(scope, value) {
+  await scope.getByLabel("二级分类（可选）", { exact: true }).selectOption({ label: "自定义…" });
+  await scope.getByLabel("自定义二级分类", { exact: true }).fill(value);
+}
+
 async function merchantMemoryWorkflow(browser) {
   const backend = mockBackend();
   const { page, context, errors } = await fixture(browser, backend, { sms: false });
@@ -209,8 +214,8 @@ async function merchantMemoryWorkflow(browser) {
     await editor.getByLabel("金额（元）", { exact: true }).fill("36.80");
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城东店)");
     assert.equal(await editor.getByLabel("以后这家都这样分类").count(), 0, "typing a merchant does not teach a category");
-    await editor.getByLabel("分类", { exact: true }).selectOption("休闲娱乐");
-    await editor.getByLabel("细类（可选）", { exact: true }).fill("桌游聚会");
+    await editor.getByLabel("一级分类", { exact: true }).selectOption("休闲娱乐");
+    await fillCustomDetail(editor, "桌游聚会");
     assert.equal(await editor.getByLabel("以后这家都这样分类").isChecked(), true);
     await editor.getByRole("button", { name: "确认保存", exact: true }).click();
     await until(() => backend.rules.get(OWNER).some(rule => rule.subcategory === "桌游聚会"), "atomic merchant memory save");
@@ -220,7 +225,7 @@ async function merchantMemoryWorkflow(browser) {
     editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
     await editor.getByLabel("金额（元）", { exact: true }).fill("12.00");
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("旧巷体验馆(北店)");
-    await editor.getByLabel("分类", { exact: true }).selectOption("居住与家用");
+    await editor.getByLabel("一级分类", { exact: true }).selectOption("居住与家用");
     await editor.getByLabel("以后这家都这样分类").uncheck();
     await editor.getByRole("button", { name: "确认保存", exact: true }).click();
     await until(() => backend.ledgers.get(OWNER).data.transactions.some(transaction => transaction.merchant === "旧巷体验馆(北店)"), "opt-out transaction persisted");
@@ -237,17 +242,17 @@ async function merchantMemoryWorkflow(browser) {
     editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("财付通-巷口体验馆（城东店）");
     await editor.getByLabel("商户 / 对方", { exact: true }).blur();
-    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "休闲娱乐", "new manual transaction reuses a personal rule");
-    assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "桌游聚会");
+    assert.equal(await editor.getByLabel("一级分类", { exact: true }).inputValue(), "休闲娱乐", "new manual transaction reuses a personal rule");
+    assert.equal(await editor.getByLabel("自定义二级分类", { exact: true }).inputValue(), "桌游聚会");
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城西店)");
     await editor.getByLabel("商户 / 对方", { exact: true }).blur();
-    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "待分类", "another branch does not retain the prior automatic classification");
-    assert.equal(await editor.getByLabel("细类（可选）", { exact: true }).inputValue(), "");
-    await editor.getByLabel("分类", { exact: true }).selectOption("居住与家用");
-    await editor.getByLabel("细类（可选）", { exact: true }).fill("礼品");
+    assert.equal(await editor.getByLabel("一级分类", { exact: true }).inputValue(), "待分类", "another branch does not retain the prior automatic classification");
+    assert.equal(await editor.getByLabel("二级分类（可选）", { exact: true }).isDisabled(), true);
+    await editor.getByLabel("一级分类", { exact: true }).selectOption("居住与家用");
+    await fillCustomDetail(editor, "礼品");
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("财付通-巷口体验馆（城东店）");
     await editor.getByLabel("商户 / 对方", { exact: true }).blur();
-    assert.equal(await editor.getByLabel("分类", { exact: true }).inputValue(), "居住与家用", "automatic reuse preserves an explicit user choice");
+    assert.equal(await editor.getByLabel("一级分类", { exact: true }).inputValue(), "居住与家用", "automatic reuse preserves an explicit user choice");
     await editor.getByRole("button", { name: "取消", exact: true }).click();
     await page.getByRole("button", { name: "记一笔", exact: true }).click();
     editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
@@ -261,8 +266,8 @@ async function merchantMemoryWorkflow(browser) {
     await page.getByRole("button", { name: "修改信息", exact: true }).click();
     editor = page.getByRole("dialog", { name: "核对这笔记录", exact: true });
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("巷口体验馆(城南店)");
-    await editor.getByLabel("分类", { exact: true }).selectOption("居住与家用");
-    await editor.getByLabel("细类（可选）", { exact: true }).fill("日用品");
+    await editor.getByLabel("一级分类", { exact: true }).selectOption("居住与家用");
+    await editor.getByLabel("二级分类（可选）", { exact: true }).selectOption("日用品");
     assert.equal(await editor.getByLabel("以后这家都这样分类").count(), 0, "renaming a group cannot make it learnable");
     await editor.getByRole("button", { name: "取消", exact: true }).click();
     await page.getByRole("tab", { name: "导入账单", exact: true }).click();
@@ -272,8 +277,8 @@ async function merchantMemoryWorkflow(browser) {
       const card = page.locator(".preview-card").filter({ hasText: merchant });
       await card.getByRole("button", { name: "修改信息", exact: true }).click();
       editor = page.getByRole("dialog", { name: "核对这笔记录", exact: true });
-      await editor.getByLabel("分类", { exact: true }).selectOption("休闲娱乐");
-      await editor.getByLabel("细类（可选）", { exact: true }).fill("桌游聚会");
+      await editor.getByLabel("一级分类", { exact: true }).selectOption("休闲娱乐");
+      await fillCustomDetail(editor, "桌游聚会");
       assert.equal(await editor.getByLabel("以后这家都这样分类").isChecked(), true);
       await editor.getByRole("button", { name: "确认保存", exact: true }).click();
     }
@@ -299,7 +304,7 @@ async function smsMemoryWorkflow(browser) {
     await card.getByRole("button", { name: "核对并记录", exact: true }).click();
     assert.equal(await card.getByLabel("以后这家都这样分类").count(), 0);
     await card.getByRole("combobox", { name: /^分类/ }).selectOption("休闲娱乐");
-    await card.getByLabel("细类（可选）", { exact: true }).fill("公司活动");
+    await fillCustomDetail(card, "公司活动");
     assert.equal(await card.getByLabel("以后这家都这样分类").isChecked(), true);
     await card.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     await until(() => backend.inboxes.get(OWNER).find(item => item.id === pendingId).status === "recorded", "atomic SMS confirmation");
@@ -311,8 +316,16 @@ async function smsMemoryWorkflow(browser) {
     const group = page.locator(".sms-message").filter({ hasText: "财付通-群收款" });
     await group.getByRole("button", { name: "核对并记录", exact: true }).click();
     await group.getByLabel("商户或用途", { exact: true }).fill("巷口体验馆(城西店)");
-    await group.getByRole("combobox", { name: /^分类/ }).selectOption("居住与家用");
-    await group.getByLabel("细类（可选）", { exact: true }).fill("日用品");
+    const category = group.getByRole("combobox", { name: /^分类/ });
+    const detail = group.getByLabel("二级分类（可选）", { exact: true });
+    await category.selectOption("休闲娱乐");
+    await detail.selectOption({ label: "自定义…" });
+    const customDetail = group.getByLabel("自定义二级分类", { exact: true });
+    assert.equal(await customDetail.inputValue(), "");
+    await category.selectOption("居住与家用");
+    assert.equal(await customDetail.count(), 0, "changing primary category closes a blank custom detail");
+    assert.equal(await detail.inputValue(), "未细分");
+    await detail.selectOption("日用品");
     assert.equal(await group.getByLabel("以后这家都这样分类").count(), 0);
     await noOverflow(page, "390px SMS memory confirmation");
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
@@ -352,8 +365,8 @@ async function cancelPendingMemoryWorkflow(browser) {
     const editor = page.getByRole("dialog", { name: "记下一笔", exact: true });
     await editor.getByLabel("金额（元）", { exact: true }).fill("18.00");
     await editor.getByLabel("商户 / 对方", { exact: true }).fill("待同步体验馆");
-    await editor.getByLabel("分类", { exact: true }).selectOption("休闲娱乐");
-    await editor.getByLabel("细类（可选）", { exact: true }).fill("公司活动");
+    await editor.getByLabel("一级分类", { exact: true }).selectOption("休闲娱乐");
+    await fillCustomDetail(editor, "公司活动");
     await editor.getByRole("button", { name: "确认保存", exact: true }).click();
     await until(() => backend.requests.some(request => request.path.endsWith("save_moneytrail_ledger_with_rules")), "failed memory push");
     await openSms(page);
@@ -410,15 +423,15 @@ async function workflow(browser, width) {
     }
     await page.getByLabel("具体商户", { exact: true }).fill("巷口咖啡");
     await page.locator(".sms-rule-editor").getByRole("combobox", { name: /^分类/ }).selectOption("食品酒水");
-    await page.getByLabel("细类（可选）", { exact: true }).fill("公司招待");
+    await fillCustomDetail(page, "公司招待");
     await page.getByLabel("以后这家都这样分类").check();
     await page.getByRole("button", { name: "保存商户规则", exact: true }).click();
     await page.getByRole("button", { name: "删除规则", exact: true }).waitFor();
     await page.getByText("巷口咖啡 · 食品酒水 · 公司招待", { exact: true }).waitFor();
     await noOverflow(page, `${width}px populated rule editor`);
     await page.getByRole("button", { name: "编辑规则", exact: true }).click();
-    assert.equal(await page.getByLabel("细类（可选）", { exact: true }).inputValue(), "公司招待");
-    await page.getByLabel("细类（可选）", { exact: true }).fill("");
+    assert.equal(await page.getByLabel("自定义二级分类", { exact: true }).inputValue(), "公司招待");
+    await page.getByLabel("二级分类（可选）", { exact: true }).selectOption("未细分");
     await page.getByRole("button", { name: "保存商户规则", exact: true }).click();
     await page.getByText("巷口咖啡 · 食品酒水 · 未细分", { exact: true }).waitFor();
     await until(async () => await page.getByRole("button", { name: "删除规则" }).isEnabled(), "rule ready");

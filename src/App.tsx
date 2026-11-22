@@ -308,7 +308,7 @@ function TransactionEditor({
   }
   return (
     <Modal title={title} onClose={onClose}>
-      <form onSubmit={submit}>
+      <form className="transaction-editor" onSubmit={submit}>
         <div className="modal-body">
           <p className="help-text">
             所有金额以人民币记录。退款计入实际到账月份，转账、充值和还款不计入消费。
@@ -364,7 +364,7 @@ function TransactionEditor({
                 onBlur={() => applyPersonalCategory(draft)}
               />
             </div>
-            <div className="form-field">
+            <div className="form-field full">
               <label htmlFor="tx-date">发生时间</label>
               <input
                 id="tx-date"
@@ -374,23 +374,34 @@ function TransactionEditor({
                 onChange={(e) => setDraft({ ...draft, date: e.target.value })}
               />
             </div>
-            <div className="form-field">
-              <label htmlFor="tx-category">分类</label>
-              <select
-                id="tx-category"
-                value={draft.category}
-                onChange={(e) => {
+            <div className="form-field full transaction-editor-categories">
+              <div className="form-field">
+                <label htmlFor="tx-category">一级分类</label>
+                <select
+                  id="tx-category"
+                  value={draft.category}
+                  onChange={(e) => {
+                    setExplicitChoice(true);
+                    automaticMerchant.current = null;
+                    setDraft({ ...draft, category: e.target.value, subcategory: "未细分" });
+                  }}
+                >
+                  {CATEGORIES.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <DetailField
+                key={draft.linkedTransactionId ?? ""}
+                category={draft.category}
+                value={draft.subcategory}
+                onChange={subcategory => {
                   setExplicitChoice(true);
                   automaticMerchant.current = null;
-                  setDraft({ ...draft, category: e.target.value, subcategory: "未细分" });
+                  setDraft({ ...draft, subcategory });
                 }}
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+              />
             </div>
-            <DetailField category={draft.category} value={draft.subcategory} onChange={subcategory => { setExplicitChoice(true); automaticMerchant.current = null; setDraft({ ...draft, subcategory }); }} />
             {draft.platform && <div className="form-field"><label>消费平台</label><p className="help-text">{draft.platform}</p></div>}
             {draft.kind === "refund" && (
               <div className="form-field full">

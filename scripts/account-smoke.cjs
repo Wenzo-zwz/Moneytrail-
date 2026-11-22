@@ -157,7 +157,7 @@ async function addManual(page, merchant) {
   await modal.getByLabel("金额（元）", { exact: true }).fill("12.34");
   await modal.getByLabel("商户 / 对方", { exact: true }).fill(merchant);
   await modal.getByLabel("发生时间", { exact: true }).fill("2026-10-22T13:30");
-  await modal.getByLabel("分类", { exact: true }).selectOption("食品酒水");
+  await modal.getByLabel("一级分类", { exact: true }).selectOption("食品酒水");
   const acceptDuplicate = (confirmation) => confirmation.accept();
   page.on("dialog", acceptDuplicate);
   await modal.getByRole("button", { name: "确认保存", exact: true }).click();
