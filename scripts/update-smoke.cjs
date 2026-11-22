@@ -75,7 +75,8 @@ const types = { ".html": "text/html; charset=utf-8", ".js": "application/javascr
     await context.setOffline(false);
     process.stdout.write("PASS an offline settings check reports the failure without claiming the app is current\n");
 
-    await page.locator(".mobile-nav").getByRole("button", { name: "录入", exact: true }).click();
+    await page.locator(".mobile-nav").getByRole("button", { name: "账目", exact: true }).click();
+    await page.getByRole("button", { name: "导入与补录", exact: true }).click();
     const draft = page.getByLabel("银行消费短信", { exact: true });
     await draft.fill(DRAFT);
     await page.evaluate(() => { window.__moneytrailUpdateDocument = "original-document"; });
@@ -83,7 +84,8 @@ const types = { ".html": "text/html; charset=utf-8", ".js": "application/javascr
     other.on("pageerror", error => errors.push(error.message));
     await other.goto(ORIGIN, { waitUntil: "networkidle" });
     await other.locator(".hero-amount").waitFor();
-    await other.locator(".mobile-nav").getByRole("button", { name: "录入", exact: true }).click();
+    await other.locator(".mobile-nav").getByRole("button", { name: "账目", exact: true }).click();
+    await other.getByRole("button", { name: "导入与补录", exact: true }).click();
     const otherDraft = other.getByLabel("银行消费短信", { exact: true });
     await otherDraft.fill(`${DRAFT}（另一标签页）`);
     await other.evaluate(() => { window.__moneytrailUpdateDocument = "other-document"; });

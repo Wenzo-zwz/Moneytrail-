@@ -1,7 +1,7 @@
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { EXPENSE_CATEGORIES, EXPENSE_DETAILS } from "../lib/expenseCategories";
-import { formatMoney, normalizeTransactionCategory, parseAmount, summarize, type Transaction } from "../lib/ledger";
+import { formatMoney, normalizeTransactionCategory, parseAmount, summarize, type MonthSummary, type Transaction } from "../lib/ledger";
 import {
   buildBudgetReview,
   getAnnualCap,
@@ -60,6 +60,30 @@ function reviewTotal(transactions: Transaction[], month: string, through: string
   return summarize(transactions.filter(transaction => transaction.date.slice(0, 10) <= through), month, 0);
 }
 
+export function MonthlyReviewSummary({ month, today, stats, onOpen }: {
+  month: string;
+  today: string;
+  stats: MonthSummary;
+  onOpen: () => void;
+}) {
+  const largest = stats.categories.find(item => item.category !== "待分类" && item.amountCents > 0);
+  const unclassifiedCents = stats.categories.find(item => item.category === "待分类")?.amountCents ?? 0;
+  const share = stats.netCents > 0 && unclassifiedCents >= 0 && unclassifiedCents <= stats.netCents
+    ? (unclassifiedCents / stats.netCents) * 100
+    : null;
+  const shareText = share === null ? "" : share === 0 ? "0%" : share < 1 ? "不足 1%" : `约 ${Math.round(share)}%`;
+
+  return <button className="panel full-width review-summary" type="button" onClick={onOpen}>
+    <span>
+      <strong className="panel-title">月度复盘</strong>
+      <span className="panel-subtitle">{monthName(month)}{month === today.slice(0, 7) ? " · 进行中" : ""}</span>
+      <span className="review-summary-metric">{largest ? `已分类支出最多：${largest.category} ${formatMoney(largest.amountCents)}` : "本月暂无已分类支出"}</span>
+      <span className="review-summary-metric">待分类：{formatMoney(unclassifiedCents)}{shareText && `（占本月净支出${shareText}）`}</span>
+    </span>
+    <ChevronRight size={20} aria-hidden="true" />
+  </button>;
+}
+
 export function MonthlyReview({ month, today, transactions, budgets, checkedMonths = NO_CHECKED_MONTHS, onEditAnnualBudget, onEditNextMonth, onReviewMonth, renderTransaction }: ReviewData & {
   checkedMonths?: readonly string[];
   onEditAnnualBudget: (year: number) => void;
@@ -93,24 +117,6 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
       return item.category === selected.category && (!selected.subcategory || item.subcategory === selected.subcategory);
     }).sort((a, b) => b.date.localeCompare(a.date)),
   })) : [];
-  const highlights = rows.filter(row => row.monthlyReferenceCents !== null)
-    .map(row => ({ label: row.subcategory || row.category, difference: row.currentNetCents - row.monthlyReferenceCents! }))
-    .filter(item => item.difference !== 0)
-    .sort((a, b) => b.difference - a.difference);
-  const largestIncrease = highlights[0];
-  const largestDecrease = highlights[highlights.length - 1];
-  const preview = [largestIncrease?.difference > 0 ? largestIncrease : undefined, largestDecrease?.difference < 0 ? largestDecrease : undefined]
-    .filter(item => item !== undefined)
-    .map(({ label, difference }) => difference > 0
-      ? `${label}超出计划 ${formatMoney(difference)}`
-      : `${label}${report.isMonthToDate ? "计划剩余" : "比计划少花"} ${formatMoney(-difference)}`);
-  if (!preview.length && hasPrior) {
-    const difference = rows.filter(row => !row.subcategory && row.category !== "待分类")
-      .map(row => ({ label: row.category, amount: row.currentNetCents - row.priorNetCents }))
-      .filter(item => item.amount !== 0)
-      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
-    if (difference) preview.push(`${difference.label}较上月 ${signedMoney(difference.amount)}`);
-  }
   const totals = [
     { label: "已记录收入", actual: actual.incomeCents, prior: prior.incomeCents },
     { label: "净支出", actual: actual.netCents, prior: prior.netCents },
@@ -120,11 +126,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   const annualYear = Math.min(Math.max(currentYear, Number(month.slice(0, 4))), currentYear + 1);
   const canAdjustNext = !isFuture && report.nextMonth >= currentMonth;
 
-  return <details className="panel full-width review-card">
-    <summary>
-      <span><strong className="panel-title">月度复盘</strong><span className="panel-subtitle">{monthName(month)}{report.isMonthToDate ? " · 进行中" : ""}</span>{!isFuture && preview.length > 0 && <span className="panel-subtitle">{preview.join(" · ")}</span>}</span>
-      <ChevronRight size={20} aria-hidden="true" />
-    </summary>
+  return <section className="panel review-card" aria-label="月度复盘">
     {isFuture ? <p className="help-text">本月尚未开始。</p> : <>
     <div className="review-period">
       <div className="review-mode-switch" role="group" aria-label="对比区间">
@@ -178,7 +180,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
       <button className="button ghost small" type="button" onClick={() => onEditAnnualBudget(annualYear)}>年度分类预算</button>
       {canAdjustNext && <button className="button secondary small" type="button" onClick={() => onEditNextMonth(month)}>调整 {Number(report.nextMonth.slice(5, 7))} 月预算</button>}
     </div>
-  </details>;
+  </section>;
 }
 
 export function AnnualBudgetEditor({ month, today, transactions, budgets, onSave, onClose }: EditorProps) {
