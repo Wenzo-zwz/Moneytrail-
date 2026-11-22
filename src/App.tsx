@@ -366,13 +366,15 @@ function TransactionEditor({
             </div>
             <div className="form-field full">
               <label htmlFor="tx-date">发生时间</label>
-              <input
-                id="tx-date"
-                type="datetime-local"
-                required
-                value={draft.date}
-                onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-              />
+              <div className="transaction-date-control">
+                <input
+                  id="tx-date"
+                  type="datetime-local"
+                  required
+                  value={draft.date}
+                  onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+                />
+              </div>
             </div>
             <div className="form-field full transaction-editor-categories">
               <div className="form-field">
