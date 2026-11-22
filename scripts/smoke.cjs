@@ -589,6 +589,7 @@ async function mobileTransactionEditorWorkflow(browser) {
     await edit.click();
     const editor = page.getByRole("dialog");
     const date = editor.getByLabel("发生时间", { exact: true });
+    const merchant = editor.getByLabel("商户 / 对方", { exact: true });
     const category = editor.getByRole("combobox", { name: "一级分类", exact: true });
     const subcategory = editor.getByRole("combobox", { name: "二级分类（可选）", exact: true });
     const custom = editor.getByLabel("自定义二级分类", { exact: true });
@@ -603,14 +604,21 @@ async function mobileTransactionEditorWorkflow(browser) {
     assert.deepEqual(await subcategory.locator("option").allTextContents(), [
       "未细分", "买菜食材", "堂食聚餐", "外卖", "咖啡奶茶", "零食饮料", "酒水", "烟酒副食", "自定义…",
     ]);
-    for (const [width, height] of [[390, 844], [320, 740]]) {
+    for (const [width, height] of [[430, 932], [390, 844], [320, 740]]) {
       await page.setViewportSize({ width, height });
+      const datePadding = await date.evaluate(input => {
+        const style = getComputedStyle(input);
+        return [style.paddingInlineStart, style.paddingInlineEnd];
+      });
+      assert.deepEqual(datePadding, ["0px", "0px"], "iOS can add native date padding outside its declared width");
+      const dateFrame = await editor.locator(".transaction-date-control").boundingBox();
       const dateBox = await date.boundingBox();
+      const merchantBox = await merchant.boundingBox();
       const categoryBox = await category.boundingBox();
-      const dialogBox = await editor.boundingBox();
-      assert(dateBox && categoryBox && dialogBox, `${width}px: edit controls are visible`);
-      assert(dateBox.y + dateBox.height <= categoryBox.y, `${width}px: the time field has its own row above the primary category`);
-      assert(dateBox.x >= dialogBox.x && dateBox.x + dateBox.width <= dialogBox.x + dialogBox.width, `${width}px: the native time field fits within the dialog`);
+      assert(dateFrame && dateBox && merchantBox && categoryBox, `${width}px: edit controls are visible`);
+      assert(dateFrame.y + dateFrame.height <= categoryBox.y, `${width}px: the time field has its own row above the primary category`);
+      assert(Math.abs(dateFrame.x - merchantBox.x) < 1 && Math.abs(dateFrame.width - merchantBox.width) < 1, `${width}px: the visible date frame lines up with the full-width merchant field`);
+      assert(dateBox.x >= dateFrame.x && dateBox.x + dateBox.width <= dateFrame.x + dateFrame.width + 0.5, `${width}px: the native input stays inside its frame`);
       await noOverflow(page, `${width}px transaction editor`);
     }
     await subcategory.selectOption("外卖");
@@ -636,13 +644,15 @@ async function mobileTransactionEditorWorkflow(browser) {
     assert.equal(await custom.inputValue(), "值班夜宵");
     await page.screenshot({ path: path.join(ARTIFACTS, "mobile-transaction-editor.png"), fullPage: true, animations: "disabled" });
     await editor.getByLabel("备注（可选）", { exact: true }).fill("仅编辑备注");
+    await date.fill("2026-10-22T19:54");
     await save.click();
     await editor.waitFor({ state: "detached" });
     saved = (await data(page)).transactions[0];
     assert.equal(saved.note, "仅编辑备注");
     assert.equal(saved.subcategory, "值班夜宵");
+    assert.equal(saved.date, "2026-10-22T19:54");
     assert.deepEqual(errors, []);
-    passed("390px and 320px transaction editors keep the time field clear and save predefined and custom subcategories");
+    passed("430px, 390px and 320px editors align the time field and save time, predefined and custom subcategories");
   } finally {
     await context.close();
   }
