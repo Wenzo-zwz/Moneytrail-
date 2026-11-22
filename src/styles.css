@@ -112,7 +112,6 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
   font-weight: 550;
 }
 .nav-button.active::before { content: ""; position: absolute; left: -1px; top: 15px; bottom: 15px; width: 2px; border-radius: 3px; background: #c6b395; }
-.nav-button .pill { margin-left: auto; padding: 1px 6px; border-color: #424147; color: #c0b9af; background: #2b2a2e; }
 .sidebar-foot { margin-top: auto; padding: 24px 13px 0; border-top: 1px solid #29292e; color: #a4a3a2; font-size: 12px; line-height: 1.9; }
 .sidebar-foot > svg { display: block; margin-bottom: 13px; color: #b2a38a; stroke-width: 1.4; }
 .sidebar-foot strong { display: block; margin-bottom: 5px; color: #cfcbc5; font-size: 12px; font-weight: 500; }
@@ -253,6 +252,8 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .stat-note { margin-top: 8px; color: #a4a3a2; font-size: 12px; line-height: 1.7; }
 .panel { padding: 25px 26px; }
 .panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 24px; }
+.transaction-list-heading { flex-wrap: wrap; }
+.transaction-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .panel-title { margin: 0; color: #e4dfd9; font-size: 15px; font-weight: 500; line-height: 1.6; letter-spacing: .2px; }
 .panel-subtitle { margin: 6px 0 0; color: #a5a4a3; font-size: 12px; line-height: 1.8; }
 .panel-actions { display: flex; align-items: center; gap: 4px; margin-top: -8px; margin-right: -9px; }

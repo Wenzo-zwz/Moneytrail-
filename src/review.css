@@ -1,17 +1,15 @@
-.review-card > summary {
+.review-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  list-style: none;
-  cursor: pointer;
+  text-align: left;
 }
 
-.review-card > summary::-webkit-details-marker { display: none; }
-.review-card > summary .panel-subtitle { display: block; }
-.review-card[open] > summary { margin-bottom: 20px; }
-.review-card > summary > svg { flex-shrink: 0; color: #b3a895; }
-.review-card[open] > summary > svg { transform: rotate(90deg); }
+.review-summary > span { display: grid; min-width: 0; gap: 4px; }
+.review-summary .panel-subtitle { margin: 0 0 4px; }
+.review-summary-metric { color: #d0c6ba; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.review-summary > svg { flex-shrink: 0; color: #b3a895; }
 
 .review-period, .review-actions {
   display: flex;

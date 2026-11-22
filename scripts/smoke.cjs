@@ -63,6 +63,11 @@ async function go(page, label, mobile = false) {
   await nav.getByRole("button", { name: new RegExp(`^${label}`) }).click();
 }
 
+async function openCapture(page, mobile = false) {
+  await go(page, "账目", mobile);
+  await page.getByRole("button", { name: "导入与补录", exact: true }).click();
+}
+
 async function noOverflow(page, where) {
   const dimensions = await page.evaluate(() => ({
     body: document.documentElement.scrollWidth,
@@ -132,6 +137,72 @@ async function fixture(browser, mobile = false) {
   return { page, context, errors };
 }
 
+async function reviewNavigationWorkflow(browser) {
+  const { page, context, errors } = await fixture(browser, true);
+  try {
+    await page.clock.setFixedTime(new Date("2026-11-22T04:30:00Z"));
+    await page.evaluate(key => {
+      const base = { kind: "expense", date: "2026-10-22T12:30", source: "manual", note: "" };
+      localStorage.setItem(key, JSON.stringify({
+        version: 1, budgetCents: 0, billCheckedMonths: [], transactions: [
+          { ...base, id: "housing-review", category: "居住与家用", merchant: "房租复盘样例", amountCents: 800000 },
+          { ...base, id: "food-review", category: "食品酒水", merchant: "午餐复盘样例", amountCents: 100000 },
+          { ...base, id: "pending-review", category: "待分类", merchant: "待分类复盘样例", amountCents: 300000 },
+          { ...base, id: "now-review", date: "2026-11-21T12:30", category: "食品酒水", merchant: "本月午饭", amountCents: 40000 },
+          { ...base, id: "now-pending", date: "2026-11-21T13:30", category: "待分类", merchant: "本月待分类", amountCents: 10000 },
+          { ...base, id: "future-review", date: "2026-11-28T12:30", category: "交通出行", merchant: "未到日期交通", amountCents: 1000000 },
+          { ...base, id: "future-pending", date: "2026-11-28T13:30", category: "待分类", merchant: "未到日期待分类", amountCents: 300000 },
+        ],
+      }));
+    }, KEY);
+    await page.reload({ waitUntil: "networkidle" });
+    const nav = page.locator(".mobile-nav");
+    assert.deepEqual((await nav.getByRole("button").allTextContents()).map(label => label.trim()), ["总览", "账目", "复盘", "设置"]);
+    await page.getByRole("button", { name: "记一笔", exact: true }).waitFor();
+    const summary = page.locator("button.review-summary");
+    await page.locator("#month").fill("2026-11");
+    let preview = await summary.innerText();
+    assert.match(preview, /食品酒水.*400[.]00/, "overview review cuts off future-dated spending");
+    assert.match(preview, /待分类.*100[.]00.*20\s*%/, "uncategorized net spending uses the same cutoff");
+    await summary.click();
+    const currentReport = page.locator(".review-card");
+    await currentReport.waitFor();
+    assert.equal(await currentReport.getByRole("button", { name: "交通出行", exact: true }).count(), 0);
+    await go(page, "总览", true);
+    await page.locator("#month").fill("2026-10");
+    preview = await summary.innerText();
+    assert.match(preview, /已分类支出最多/);
+    assert.match(preview, /居住与家用.*8,000[.]00/);
+    assert.match(preview, /待分类.*3,000[.]00/);
+    assert.match(preview, /25(?:[.]0+)?\s*[%％]/);
+    await summary.click();
+    await page.locator(".review-card").waitFor();
+    assert.equal(await page.locator("#month").inputValue(), "2026-10");
+    await page.getByRole("button", { name: "记一笔", exact: true }).waitFor();
+    await noOverflow(page, "390px independent monthly review");
+
+    await page.locator("#month").fill("2026-09");
+    await go(page, "总览", true);
+    assert.equal(await page.locator("#month").inputValue(), "2026-09");
+    await go(page, "复盘", true);
+    assert.equal(await page.locator("#month").inputValue(), "2026-09");
+    await page.locator(".review-card").waitFor();
+
+    await go(page, "账目", true);
+    await page.getByRole("button", { name: "导入与补录", exact: true }).click();
+    for (const name of ["粘贴银行短信", "截图记账", "导入账单"]) {
+      await page.getByRole("tab", { name, exact: true }).waitFor();
+    }
+    await page.getByRole("button", { name: "返回账目", exact: true }).click();
+    await page.getByRole("button", { name: "导入与补录", exact: true }).waitFor();
+    assert.equal(await page.locator("#month").inputValue(), "2026-09");
+    assert.deepEqual(errors, []);
+    passed("390px four-tab navigation shares the selected review month and keeps manual entry and imports reachable");
+  } finally {
+    await context.close();
+  }
+}
+
 async function fullWorkflow(browser) {
   const { page, context, errors } = await fixture(browser);
   try {
@@ -181,7 +252,7 @@ async function fullWorkflow(browser) {
     await money(page, ".hero-amount", 30);
     passed("budget remaining amount and reload persistence");
 
-    await go(page, "录入");
+    await openCapture(page);
     const sms =
       "【测试银行】您尾号1234的账户于2026年10月22日13:30在测试咖啡店消费人民币19.90元，余额999.99元。";
     await page.getByLabel("银行消费短信", { exact: true }).fill(sms);
@@ -371,7 +442,7 @@ async function mobileWorkflow(browser) {
       fullPage: true,
       animations: "disabled",
     });
-    for (const label of ["录入", "账目", "设置", "总览"]) {
+    for (const label of ["复盘", "账目", "设置", "总览"]) {
       await go(page, label, true);
       await noOverflow(page, `mobile ${label}`);
     }
@@ -404,7 +475,7 @@ async function localLifeDetailsAndEvidence(browser) {
   for (const mobile of [false, true]) {
     const { page, context, errors } = await fixture(browser, mobile);
     try {
-      await go(page, "录入", mobile);
+      await openCapture(page, mobile);
       await page.getByLabel("银行消费短信", { exact: true }).fill("尾号7890卡10月22日19:27支出(消费美团支付-美团北京三快在线科技有限公司)30.90元，余额12,345.94元。【工商银行】");
       await page.getByRole("button", { name: "识别短信", exact: true }).click();
       const selection = page.locator(".preview-card").getByRole("checkbox");
@@ -524,7 +595,7 @@ async function annualCategoryBudgetWorkflow(browser) {
     }, { key: KEY });
     await page.reload({ waitUntil: "networkidle" });
     const report = page.locator(".review-card");
-    await report.locator("summary").click();
+    await go(page, "复盘", true);
     await report.getByText(/1–22 日/).waitFor();
     const takeout = report.locator(".review-spend-entry").filter({ has: page.getByRole("button", { name: "外卖", exact: true }) });
     assert.match(await takeout.innerText(), /150[.]00/);
@@ -548,7 +619,7 @@ async function annualCategoryBudgetWorkflow(browser) {
     await editor.getByRole("button", { name: "保存月度调整", exact: true }).click();
     await editor.waitFor({ state: "detached" });
     await page.reload({ waitUntil: "networkidle" });
-    await report.locator("summary").click();
+    await go(page, "复盘", true);
     await report.getByRole("button", { name: "调整 2 月预算", exact: true }).click();
     assert.equal(await detailPlan.inputValue(), "350.00");
     const budgets = (await data(page)).annualBudgets;
@@ -754,7 +825,7 @@ async function ledgerRegressions(browser) {
     assert.match(await page.locator(".hero-footer").textContent(), /待核对/);
     passed("adding a transaction invalidates manually reconciled month");
 
-    await go(page, "录入");
+    await openCapture(page);
     await page.getByRole("tab", { name: "导入账单", exact: true }).click();
     const sameIdCsv =
       "日期,类型,金额,商户,分类,备注,交易编号,来源\r\n2026-10-22 18:00,支出,42.50,同单消费,购物,,same-order,wechat\r\n2026-10-22 19:00,退款,7.50,同单退款,购物,,same-order,wechat\r\n";
@@ -968,6 +1039,7 @@ async function staleEditorRegression(browser) {
         : {}),
       args: ["--no-sandbox"],
     });
+    await reviewNavigationWorkflow(browser);
     await mobileCategoryChartWorkflow(browser);
     await fullWorkflow(browser);
     await mobileWorkflow(browser);

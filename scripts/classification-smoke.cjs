@@ -225,7 +225,8 @@ async function merchantMemoryWorkflow(browser) {
     await editor.getByRole("button", { name: "确认保存", exact: true }).click();
     await until(() => backend.ledgers.get(OWNER).data.transactions.some(transaction => transaction.merchant === "旧巷体验馆(北店)"), "opt-out transaction persisted");
     assert.equal(backend.rules.get(OWNER).length, 1, "unchecking memory preserves only the transaction");
-    await page.locator(".sidebar-nav").getByRole("button", { name: /^录入/ }).click();
+    await page.locator(".sidebar-nav").getByRole("button", { name: "账目", exact: true }).click();
+    await page.getByRole("button", { name: "导入与补录", exact: true }).click();
     await page.getByLabel("银行消费短信", { exact: true }).fill("尾号1234卡10月22日19:27支出(消费抖音支付-巷口体验馆（城东店）)30.90元，余额12,345.94元。【工商银行】");
     await page.getByRole("button", { name: "识别短信", exact: true }).click();
     await page.locator(".preview-card").getByText(/休闲娱乐 · 桌游聚会/).waitFor();

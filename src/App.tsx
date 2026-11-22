@@ -74,12 +74,19 @@ import type { PaymentScreenshotCandidate } from "./lib/paymentScreenshot";
 import { classifyMerchant, merchantKey, type MerchantRule, type MerchantRuleIntent } from "./lib/merchantClassification";
 import { clearLocalBackupMetadata, dismissLocalBackupReminder, localBackupReminderDue, observeLocalLedger, readLocalBackupMetadata, recordLocalBackupExport } from "./lib/backupMetadata";
 
-import { AnnualBudgetEditor, MonthlyReview, NextMonthBudgetEditor } from "./components/MonthlyReview";
+import { AnnualBudgetEditor, MonthlyReview, MonthlyReviewSummary, NextMonthBudgetEditor } from "./components/MonthlyReview";
 import type { AnnualBudget } from "./lib/reviewBudget";
 
 const EMPTY_ANNUAL_BUDGETS: AnnualBudget[] = [];
 
-type Page = "overview" | "transactions" | "capture" | "settings";
+type Page = "overview" | "transactions" | "review" | "capture" | "settings";
+const PAGE_TITLES: Record<Page, string> = {
+  overview: "每一笔，都有迹可循。",
+  transactions: "交易明细",
+  review: "月度复盘",
+  capture: "导入与补录",
+  settings: "账本设置",
+};
 type Preview = {
   key: string;
   draft: DraftTransaction;
@@ -116,7 +123,7 @@ const COLORS = [
 const NAV = [
   { page: "overview", name: "总览", Icon: LayoutDashboard },
   { page: "transactions", name: "账目", Icon: List },
-  { page: "capture", name: "录入", Icon: Plus },
+  { page: "review", name: "复盘", Icon: BarChart3 },
   { page: "settings", name: "设置", Icon: Settings },
 ] as const;
 const uid = () =>
@@ -616,6 +623,10 @@ export default function App({
         .sort((a, b) => b.date.localeCompare(a.date)),
     [data.transactions, month],
   );
+  const reviewStats = useMemo(
+    () => summarize(monthTransactions.filter(transaction => transaction.date.slice(0, 10) <= today), month, 0),
+    [monthTransactions, month, today],
+  );
   const filtered = monthTransactions.filter(
     (t) =>
       (category === "全部" || t.category === category) &&
@@ -1069,6 +1080,7 @@ export default function App({
   );
   const selectedCount = previews.filter((p) => p.selected).length;
   const isChecked = data.billCheckedMonths.includes(month);
+  const activeNavPage = page === "capture" ? "transactions" : page;
 
   return (
     <div className="app-shell">
@@ -1107,13 +1119,12 @@ export default function App({
           {NAV.map(({ page: p, name, Icon }) => (
             <button
               key={p}
-              className={`nav-button ${page === p ? "active" : ""}`}
+              className={`nav-button ${activeNavPage === p ? "active" : ""}`}
               onClick={() => navigate(p)}
-              aria-current={page === p ? "page" : undefined}
+              aria-current={activeNavPage === p ? "page" : undefined}
             >
               <Icon size={19} />
               {name}
-              {p === "capture" && <span className="pill neutral">＋</span>}
             </button>
           ))}
         </nav>
@@ -1132,20 +1143,17 @@ export default function App({
         <header className="page-header">
           <div>
             <div className="eyebrow">MONEYTRAIL / PERSONAL LEDGER</div>
-            <h1 className="page-title">
-              {page === "overview"
-                ? "每一笔，都有迹可循。"
-                : page === "transactions"
-                  ? "交易明细"
-                  : page === "capture"
-                    ? "记录一笔消费"
-                    : "账本设置"}
-            </h1>
+            <h1 className="page-title">{PAGE_TITLES[page]}</h1>
           </div>
           <div className="header-actions">
             {onSmsAutomation && <button className="button secondary small" onClick={onSmsAutomation}><MessageSquare size={16} />短信自动记账</button>}
             {accountControls}
-            {(page === "overview" || page === "transactions") && (
+            {page === "capture" && (
+              <button className="button secondary small" type="button" onClick={() => navigate("transactions")}>
+                <ChevronLeft size={17} aria-hidden="true" />返回账目
+              </button>
+            )}
+            {(page === "overview" || page === "transactions" || page === "review") && (
               <div className="month-picker">
                 <button
                   aria-label="上个月"
@@ -1348,17 +1356,7 @@ export default function App({
                       <ArrowRight size={15} />
                     </button>
                   </section>
-                  <MonthlyReview
-                    month={month}
-                    today={today}
-                    transactions={data.transactions}
-                    budgets={annualBudgets}
-                    checkedMonths={data.billCheckedMonths}
-                    onReviewMonth={setMonth}
-                    onEditAnnualBudget={annualYear => setReviewEditor({ annualYear })}
-                    onEditNextMonth={baseMonth => setReviewEditor({ baseMonth })}
-                    renderTransaction={row}
-                  />
+                  <MonthlyReviewSummary month={month} today={today} stats={reviewStats} onOpen={() => navigate("review")} />
                   <section className="panel">
                     <div className="panel-heading">
                       <div>
@@ -1520,10 +1518,25 @@ export default function App({
                 </div>
               </div>
             )}
+            {page === "review" && (
+              <div className="page">
+                <MonthlyReview
+                  month={month}
+                  today={today}
+                  transactions={data.transactions}
+                  budgets={annualBudgets}
+                  checkedMonths={data.billCheckedMonths}
+                  onReviewMonth={setMonth}
+                  onEditAnnualBudget={annualYear => setReviewEditor({ annualYear })}
+                  onEditNextMonth={baseMonth => setReviewEditor({ baseMonth })}
+                  renderTransaction={row}
+                />
+              </div>
+            )}
             {page === "transactions" && (
               <div className="page">
                 <section className="panel">
-                  <div className="panel-heading">
+                  <div className="panel-heading transaction-list-heading">
                     <div>
                       <h2 className="panel-title">
                         {displayMonth(month)}的账目
@@ -1533,20 +1546,25 @@ export default function App({
                         {formatMoney(stats.netCents)}
                       </p>
                     </div>
-                    <button
-                      className="button secondary small"
-                      disabled={!monthTransactions.length}
-                      onClick={() =>
-                        download(
-                          exportCsv(monthTransactions),
-                          `moneytrail-${month}.csv`,
-                          "text/csv;charset=utf-8",
-                        )
-                      }
-                    >
-                      <ArrowUpToLine size={16} />
-                      导出本月
-                    </button>
+                    <div className="transaction-list-actions">
+                      <button className="button secondary small" type="button" onClick={() => navigate("capture")}>
+                        <Upload size={16} aria-hidden="true" />导入与补录
+                      </button>
+                      <button
+                        className="button secondary small"
+                        disabled={!monthTransactions.length}
+                        onClick={() =>
+                          download(
+                            exportCsv(monthTransactions),
+                            `moneytrail-${month}.csv`,
+                            "text/csv;charset=utf-8",
+                          )
+                        }
+                      >
+                        <ArrowUpToLine size={16} />
+                        导出本月
+                      </button>
+                    </div>
                   </div>
                   <div className="filter-row">
                     <div className="search-field">
@@ -1997,10 +2015,10 @@ export default function App({
       <nav className="mobile-nav" aria-label="移动端主导航">
         {NAV.map(({ page: p, name, Icon }) => (
           <button
-            className={`nav-button ${page === p ? "active" : ""}`}
+            className={`nav-button ${activeNavPage === p ? "active" : ""}`}
             key={p}
             onClick={() => navigate(p)}
-            aria-current={page === p ? "page" : undefined}
+            aria-current={activeNavPage === p ? "page" : undefined}
           >
             <Icon size={21} />
             <span>{name}</span>

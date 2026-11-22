@@ -124,7 +124,7 @@ async function cloudWorkflow(browser,app){const service=backend(app),{context:ct
   await wechatModal.getByRole('button',{name:'确认保存',exact:true}).click();await until(()=>service.accepted.length===2,'WeChat screenshot sync');
   assert.equal(service.books.get(A).transactions[2].source,'wechat');assert.equal(service.books.get(B).transactions.length,0);
   await page.getByRole('button',{name:'我的账户',exact:true}).click();await page.getByRole('button',{name:'退出登录并清除本机副本',exact:true}).click();await page.getByRole('button',{name:'登录我的账本',exact:true}).waitFor();
-  await page.getByLabel('邮箱',{exact:true}).fill('b@example.test');await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('button',{name:'录入',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).inputValue(),'','capture must not cross account switch');
+  await page.getByLabel('邮箱',{exact:true}).fill('b@example.test');await page.getByLabel('密码',{exact:true}).fill('Fixture-password-123!');await page.getByRole('button',{name:'登录我的账本',exact:true}).click();await page.getByRole('button',{name:'账目',exact:true}).click();await page.getByRole('button',{name:'导入与补录',exact:true}).click();await page.getByRole('tab',{name:'截图记账',exact:true}).click();assert.equal(await page.getByLabel('截图提取的文字',{exact:true}).inputValue(),'','capture must not cross account switch');
   await page.getByRole('button',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'开通短信自动记账',exact:true}).waitFor();
   await page.getByRole('button',{name:'设置截图记账',exact:true}).click();const setup=page.getByRole('dialog',{name:'设置截图记账',exact:true});await setup.getByRole('heading',{name:'3. 试记并保存第一笔',exact:true}).waitFor();await setup.getByRole('button',{name:'关闭弹窗',exact:true}).click();
   await privacy(page);assert.deepEqual(errors,[]);assert.deepEqual(service.errors,[]);
@@ -236,7 +236,7 @@ async function quickStartWorkflow(browser,app){const {context:ctx,page,errors}=a
   await quick.getByText(/用 Safari 打开 MoneyTrail/).waitFor();
   await page.getByRole('button',{name:'调整月预算',exact:true}).click();
   await page.getByRole('dialog',{name:'设置月预算',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
-  await page.getByRole('button',{name:'录入',exact:true}).click();
+  await page.getByRole('button',{name:'账目',exact:true}).click();await page.getByRole('button',{name:'导入与补录',exact:true}).click();
   await page.getByRole('tab',{name:'粘贴银行短信',exact:true}).click();
   await page.getByRole('button',{name:'手动记一笔',exact:true}).click();
   await page.getByRole('dialog',{name:'记下一笔',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
