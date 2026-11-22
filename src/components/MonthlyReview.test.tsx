@@ -67,43 +67,52 @@ describe("overview review summary", () => {
 });
 
 describe("monthly review and budgets", () => {
-  it("leads with the net-spending change before the current total and identifies a driver", () => {
+  it("leads with the change against all of last month, even when this month is ongoing", () => {
     const items: Transaction[] = [
       ...transactions,
       { ...transactions[0], id: "prior", date: "2026-10-09T12:00", amountCents: 1200 },
       { ...transactions[0], id: "late-prior", date: "2026-10-29T12:00", amountCents: 90000 },
     ];
     const html = renderToStaticMarkup(<MonthlyReview {...editor} transactions={items} onEditAnnualBudget={() => {}} onEditNextMonth={() => {}} />);
-    const change = `比上月同期多花 ${formatMoney(600)}`;
+    const change = `比上月暂少花 ${formatMoney(89400)}`;
     const amount = `本月已记净支出 ${formatMoney(1800)}`;
     expect(html).toContain(change);
     expect(html).toContain(amount);
     expect(html.indexOf(change)).toBeLessThan(html.indexOf(amount));
-    expect(html).toContain("增加最多：食品酒水");
+    expect(html).toContain("本月截至 11 月 21 日，和 10 月全月对比");
+    expect(html).toContain("减少最多：食品酒水");
+  });
+
+  it("compares both calendar months in full when reviewing a finished month", () => {
+    const items: Transaction[] = [
+      { ...transactions[0], date: "2026-10-30T12:00" },
+      { ...transactions[0], id: "prior", date: "2026-09-30T12:00", amountCents: 1200 },
+    ];
+    const html = renderToStaticMarkup(<MonthlyReview {...editor} month="2026-10" transactions={items} onEditAnnualBudget={() => {}} onEditNextMonth={() => {}} />);
+    expect(html).toContain(`比上月多花 ${formatMoney(600)}`);
+    expect(html).toContain("2026 年 10 月全月，和 9 月全月对比");
   });
 
   it("shows the actual net spend and largest classified expense when the prior period is missing", () => {
     const html = renderToStaticMarkup(<MonthlyReview {...editor} onEditAnnualBudget={() => {}} onEditNextMonth={() => {}} />);
     expect(html).toContain(`本月已记净支出 ${formatMoney(1800)}`);
     expect(html).toContain(`已分类支出最多：食品酒水 ${formatMoney(1800)}`);
-    expect(html).not.toContain("比上月同期多花");
+    expect(html).not.toContain("比上月暂少花");
   });
 
-  it("offers equal-period and full-month comparisons in the active month's review", () => {
+  it("puts the review conclusion in a standalone card before the charts and details", () => {
     const html = renderToStaticMarkup(<MonthlyReview {...editor} onEditAnnualBudget={() => {}} onEditNextMonth={() => {}} />);
     expect(html).toContain("月度复盘");
     expect(html).toMatch(/^<section\b/);
-    expect(html).not.toContain("<summary");
-    expect(html).toContain("2026 年 11 月");
-    expect(html).toContain("同期");
-    expect(html).toContain("整月");
+    expect(html).toMatch(/<section[^>]+aria-label="月度复盘结论"[^>]*>.*?<\/section><section[^>]+aria-label="支出构成"/);
+    expect(html).not.toContain("对比区间");
     expect(html).toContain("调整 12 月预算");
   });
 
   it("distinguishes a missing prior statement from a confirmed zero", () => {
     const render = (checkedMonths: string[]) => renderToStaticMarkup(<MonthlyReview {...editor} checkedMonths={checkedMonths} onEditAnnualBudget={() => {}} onEditNextMonth={() => {}} />);
-    expect(render([])).toContain("上月同期暂无记录");
-    expect(render(["2026-10"])).not.toContain("上月同期暂无记录");
+    expect(render([])).toContain("上月暂无记录");
+    expect(render(["2026-10"])).toContain(`已比上月多花 ${formatMoney(1800)}`);
   });
 
   it("shows a current budget variance and the annual remaining amount", () => {

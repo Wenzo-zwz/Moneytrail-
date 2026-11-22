@@ -163,13 +163,21 @@ async function visualReviewWorkflow(browser) {
     await go(page, "复盘", true);
     const report = page.locator(".review-card");
     const headline = report.locator(".review-headline");
-    await headline.waitFor({ state: "visible", timeout: 3000 });
     const headlineText = (await headline.innerText()).replace(/\s+/g, " ");
-    assert.match(headlineText, /上月同期.*多花.*240[.]00/, "opening headline compares only matching days");
-    assert.match(headlineText, /食品酒水.*200[.]00/, "opening headline identifies the main category change");
-    assert(headlineText.indexOf("240.00") < headlineText.indexOf("1,580.00"), "spending difference precedes the month's net spending");
+    assert.match(headlineText, /比上月暂少花.*560[.]00/, "opening headline compares spending to the whole prior month");
+    assert.match(headlineText, /截至\s*10\s*月\s*22\s*日.*9\s*月全月/, "opening headline gives the cutoff and reference month");
+    assert.match(headlineText, /食品酒水.*600[.]00/, "opening headline identifies the main category change");
+    assert(headlineText.indexOf("560.00") < headlineText.indexOf("1,580.00"), "spending difference precedes the month's net spending");
+    await report.getByRole("region", { name: "月度复盘结论", exact: true }).waitFor({ state: "visible", timeout: 3000 });
     const donut = report.getByRole("region", { name: "支出构成", exact: true });
     const trend = report.getByRole("region", { name: "支出趋势", exact: true });
+    const details = report.getByRole("region", { name: "分类明细", exact: true });
+    const summary = await headline.boundingBox();
+    assert(summary, "the standalone conclusion is visible");
+    for (const region of [donut, trend, details]) {
+      const box = await region.boundingBox();
+      assert(box && summary.y + summary.height < box.y, "charts and details sit below the standalone conclusion");
+    }
     const wedge = donut.locator(".review-donut-wedge[data-category='食品酒水']");
     await wedge.scrollIntoViewIfNeeded();
     const restTransform = await wedge.evaluate(element => element.style.transform);
@@ -187,7 +195,6 @@ async function visualReviewWorkflow(browser) {
     assert.equal(await wedge.getAttribute("aria-pressed"), "true");
     assert.notEqual(await wedge.evaluate(element => element.style.transform), restTransform, "tapping the wedge translates the selected slice");
     assert.match(await donut.innerText(), /¥650[.]00/, "composition uses gross spending before the ¥150 refund");
-    const details = report.getByRole("region", { name: "分类明细", exact: true });
     await details.getByText("本月外卖明细", { exact: true }).waitFor();
     assert.equal(await details.getByText("本月房租明细", { exact: true }).count(), 0);
     assert.equal(await trend.getByRole("combobox", { name: "趋势分类", exact: true }).inputValue(), "食品酒水");
@@ -681,11 +688,14 @@ async function annualCategoryBudgetWorkflow(browser) {
     await page.reload({ waitUntil: "networkidle" });
     const report = page.locator(".review-card");
     await go(page, "复盘", true);
-    await report.getByText(/1–22 日/).waitFor();
+    const headline = report.getByRole("region", { name: "月度复盘结论", exact: true });
+    await headline.getByText(/截至\s*1\s*月\s*22\s*日.*12\s*月全月/).waitFor();
+    assert.match(await headline.innerText(), /已比上月多花.*¥50[.]00/);
     const takeout = report.locator(".review-spend-entry").filter({ has: page.getByRole("button", { name: "外卖", exact: true }) });
-    assert.match(await takeout.innerText(), /150[.]00/);
+    assert.match(await takeout.innerText(), /¥50[.]00/);
     await takeout.getByRole("button", { name: "外卖", exact: true }).click();
     await takeout.getByText("午餐外卖", { exact: true }).waitFor();
+    await takeout.getByText(/2025 年 12 月 1–31 日.*2 笔支出/).waitFor();
     for (const [detail, amount] of [["", "12000"], ["外卖", "6000"]]) {
       await report.getByRole("button", { name: "年度分类预算", exact: true }).click();
       const editor = page.getByRole("dialog");
@@ -713,7 +723,7 @@ async function annualCategoryBudgetWorkflow(browser) {
     assert.deepEqual(budgets.find(budget => budget.subcategory === undefined).monthlyOverrides, []);
     assert.deepEqual(errors, []);
     await noOverflow(page, "390px monthly review and annual budget");
-    passed("monthly review compares the same dates, drills down, and persists an individual next-month plan without changing the category budget");
+    passed("monthly review compares the previous calendar month, drills down, and persists an individual next-month plan without changing the category budget");
   } finally {
     await context.close();
   }

@@ -26,7 +26,6 @@ type EditorProps = ReviewData & {
   onClose: () => void;
 };
 
-type ReviewMode = "equal" | "full";
 const NO_CHECKED_MONTHS: readonly string[] = [];
 const budgetCategories = EXPENSE_CATEGORIES.filter(category => category !== "待分类");
 
@@ -94,7 +93,6 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   onReviewUnclassified?: () => void;
   renderTransaction?: (transaction: Transaction) => ReactNode;
 }) {
-  const [period, setPeriod] = useState<{ month: string; mode: ReviewMode }>();
   const [detail, setDetail] = useState<{ month: string; key: string | null }>();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [trendRange, setTrendRange] = useState<ReviewTrendRange>();
@@ -102,8 +100,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   const detailsId = useId();
   const currentMonth = today.slice(0, 7);
   const isFuture = month > currentMonth;
-  const mode = period?.month === month ? period.mode : month === currentMonth ? "equal" : "full";
-  const report = useMemo(() => buildBudgetReview(transactions, budgets, month, today, mode), [transactions, budgets, month, today, mode]);
+  const report = useMemo(() => buildBudgetReview(transactions, budgets, month, today, "full"), [transactions, budgets, month, today]);
   const actual = useMemo(() => reviewTotal(transactions, month, report.currentThrough), [transactions, month, report.currentThrough]);
   const prior = useMemo(() => reviewTotal(transactions, report.priorMonth, report.priorThrough), [transactions, report.priorMonth, report.priorThrough]);
   function hasRecordedPeriod(periodMonth: string, through: string) {
@@ -113,16 +110,23 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   const hasPrior = hasRecordedPeriod(report.priorMonth, report.priorThrough);
   const canCompare = hasPrior && hasRecordedPeriod(month, report.currentThrough);
   const netChange = actual.netCents - prior.netCents;
-  const comparisonName = mode === "equal" ? "上月同期" : "上月";
+  const ongoing = report.isMonthToDate;
+  const priorLabel = month.slice(0, 4) === report.priorMonth.slice(0, 4)
+    ? `${Number(report.priorMonth.slice(5, 7))} 月`
+    : monthName(report.priorMonth);
+  const currentLabel = ongoing
+    ? `本月截至 ${Number(month.slice(5, 7))} 月 ${Number(report.currentThrough.slice(8, 10))} 日`
+    : `${monthName(month)}全月`;
   const recordedText = `本月已记净支出 ${formatMoney(actual.netCents)}`;
+  const direction = netChange > 0 ? (ongoing ? "已比上月多花" : "比上月多花") : (ongoing ? "比上月暂少花" : "比上月少花");
   const headline = !canCompare ? recordedText : netChange === 0
-    ? `与${comparisonName}持平`
-    : `比${comparisonName}${netChange > 0 ? "多花" : "少花"} ${formatMoney(Math.abs(netChange))}`;
+    ? (ongoing ? "目前与上月持平" : "与上月持平")
+    : `${direction} ${formatMoney(Math.abs(netChange))}`;
   const driver = canCompare ? findLargestReviewChange(report.rows, netChange) : undefined;
   const largestExpense = actual.categories.find(category => category.category !== "待分类" && category.amountCents > 0);
   const leadCategory = driver?.category ?? (!canCompare ? largestExpense?.category : undefined);
   const driverText = driver
-    ? `已分类中${netChange === 0 ? "变化最大" : driver.deltaCents > 0 ? "增加最多" : "减少最多"}：${driver.category} ${signedMoney(driver.deltaCents)}${driver.detail ? `，其中${driver.detail.subcategory} ${signedMoney(driver.detail.deltaCents)}` : ""}`
+    ? `已分类中${netChange === 0 ? "变化最大" : driver.deltaCents > 0 ? "增加最多" : "减少最多"}：${driver.category} ${signedMoney(driver.deltaCents)}`
     : !canCompare && largestExpense
       ? `已分类支出最多：${largestExpense.category} ${formatMoney(largestExpense.amountCents)}`
       : "";
@@ -170,13 +174,17 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
   const annualYear = Math.min(Math.max(currentYear, Number(month.slice(0, 4))), currentYear + 1);
   const canAdjustNext = !isFuture && report.nextMonth >= currentMonth;
 
-  return <section className="panel review-card" aria-label="月度复盘">
-    {isFuture ? <p className="help-text">本月尚未开始。</p> : <>
-    <div className="review-headline">
+  return <section className="review-card" aria-label="月度复盘">
+    {isFuture ? <div className="panel"><p className="help-text">本月尚未开始。</p></div> : <>
+    <section className="panel review-headline" aria-label="月度复盘结论">
       <h2 className="review-headline-title">{headline}</h2>
       {canCompare && <p className="review-headline-total">{recordedText}</p>}
-      {month === currentMonth && <p className="help-text">截至 {Number(report.currentThrough.slice(8, 10))} 日</p>}
-      {!canCompare && <p className="help-text">{!hasPrior ? `${comparisonName}暂无记录` : "本月暂无记录，月间变化待比较"}</p>}
+      <div className="review-headline-period">
+        <p className="panel-subtitle">
+          {currentLabel}{canCompare ? `，和 ${priorLabel}全月对比` : !hasPrior ? " · 上月暂无记录" : " · 本月暂无记录"}
+        </p>
+        {ongoing && onReviewMonth && <button className="button ghost small" type="button" onClick={() => onReviewMonth(report.priorMonth)}>回看上月</button>}
+      </div>
       {leadCategory && <div className="review-key-insight">
         <p>{driverText}</p>
         <button className="button ghost small" type="button" onClick={() => {
@@ -184,24 +192,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
           detailRegion.current?.scrollIntoView({ block: "start" });
         }}>查看这类明细 <ChevronRight size={15} aria-hidden="true" /></button>
       </div>}
-      {largestOverrun && <div className="review-key-insight">
-        <p>{largestOverrun.label}超出月计划 {formatMoney(largestOverrun.amount)}</p>
-        {canAdjustNext && <button className="button ghost small" type="button" onClick={() => onEditNextMonth(month)}>调整下月计划</button>}
-      </div>}
-      {(actual.uncategorizedCount > 0 || unclassifiedChange !== 0) && <div className="review-key-insight">
-        <p>待分类净支出 {formatMoney(unclassified)}{unclassifiedChange !== 0 && ` · 较${comparisonName} ${signedMoney(unclassifiedChange)}`}</p>
-        {actual.uncategorizedCount > 0 && onReviewUnclassified && <button className="button ghost small" type="button" onClick={onReviewUnclassified}>去整理</button>}
-      </div>}
-    </div>
-    <div className="review-period">
-      <div className="review-mode-switch" role="group" aria-label="对比区间">
-        <button className="button secondary small" type="button" aria-pressed={mode === "equal"} onClick={() => setPeriod({ month, mode: "equal" })}>同期</button>
-        <button className="button secondary small" type="button" aria-pressed={mode === "full"} onClick={() => setPeriod({ month, mode: "full" })}>整月</button>
-      </div>
-      <p className="panel-subtitle">{periodLabel(month, report.currentThrough)} 对比 {periodLabel(report.priorMonth, report.priorThrough)}</p>
-      {month === currentMonth && onReviewMonth && <button className="button ghost small" type="button" onClick={() => onReviewMonth(report.priorMonth)}>回看上月</button>}
-    </div>
-    <div className="review-charts">
+    </section>
       <SpendingDonut
         slices={slices}
         selectedCategory={selectedCategory}
@@ -219,15 +210,22 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
         onOpenMonth={onReviewMonth}
         throughDate={today}
       />
-    </div>
-    <section className="review-details" aria-label="分类明细" ref={detailRegion}>
+    <section className="panel review-details" aria-label="分类明细" ref={detailRegion}>
       <div className="review-details-heading">
         <h2 className="panel-title">{selectedCategory === null ? "分类明细" : `${selectedCategory} · 分类明细`}</h2>
         {selectedCategory !== null && <button className="button ghost small" type="button" onClick={() => focusCategory(null)}>查看全部分类</button>}
       </div>
     {selectedCategory === null && <dl className="review-totals">
-      {totals.map(total => <div key={total.label}><dt>{total.label}</dt><dd>{formatMoney(total.actual)}{canCompare && <small>较{comparisonName} {signedMoney(total.actual - total.prior)}</small>}</dd></div>)}
+      {totals.map(total => <div key={total.label}><dt>{total.label}</dt><dd>{formatMoney(total.actual)}{canCompare && <small>较上月 {signedMoney(total.actual - total.prior)}</small>}</dd></div>)}
     </dl>}
+    {largestOverrun && <div className="review-key-insight">
+      <p>{largestOverrun.label}超出月计划 {formatMoney(largestOverrun.amount)}</p>
+      {canAdjustNext && <button className="button ghost small" type="button" onClick={() => onEditNextMonth(month)}>调整下月计划</button>}
+    </div>}
+    {(actual.uncategorizedCount > 0 || unclassifiedChange !== 0) && <div className="review-key-insight">
+      <p>待分类净支出 {formatMoney(unclassified)}{unclassifiedChange !== 0 && ` · 较上月 ${signedMoney(unclassifiedChange)}`}</p>
+      {actual.uncategorizedCount > 0 && onReviewUnclassified && <button className="button ghost small" type="button" onClick={onReviewUnclassified}>去整理</button>}
+    </div>}
     {ordered.length ? <div className="review-spend-list">
       {ordered.map(row => {
         const key = scopeKey(row);
@@ -241,7 +239,7 @@ export function MonthlyReview({ month, today, transactions, budgets, checkedMont
             </button>
             <dl className="review-row-values">
               <div><dt>净支出</dt><dd>{formatMoney(row.currentNetCents)}</dd></div>
-              <div><dt>较{comparisonName}</dt><dd className={canCompare && difference > 0 ? "text-danger" : undefined}>{canCompare ? signedMoney(difference) : "—"}</dd></div>
+              <div><dt>较上月</dt><dd className={canCompare && difference > 0 ? "text-danger" : undefined}>{canCompare ? signedMoney(difference) : "—"}</dd></div>
               <div><dt>月参考</dt><dd>{row.monthlyReferenceCents === null ? "未设置" : formatMoney(row.monthlyReferenceCents)}</dd></div>
               <div><dt>{monthlyRemaining !== null && monthlyRemaining < 0 ? "超出" : "月剩余"}</dt><dd className={monthlyRemaining !== null && monthlyRemaining < 0 ? "text-danger" : undefined}>{monthlyRemaining === null ? "—" : formatMoney(Math.abs(monthlyRemaining))}</dd></div>
             </dl>
