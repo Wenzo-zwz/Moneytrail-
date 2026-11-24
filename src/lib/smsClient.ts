@@ -5,6 +5,10 @@ import { CATEGORIES, isValidLocalDateTime, normalizeTransactionCategory, type Tr
 import { canRememberMerchant, isPlatformOnlyMerchant, merchantKey, type MerchantRule } from "./merchantClassification";
 
 export type SmsMode = "review" | "auto";
+export type SmsPreferences = {
+  mode: SmsMode | "iphone";
+  category_depth: "primary" | "secondary";
+};
 export type SmsConfig = {
   enabled: boolean;
   mode: SmsMode;
@@ -57,6 +61,8 @@ export class SmsSetupError extends Error {
     this.name = "SmsSetupError";
   }
 }
+
+class SmsRpcUnavailableError extends SmsSetupError {}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CAPABILITY = /^mt_sms_[0-9a-f]{64}$/;
@@ -136,6 +142,13 @@ function readConfig(value: unknown): SmsConfig {
   return result;
 }
 
+function readPreferences(value: unknown): SmsPreferences {
+  const { mode, category_depth } = record(value, ["mode", "category_depth"]);
+  if ((mode !== "auto" && mode !== "review" && mode !== "iphone")
+    || (category_depth !== "primary" && category_depth !== "secondary")) return failFormat();
+  return { mode, category_depth };
+}
+
 function readInbox(value: unknown, options: SmsInboxOptions): SmsInbox {
   const data = record(value, ["items", "total", "page", "page_size"]);
   const total = count(data.total), page = count(data.page), pageSize = count(data.page_size);
@@ -188,7 +201,8 @@ function checkAborted(signal?: AbortSignal) {
 
 function throwSmsError(error: unknown, status?: number): never {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-  if (["42883", "42P01", "PGRST202", "PGRST205"].includes(code)) throw new SmsSetupError();
+  if (code === "PGRST202") throw new SmsRpcUnavailableError();
+  if (["42883", "42P01", "PGRST205"].includes(code)) throw new SmsSetupError();
   if (status === 401 || ["PGRST301", "PGRST302", "28000"].includes(code)) throw new Error("登录状态已过期，请重新登录后配置短信自动化。");
   if (status === 403 || code === "42501") throw new Error("当前账户无法操作此短信记录，请确认邮箱已验证并重新登录。");
   if (code === "54000") throw new Error("商户规则已达上限（200 条）。请删除不再使用的规则，或取消本次记住商户后重试；账目尚未新增。");
@@ -214,6 +228,20 @@ async function rpc(client: SupabaseClient, userId: string, name: string, args: R
 
 export async function fetchSmsConfig(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsConfig> {
   return readConfig(await rpc(client, userId, "moneytrail_sms_config", {}, signal));
+}
+
+export async function fetchSmsPreferences(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsPreferences | null> {
+  try { return readPreferences(await rpc(client, userId, "moneytrail_sms_beta_get_preferences", {}, signal)); }
+  catch (error) { if (error instanceof SmsRpcUnavailableError) return null; throw error; }
+}
+
+export async function setSmsPreferences(client: SupabaseClient, userId: string, preferences: SmsPreferences, signal?: AbortSignal): Promise<SmsPreferences> {
+  const { mode, category_depth } = readPreferences(preferences);
+  const saved = readPreferences(await classificationRpc(client, userId, "moneytrail_sms_beta_set_preferences", {
+    p_mode: mode, p_category_depth: category_depth,
+  }, signal));
+  if (saved.mode !== mode || saved.category_depth !== category_depth) return failFormat();
+  return saved;
 }
 
 export async function fetchSmsActivitySummary(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsActivitySummary> {
@@ -280,35 +308,60 @@ export async function reprocessPendingSms(client: SupabaseClient, userId: string
 }
 
 export type SmsCategoryRule = MerchantRule;
+export type SmsMerchantRule = SmsCategoryRule & { auto_record: boolean };
 export type SmsPendingPreview = { items: { id: string; draft: SmsDraft | null; eligible: boolean; reason: string }[]; recordable_count: number; pending_count: number };
 async function classificationRpc(client: SupabaseClient, userId: string, name: string, args: Record<string, unknown>, signal?: AbortSignal) {
   try { return await rpc(client, userId, name, args, signal); }
   catch (error) { if (error instanceof SmsSetupError) throw new SmsUpgradeError(); throw error; }
 }
-function readRules(value: unknown): SmsCategoryRule[] {
+function readRules(value: unknown): SmsCategoryRule[];
+function readRules(value: unknown, beta: true): SmsMerchantRule[];
+function readRules(value: unknown, beta = false): (SmsCategoryRule | SmsMerchantRule)[] {
   const data = record(value, ["rules"]);
   if (!Array.isArray(data.rules) || data.rules.length > 200) return failFormat();
   const seen = new Set<string>();
   return data.rules.map(value => {
-    const rule = record(value, ["merchant", "category"], ["subcategory"]);
+    const rule = record(value, beta ? ["merchant", "category", "auto_record"] : ["merchant", "category"], ["subcategory"]);
     const merchant = text(rule.merchant, 200, true);
     if (seen.has(merchant) || !validReadCategory(rule.category) || rule.category === "待分类") return failFormat();
     const detail = Object.hasOwn(rule, "subcategory") ? { subcategory: text(rule.subcategory, 40, true) } : {};
-    seen.add(merchant); return normalizeTransactionCategory({ merchant, category: rule.category as string, ...detail });
+    const normalized = normalizeTransactionCategory({ merchant, category: rule.category as string, ...detail });
+    seen.add(merchant);
+    if (!beta) return normalized;
+    if (typeof rule.auto_record !== "boolean") return failFormat();
+    return { ...normalized, auto_record: rule.auto_record };
   });
 }
 export async function fetchSmsCategoryRules(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsCategoryRule[]> {
   return readRules(await classificationRpc(client, userId, "moneytrail_sms_category_rules", {}, signal));
 }
-export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal, subcategory?: string): Promise<SmsCategoryRule[]> {
+
+export async function fetchSmsMerchantRules(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsMerchantRule[] | null> {
+  try { return readRules(await rpc(client, userId, "moneytrail_sms_beta_list_rules", {}, signal), true); }
+  catch (error) { if (error instanceof SmsRpcUnavailableError) return null; throw error; }
+}
+
+function checkRule(merchant: string, category: string | null, subcategory?: string) {
   const platformOnly = typeof merchant === "string" && isPlatformOnlyMerchant(merchant);
   if (category !== null && platformOnly) throw new Error("仅显示美团平台，实际用途待确认；请填写具体门店再保存规则。");
   if (typeof merchant !== "string" || merchant.length > 200 || (!merchantKey(merchant) && !(category === null && platformOnly)) || (category !== null && (!canRememberMerchant(merchant) || !CATEGORIES.includes(category as typeof CATEGORIES[number]) || category === "待分类"))) throw new Error("请选择具体商户和有效分类；渠道、群收款及不明转账不能保存规则。");
   if (subcategory !== undefined && (typeof subcategory !== "string" || !subcategory.trim() || subcategory.length > 40 || subcategory.includes("\u0000"))) throw new Error("请填写有效的细分类，最多 40 字。");
+}
+
+export async function setSmsCategoryRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, signal?: AbortSignal, subcategory?: string): Promise<SmsCategoryRule[]> {
+  checkRule(merchant, category, subcategory);
   const response = subcategory !== undefined
     ? await classificationRpc(client, userId, "moneytrail_sms_set_merchant_rule", { p_merchant: merchant, p_category: category, p_subcategory: subcategory }, signal)
     : await classificationRpc(client, userId, "moneytrail_sms_set_category_rule", { p_merchant: merchant, p_category: category }, signal);
   return readRules(response);
+}
+
+export async function setSmsMerchantRule(client: SupabaseClient, userId: string, merchant: string, category: string | null, subcategory: string | undefined, autoRecord: boolean, signal?: AbortSignal): Promise<SmsMerchantRule[]> {
+  checkRule(merchant, category, subcategory);
+  if (typeof autoRecord !== "boolean" || (autoRecord && category === null)) throw new Error("请选择有效的商户自动入账设置。");
+  return readRules(await classificationRpc(client, userId, "moneytrail_sms_beta_set_rule", {
+    p_merchant: merchant, p_category: category, p_subcategory: subcategory ?? null, p_auto_record: autoRecord,
+  }, signal), true);
 }
 export async function previewPendingSms(client: SupabaseClient, userId: string, signal?: AbortSignal): Promise<SmsPendingPreview> {
   const data = record(await classificationRpc(client, userId, "moneytrail_sms_preview_pending", {}, signal), ["items", "recordable_count", "pending_count"]);

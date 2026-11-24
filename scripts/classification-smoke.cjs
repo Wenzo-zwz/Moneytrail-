@@ -102,6 +102,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false } = {}) {
         if (url.pathname.startsWith("/rest/v1/rpc/moneytrail_sms_")) {
           if (missingSms) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           const action = url.pathname.split("moneytrail_sms_")[1];
+          if (action === "beta_get_preferences") return respond({ code: "PGRST202" }, 404);
           if (action === "category_rules") return controls.missingRules ? respond({ code: "PGRST202" }, 404) : respond({ rules: rules.get(id) });
           if (action === "set_category_rule" || action === "set_merchant_rule") { const next = rules.get(id).filter(r => r.merchant !== body.p_merchant); if (body.p_category !== null) next.push({ merchant: body.p_merchant, category: body.p_category, ...(body.p_subcategory ? { subcategory: body.p_subcategory } : {}) }); rules.set(id, next); return respond({ rules: next }); }
           if (action === "preview_pending") {

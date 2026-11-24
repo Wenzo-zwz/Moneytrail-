@@ -12,6 +12,7 @@ const THREE_BANK_INSTALL='https://www.icloud.com/shortcuts/90ce49ad282d490481700
 const THREE_BANK_SOURCE='/Moneytrail-/shortcuts/moneytrail-three-bank-v1.unsigned.plist';
 const GENERAL_BANK_SOURCE='/Moneytrail-/shortcuts/moneytrail-general-bank-v2.unsigned.plist';
 const BANK_ACTIVITY_SOURCE='/Moneytrail-/shortcuts/moneytrail-bank-activity-v3.unsigned.plist';
+const SMS_CATEGORY_SOURCE='/Moneytrail-/shortcuts/moneytrail-bank-sms-category-beta.unsigned.plist';
 const THREE_BANKS=[{code:'abc',name:'农业银行'},{code:'boc',name:'中国银行'},{code:'ccb',name:'建设银行'}];
 const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222';
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -23,8 +24,9 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,message){for(let i=0;i<120;i++){if(await fn())return;await wait(50);}throw Error(message);}
 let checks=0;
 function passed(x){checks++;process.stdout.write(`PASS ${x}\n`);}
-function backend(project,origin,enabled=false){
+function backend(project,origin,enabled=false,{iphone=false}={}){
  const configs=new Map([A,B].map(id=>[id,{enabled:id===A&&enabled,mode:'auto',created_at:id===A&&enabled?'2026-10-31T08:00:00Z':null,last_received_at:null,pending_count:0}]));
+ const preferences=new Map();
  const requests=[],errors=[],secrets=[],external=[]; const books=new Map([A,B].map(id=>[id,empty()]));
  return{configs,requests,errors,secrets,external,books,async attach(context){await context.route('**/*',async route=>{try{
   const req=route.request(),u=new URL(req.url());if(u.origin===origin)return route.continue();
@@ -43,8 +45,13 @@ function backend(project,origin,enabled=false){
   if(u.pathname==='/rest/v1/rpc/moneytrail_sms_category_rules')return respond({rules:[]});
   if(u.pathname==='/rest/v1/rpc/moneytrail_sms_activity_summary')return respond({period_start:'2026-10-24T08:00:00Z',period_end:'2026-10-31T08:00:00Z',time_zone:'Asia/Shanghai',received_count:0,recorded_count:0,pending_count:0,dismissed_count:0});
   if(u.pathname==='/rest/v1/rpc/moneytrail_sms_config')return respond(configs.get(id));
+  if(u.pathname==='/rest/v1/rpc/moneytrail_sms_beta_get_preferences')return iphone
+   ? respond(preferences.get(id)??{mode:configs.get(id).mode,category_depth:'primary'}) : respond({code:'PGRST202'},404);
+  if(iphone&&u.pathname==='/rest/v1/rpc/moneytrail_sms_beta_set_preferences'){
+   const next={mode:body.p_mode,category_depth:body.p_category_depth};preferences.set(id,next);return respond(next);
+  }
   if(u.pathname==='/rest/v1/rpc/moneytrail_sms_inbox')return respond({items:[],total:0,page:body.p_page,page_size:body.p_page_size});
-  if(u.pathname==='/rest/v1/rpc/moneytrail_sms_rotate'){const token='mt_sms_'+String(secrets.length+1).padStart(64,'b');secrets.push(token);configs.set(id,{...configs.get(id),enabled:true,created_at:'2026-10-31T08:00:00Z'});return respond({token,config:configs.get(id)});}
+  if(u.pathname==='/rest/v1/rpc/moneytrail_sms_rotate'){const token='mt_sms_'+String(secrets.length+1).padStart(64,'b');secrets.push(token);configs.set(id,{...configs.get(id),enabled:true,mode:body.p_mode,created_at:'2026-10-31T08:00:00Z'});return respond({token,config:configs.get(id)});}
   if(u.pathname==='/rest/v1/rpc/moneytrail_sms_revoke'){configs.set(id,{...configs.get(id),enabled:false,created_at:null});return respond(configs.get(id));}
   throw Error(`Unexpected write/endpoint ${u.pathname}`);
  }catch(e){if(/Target.*closed|already handled/.test(String(e)))return;errors.push(String(e));try{await route.abort();}catch{}}});}};
@@ -109,6 +116,33 @@ async function publishedSmsWorkflow(browser,app){
   await safe(page,service,errors);
   await page.screenshot({path:path.join(OUT,'install-single-320.png'),fullPage:true,animations:'disabled'});
   passed('published single shortcut: direct trigger instructions and token-free installer for every bank');
+ }finally{await context.close();}
+}
+async function iphoneCategoryInstallWorkflow(browser,app){
+ const service=backend(OFFICIAL,app.origin,false,{iphone:true}),{context,page,errors}=await fixture(browser,app,service,320,{publishedSms:true});
+ try{
+  await login(page);
+  await page.getByRole('radio',{name:/在 iPhone 确认/}).check();
+  const setup=page.getByRole('region',{name:'在 iPhone 上接入',exact:true});
+  const source=setup.getByRole('link',{name:'下载未签名快捷指令',exact:true});
+  assert.equal(await source.getAttribute('href'),SMS_CATEGORY_SOURCE);
+  assert.notEqual(await source.getAttribute('download'),null);
+  assert.equal(await setup.locator('a[href*="icloud.com/shortcuts/"]').count(),0);
+  const artifact=await page.request.get(app.origin+SMS_CATEGORY_SOURCE);
+  assert.equal(artifact.status(),200);
+  assert.match(await artifact.text(),/moneytrail_sms_beta_prepare_v2/);
+  await setup.getByRole('button',{name:'复制签名命令',exact:true}).click();
+  assert.match(await page.evaluate(()=>window.__fixtureCopied),/shortcuts sign --mode anyone .*MoneyTrail-SMS-Category-Beta\.shortcut/);
+  await page.getByRole('button',{name:'同意转发并启用',exact:true}).click();
+  const modal=page.getByRole('dialog',{name:'接入令牌，仅显示这一次'});
+  assert.equal(await modal.getByRole('link',{name:'下载未签名快捷指令',exact:true}).getAttribute('href'),SMS_CATEGORY_SOURCE);
+  assert.equal(await modal.locator('a[href*="icloud.com/shortcuts/"]').count(),0);
+  await modal.getByRole('button',{name:'我已保存',exact:true}).click();
+  await setup.waitFor();
+  assert.equal(service.configs.get(A).mode,'review');
+  assert.equal(service.secrets.length,1);
+  await safe(page,service,errors);
+  passed('320px iPhone category setup and first-enable token dialog offer the unsigned beta and Mac signing command');
  }finally{await context.close();}
 }
 async function officialWorkflow(browser,app,width){const service=backend(OFFICIAL,app.origin),{context,page,errors}=await fixture(browser,app,service,width);try{
@@ -269,4 +303,4 @@ async function bankActivityWorkflow(browser,app){
  }finally{await context.close();}
 }
 async function customWorkflow(browser,app){const service=backend(CUSTOM,app.origin,true),{context,page,errors}=await fixture(browser,app,service,393);try{await login(page);const guide=page.getByRole('region',{name:'iPhone 快捷指令安装'});await guide.waitFor();await openLegacy(guide);assert.equal(await page.locator(`a[href="${INSTALL}"]`).count(),0);for(const bank of [{code:'icbc',name:'工商银行'},...THREE_BANKS,{code:'cmb',name:'招商银行'}]){await guide.getByLabel('银行',{exact:true}).selectOption(bank.code);assert.match(await guide.innerText(),/与当前部署不匹配/);for(const source of [THREE_BANK_SOURCE,BANK_ACTIVITY_SOURCE])assert.equal(await guide.locator(`a[href="${source}"]`).count(),0,'custom projects must not download fixed production sources');for(const name of ['复制匹配规则','复制 iPhone 制作步骤','复制 Mac 签名命令','复制收支匹配规则','复制收支iPhone步骤','复制收支Mac签名命令','复制已发布匹配规则'])assert.equal(await guide.getByRole('button',{name,exact:true}).count(),0,'custom projects must not copy production template content');assert.equal(await page.locator('a[href*="icloud.com/shortcuts/"]').count(),0);}await guide.getByRole('button',{name:'刷新接收状态',exact:true}).click();assert.equal(await guide.getByLabel('银行',{exact:true}).inputValue(),'cmb');assert.equal(service.secrets.length,0);await safe(page,service,errors);passed('custom project cannot offer a production installer, source download or template clipboard');}finally{await context.close();}}
-(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{const official=await start(OFFICIAL,5191);try{await publishedSmsWorkflow(browser,official);for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);await cmbTemplateWorkflow(browser,official);await bankActivityWorkflow(browser,official);await publishedRulesWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Browser coverage ends at the Apple install page.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});
+(async()=>{await mkdir(OUT,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.MONEYTRAIL_CHROMIUM_PATH?{executablePath:process.env.MONEYTRAIL_CHROMIUM_PATH}:{}),args:['--no-sandbox']});try{const official=await start(OFFICIAL,5191);try{await iphoneCategoryInstallWorkflow(browser,official);await publishedSmsWorkflow(browser,official);for(const bank of THREE_BANKS)for(const cardKind of ['储蓄卡','信用卡'])await newBankTemplateWorkflow(browser,official,bank,cardKind);for(const width of [320,393,1440])await officialWorkflow(browser,official,width);await newBankEnableWorkflow(browser,official);await cmbTemplateWorkflow(browser,official);await bankActivityWorkflow(browser,official);await publishedRulesWorkflow(browser,official);}finally{official.server.kill();}const custom=await start(CUSTOM,5192);try{await customWorkflow(browser,custom);}finally{custom.server.kill();}}finally{await browser.close();}process.stdout.write(`\n${checks} shortcut-install browser workflows passed. Browser coverage ends at the Apple install page.\n`);})().catch(e=>{process.stderr.write(String(e.stack||e)+'\n');process.exitCode=1;});
