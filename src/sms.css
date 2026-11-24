@@ -37,6 +37,9 @@
 .sms-mode-options input { width: 15px; height: 15px; flex-shrink: 0; margin: 3px 0 0; accent-color: #d3c7b1; }
 .sms-mode-options strong { display: block; color: #d9d2c8; font-size: 12px; font-weight: 450; }
 .sms-mode-options small { display: block; margin-top: 5px; color: #a69d91; font-size: 10px; line-height: 1.8; }
+.sms-depth-options { flex-direction: row; flex-wrap: wrap; margin-top: 15px; }
+.sms-depth-options label { align-items: center; padding: 10px 12px; min-height: 44px; }
+.sms-depth-options input { margin-top: 0; }
 .sms-group-rule { display: flex; align-items: flex-start; gap: 8px; margin: 17px 0; color: #c3b79f; font-size: 10px; line-height: 1.9; }
 .sms-group-rule svg { margin-top: 2px; }
 .sms-forward-consent { padding-top: 15px; border-top: 1px solid #302d2e; color: #a39a90; font-size: 10px; line-height: 2; }
@@ -138,6 +141,7 @@
 .sms-rule-editor label { display: grid; gap: 6px; margin: 12px 0; }
 .sms-rule-editor input:not([type=checkbox]), .sms-rule-editor select { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; min-height: 44px; border: 1px solid #4a3e31; border-radius: 6px; background: #151215; color: #ded1be; font-size: 16px; color-scheme: dark; }
 .sms-rule-editor label.sms-remember { display: flex; align-items: center; }
+.sms-rule-editor li > span > small { display: block; margin-top: 4px; color: #c7b9a5; }
 @media(max-width: 500px) { .sms-classification { padding: 17px; } .sms-tool-actions .button { white-space: normal; max-width: 100%; } }
 
 .sms-rule-editor label { color: #c7b9a5; }

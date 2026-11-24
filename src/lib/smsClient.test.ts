@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  SmsSetupError, SmsUpgradeError, confirmSms, dismissSms, fetchSmsActivitySummary, fetchSmsConfig, fetchSmsInbox, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMode,
+  SmsSetupError, SmsUpgradeError, confirmSms, dismissSms, fetchSmsActivitySummary, fetchSmsConfig, fetchSmsInbox, fetchSmsMerchantRules, fetchSmsPreferences, reprocessPendingSms, revokeSmsToken, rotateSmsToken, setSmsMerchantRule, setSmsMode, setSmsPreferences,
   type SmsActivitySummary, type SmsConfig, type SmsDraft, type SmsInbox,
 } from "./smsClient";
 
@@ -27,6 +27,57 @@ beforeEach(() => {
   vi.spyOn(client.auth, "getSession").mockResolvedValue({ data: { session: session() }, error: null });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("iPhone SMS recording preferences", () => {
+  const preferences = { mode: "iphone", category_depth: "secondary" } as const;
+
+  it("reads and explicitly saves the mode and depth under the current account", async () => {
+    fetchMock.mockImplementation(async () => response(preferences));
+    expect(await fetchSmsPreferences(client, alice)).toEqual(preferences);
+    expect(await setSmsPreferences(client, alice, preferences)).toEqual(preferences);
+
+    const [read, write] = fetchMock.mock.calls;
+    expect(new URL(String(read[0])).pathname).toBe("/rest/v1/rpc/moneytrail_sms_beta_get_preferences");
+    expect(new URL(String(write[0])).pathname).toBe("/rest/v1/rpc/moneytrail_sms_beta_set_preferences");
+    expect(new Headers(write[1]?.headers).get("Authorization")).toBe("Bearer token-A");
+    expect(JSON.parse(String(write[1]?.body))).toEqual({ p_mode: "iphone", p_category_depth: "secondary" });
+    expect(JSON.parse(String(read[1]?.body))).toEqual({});
+  });
+
+  it("falls back only for legacy reads when the new function is missing", async () => {
+    fetchMock.mockImplementation(async () => response({ code: "PGRST202" }, 404));
+    expect(await fetchSmsPreferences(client, alice)).toBeNull();
+    expect(await fetchSmsMerchantRules(client, alice)).toBeNull();
+    await expect(setSmsPreferences(client, alice, preferences)).rejects.toBeInstanceOf(SmsUpgradeError);
+    await expect(setSmsMerchantRule(client, alice, "巷口咖啡", "食品酒水", "咖啡奶茶", true)).rejects.toBeInstanceOf(SmsUpgradeError);
+
+    fetchMock.mockImplementation(async () => response({ code: "42501" }, 403));
+    await expect(fetchSmsPreferences(client, alice)).rejects.toThrow("当前账户无法操作");
+    await expect(fetchSmsMerchantRules(client, alice)).rejects.toThrow("当前账户无法操作");
+  });
+
+  it("does not accept expanded preference data or a different saved depth", async () => {
+    fetchMock.mockImplementationOnce(async () => response({ ...preferences, user_id: alice }));
+    await expect(fetchSmsPreferences(client, alice)).rejects.toThrow("格式不正确");
+    fetchMock.mockImplementationOnce(async () => response({ ...preferences, category_depth: "primary" }));
+    await expect(setSmsPreferences(client, alice, preferences)).rejects.toThrow("格式不正确");
+  });
+
+  it("requires a boolean authorization and sends an explicit opt-in and deletion", async () => {
+    const rule = { merchant: "巷口咖啡", category: "食品酒水", subcategory: "咖啡奶茶", auto_record: true };
+    fetchMock.mockResolvedValueOnce(response({ rules: [{ ...rule, auto_record: "true" }] }));
+    await expect(fetchSmsMerchantRules(client, alice)).rejects.toThrow("格式不正确");
+    fetchMock.mockResolvedValueOnce(response({ rules: [rule] }));
+    expect(await setSmsMerchantRule(client, alice, rule.merchant, rule.category, rule.subcategory, true)).toEqual([rule]);
+    fetchMock.mockResolvedValueOnce(response({ rules: [] }));
+    expect(await setSmsMerchantRule(client, alice, rule.merchant, null, undefined, false)).toEqual([]);
+
+    expect(new URL(String(fetchMock.mock.calls[0][0])).pathname).toBe("/rest/v1/rpc/moneytrail_sms_beta_list_rules");
+    expect(new URL(String(fetchMock.mock.calls[1][0])).pathname).toBe("/rest/v1/rpc/moneytrail_sms_beta_set_rule");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ p_merchant: rule.merchant, p_category: rule.category, p_subcategory: rule.subcategory, p_auto_record: true });
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ p_merchant: rule.merchant, p_category: null, p_subcategory: null, p_auto_record: false });
+  });
+});
 
 describe("cloud SMS activity summary", () => {
   it("reads the captured account's fixed window without sending an owner, cutoff or SMS capability", async () => {

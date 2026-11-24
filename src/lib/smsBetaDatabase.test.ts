@@ -20,9 +20,15 @@ type Receipt = {
   amount?: string;
   merchant?: string;
   suggested_category?: string;
+  suggested_subcategory?: string;
+  category_depth?: "primary" | "secondary";
+  category?: string;
+  subcategory?: string;
 };
 type InboxItem = { id: string; status: string; draft: Record<string, unknown>; warnings: string[]; raw_text: string | null };
 type Ledger = { data: { transactions: Record<string, unknown>[] }; revision: number };
+type BetaPreferences = { mode: "review" | "auto" | "iphone"; category_depth: "primary" | "secondary" };
+type BetaRule = { merchant: string; category: string; subcategory?: string; auto_record: boolean };
 
 async function rpc<T>(name: string, args: unknown[] = [], account?: string): Promise<T> {
   const role = account ? "authenticated" : "anon";
@@ -46,6 +52,26 @@ function prepare(token: string, message: string) {
 
 function confirm(token: string, category: string | null) {
   return rpc<Receipt>("moneytrail_sms_beta_confirm", [token, category]);
+}
+
+function preferences(account: string) {
+  return rpc<BetaPreferences>("moneytrail_sms_beta_get_preferences", [], account);
+}
+
+function setPreferences(mode: BetaPreferences["mode"], depth: BetaPreferences["category_depth"] = "primary", account = owner) {
+  return rpc<BetaPreferences>("moneytrail_sms_beta_set_preferences", [mode, depth], account);
+}
+
+function prepareV2(token: string, message: string) {
+  return rpc<Receipt>("moneytrail_sms_beta_prepare_v2", [token, message]);
+}
+
+function confirmV2(token: string, category: string, subcategory: string) {
+  return rpc<Receipt>("moneytrail_sms_beta_confirm_v2", [token, category, subcategory]);
+}
+
+function setBetaRule(merchant: string, category: string | null, subcategory: string, autoRecord: boolean) {
+  return rpc<{ rules: BetaRule[] }>("moneytrail_sms_beta_set_rule", [merchant, category, subcategory, autoRecord], owner);
 }
 
 async function sms(merchant = "消费支付宝-清泉咖啡", amount = "30.90", minutesAgo = 0) {
@@ -257,4 +283,77 @@ it("hides serialized receipt hashes and shared helper from API roles", async () 
       as allowed from (values ('anon'), ('authenticated')) as roles(role)
   `)).rows;
   expect(privileges).toEqual([{ allowed: false }, { allowed: false }]);
+});
+
+it("sets iPhone confirmation for one account and keeps the original SMS entry point working", async () => {
+  const token = await rotate();
+  await rotate(other, "review");
+  expect(await preferences(owner)).toEqual({ mode: "auto", category_depth: "primary" });
+  expect(await setPreferences("iphone", "secondary")).toEqual({ mode: "iphone", category_depth: "secondary" });
+  expect(await preferences(other)).toEqual({ mode: "review", category_depth: "primary" });
+  await expect(rpc("moneytrail_sms_beta_get_preferences")).rejects.toMatchObject({ code: "42501" });
+
+  const original = await rpc<Receipt>("moneytrail_receive_sms", [token, await sms(undefined, "12.56")]);
+  expect(original.status).toBe("recorded");
+  const beta = await prepareV2(token, await sms(undefined, "13.57"));
+  expect(beta).toMatchObject({ category_depth: "secondary", status: "pending", review_token: expect.stringMatching(/^mt_sms_review_/) });
+  expect((await ledger()).data.transactions).toHaveLength(1);
+});
+
+it("recommends an existing merchant rule and records only a valid explicit secondary selection", async () => {
+  const token = await rotate();
+  await setPreferences("iphone", "secondary");
+  await rpc("moneytrail_sms_set_merchant_rule", ["清泉咖啡", "食品酒水", "咖啡奶茶"], owner);
+  const raw = await sms();
+  const result = await prepareV2(token, raw);
+  expect(result).toMatchObject({ status: "pending", suggested_category: "食品酒水", suggested_subcategory: "咖啡奶茶" });
+  expect(await confirmV2(result.review_token, "交通出行", "咖啡奶茶")).toEqual(invalid);
+  expect(await inbox()).toMatchObject([{ id: result.id, status: "pending", raw_text: raw }]);
+  expect(await ledger()).toBeUndefined();
+
+  expect(await confirmV2(result.review_token, "食品酒水", "堂食聚餐")).toMatchObject({ status: "recorded", id: result.id });
+  expect(await confirmV2(result.review_token, "食品酒水", "堂食聚餐")).toMatchObject({ status: "recorded", id: result.id });
+  expect(await prepareV2(token, raw)).toMatchObject({ status: "duplicate", id: result.id });
+  expect((await ledger()).data.transactions).toMatchObject([{ category: "食品酒水", subcategory: "堂食聚餐" }]);
+});
+
+it("allows explicitly recording only the first level even when a detail was suggested", async () => {
+  const token = await rotate();
+  await setPreferences("iphone");
+  await rpc("moneytrail_sms_set_merchant_rule", ["清泉咖啡", "食品酒水", "咖啡奶茶"], owner);
+  const result = await prepareV2(token, await sms());
+  expect(result).toMatchObject({ category_depth: "primary", suggested_subcategory: "咖啡奶茶" });
+  expect(await confirmV2(result.review_token, "食品酒水", "未细分")).toMatchObject({ status: "recorded" });
+  const [entry] = (await ledger()).data.transactions;
+  expect(entry.category).toBe("食品酒水");
+  expect(entry.subcategory ?? "未细分").toBe("未细分");
+});
+
+it("auto-records only the permitted merchant, with the saved category and duplicate protection", async () => {
+  const token = await rotate();
+  await setPreferences("iphone", "secondary");
+  expect(await setBetaRule("清泉咖啡(东店)", "食品酒水", "咖啡奶茶", true)).toMatchObject({
+    rules: [{ merchant: "清泉咖啡(东店)", category: "食品酒水", subcategory: "咖啡奶茶", auto_record: true }],
+  });
+  expect(await rpc<{ rules: BetaRule[] }>("moneytrail_sms_beta_list_rules", [], other)).toEqual({ rules: [] });
+  const raw = await sms("消费财付通-清泉咖啡(东店)", "18.26");
+  const recorded = await prepareV2(token, raw);
+  expect(recorded).toMatchObject({ status: "recorded", amount: "18.26", category: "食品酒水", subcategory: "咖啡奶茶", review_token: "" });
+  expect(await prepareV2(token, raw)).toMatchObject({ status: "duplicate", id: recorded.id });
+  expect(await prepareV2(token, await sms("消费财付通-清泉咖啡(西店)", "19.26"))).toMatchObject({ status: "pending", review_token: expect.stringMatching(/^mt_sms_review_/) });
+  expect(await prepareV2(token, await sms("转账财付通-微信转账", "0.20"))).toMatchObject({ status: "pending", review_token: "" });
+  expect((await ledger()).data.transactions).toMatchObject([{ id: "sms-" + recorded.id, category: "食品酒水", subcategory: "咖啡奶茶" }]);
+});
+
+it("uses review mode for every receipt and revokes auto permission when a saved classification changes", async () => {
+  const token = await rotate();
+  await setBetaRule("清泉咖啡", "食品酒水", "咖啡奶茶", true);
+  await setPreferences("review");
+  expect(await prepareV2(token, await sms(undefined, "10.10"))).toMatchObject({ status: "pending", review_token: "" });
+  await setPreferences("iphone");
+  await rpc("moneytrail_sms_set_merchant_rule", ["清泉咖啡", "学习培训", "未细分"], owner);
+  expect(await prepareV2(token, await sms(undefined, "10.11"))).toMatchObject({
+    status: "pending", suggested_category: "学习培训", review_token: expect.stringMatching(/^mt_sms_review_/),
+  });
+  expect(await ledger()).toBeUndefined();
 });

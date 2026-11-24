@@ -38,13 +38,15 @@ function identity(request) {
   try { return JSON.parse(Buffer.from((request.headers().authorization || "").split(".")[1], "base64url").toString()).sub; }
   catch { return null; }
 }
-function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false, incomePending = false, missingSummary = false } = {}) {
+function mockBackend({ missingSms = false, ordinaryPending = false, missingReprocess = false, groupedBalancePending = false, incomePending = false, missingSummary = false, smsBeta = false } = {}) {
   const ledgers = new Map([[OWNER, { data: { ...empty(), budgetCents: 900000, transactions: [manual], billCheckedMonths: ["2026-09"] }, revision: 1, updated_at: "2026-10-22T11:00:00Z" }], [MEMBER, { data: empty(), revision: 1, updated_at: "2026-10-22T11:00:00Z" }]]);
   const inboxes = new Map([[OWNER, [
     { id: GROUP, received_at: "2026-10-22T11:27:00Z", status: "pending", raw_text: RAW, draft: { kind: "expense", amountCents: 3090, date: "2026-10-22T19:27", merchant: "财付通-群收款", category: "待分类", source: "sms", note: "" }, warnings: ["群收款需确认是消费还是转账。"], reason: null, transaction_id: null },
     { id: OTHER, received_at: "2026-10-22T11:20:00Z", status: "pending", raw_text: "您今日支出12元。【工商银行】", draft: null, warnings: [], reason: "未能识别完整交易，请手动核对。", transaction_id: null },
   ]], [MEMBER, []]]);
   const configs = new Map([OWNER, MEMBER].map((id) => [id, { enabled: false, mode: "auto", created_at: null, last_received_at: id === OWNER ? "2026-10-22T11:27:00Z" : null }]));
+  const preferences = new Map();
+  const merchantRules = new Map([[OWNER, []], [MEMBER, []]]);
   const ordinaryIds = new Set();
   const reprocessedDrafts = new Map();
   if (incomePending) {
@@ -125,7 +127,34 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
         if (url.pathname.startsWith("/rest/v1/rpc/moneytrail_sms_")) {
           if (missingSms) return respond({ code: "PGRST202", message: "Function missing" }, 404);
           const action = url.pathname.split("moneytrail_sms_")[1];
-          if (action === "category_rules") return respond({ rules: [] });
+          if (action === "category_rules") return respond({ rules: merchantRules.get(id).map(({ auto_record, ...rule }) => rule) });
+          if (action.startsWith("beta_") && !smsBeta) return respond({ code: "PGRST202", message: "Beta function missing" }, 404);
+          if (action === "beta_get_preferences") {
+            assert.deepEqual(body, {});
+            return respond(preferences.get(id) ?? { mode: configs.get(id).mode, category_depth: "primary" });
+          }
+          if (action === "beta_set_preferences") {
+            assert.deepEqual(Object.keys(body).sort(), ["p_category_depth", "p_mode"]);
+            assert(["auto", "review", "iphone"].includes(body.p_mode));
+            assert(["primary", "secondary"].includes(body.p_category_depth));
+            const next = { mode: body.p_mode, category_depth: body.p_category_depth };
+            preferences.set(id, next);
+            return respond(next);
+          }
+          if (action === "beta_list_rules") {
+            assert.deepEqual(body, {});
+            return respond({ rules: merchantRules.get(id) });
+          }
+          if (action === "beta_set_rule") {
+            assert.deepEqual(Object.keys(body).sort(), ["p_auto_record", "p_category", "p_merchant", "p_subcategory"]);
+            assert.equal(typeof body.p_auto_record, "boolean");
+            const rules = merchantRules.get(id).filter(rule => rule.merchant !== body.p_merchant);
+            if (body.p_category !== null) {
+              rules.push({ merchant: body.p_merchant, category: body.p_category, ...(body.p_subcategory ? { subcategory: body.p_subcategory } : {}), auto_record: body.p_auto_record });
+            }
+            merchantRules.set(id, rules);
+            return respond({ rules });
+          }
           if (action === "activity_summary") {
             assert.deepEqual(body, {});
             if (summaryRead.fail) return respond({ code: "PGRST202", message: "Summary unavailable" }, 404);
@@ -195,7 +224,7 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
       }
     });
   }
-  return { attach, requests, routeErrors, ledgers, inboxes, configs, secrets, ledgerRead, summaryRead };
+  return { attach, requests, routeErrors, ledgers, inboxes, configs, preferences, secrets, ledgerRead, summaryRead };
 }
 async function ready(server, output) {
   const deadline = Date.now() + 20000;
@@ -310,7 +339,8 @@ async function ownerWorkflow(browser) {
     assert.equal(backend.secrets.length, 1, "merely reopening must not silently rotate the token");
     passed("leaving the page clears the one-time token without rotating it on reopen");
 
-    await page.getByRole("radio", { name: /全部先待确认/ }).check();
+    assert.equal(await page.getByRole("radio", { name: /在 iPhone 确认/ }).count(), 0, "legacy service exposes only supported recording modes");
+    await page.getByRole("radio", { name: /到收件箱确认/ }).check();
     await page.getByRole("button", { name: "保存记录方式", exact: true }).click();
     await until(() => backend.configs.get(OWNER).mode === "review", "review-only mode save");
     await until(async () => (await page.getByRole("button", { name: "保存记录方式", exact: true }).isDisabled()), "review mode refresh");
@@ -373,6 +403,87 @@ async function ownerWorkflow(browser) {
     await noSecretDom(page, backend);
     passed("rotation and revocation are explicit, and revocation clears the one-time plaintext token");
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
+  } finally { await context.close(); }
+}
+async function iphonePreferencesWorkflow(browser) {
+  const backend = mockBackend({ smsBeta: true });
+  Object.assign(backend.configs.get(OWNER), { enabled: true, created_at: "2026-10-22T11:00:00Z" });
+  const { page, context, errors } = await fixture(browser, backend, { width: 393 });
+  try {
+    await login(page);
+    const auto = page.getByRole("radio", { name: /自动记录明确消费/ });
+    const iphone = page.getByRole("radio", { name: /在 iPhone 确认/ });
+    const primary = page.getByRole("radio", { name: "只确认一级", exact: true });
+    const secondary = page.getByRole("radio", { name: "也确认二级", exact: true });
+    const save = page.getByRole("button", { name: "保存记录方式", exact: true });
+    const writes = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_beta_set_preferences"));
+    const saved = () => until(() => save.isDisabled(), "preferences refreshed after save");
+
+    await iphone.waitFor();
+    assert(await auto.isChecked());
+    assert(await save.isDisabled());
+    assert.equal(await primary.count(), 0);
+    await iphone.check();
+    assert(await primary.isChecked());
+    assert.equal(writes().length, 0, "choosing a mode must await an explicit save");
+    await save.click();
+    await until(() => backend.preferences.get(OWNER)?.mode === "iphone", "iPhone confirmation mode save");
+    await saved();
+    assert.deepEqual(writes().map(request => request.body), [{ p_mode: "iphone", p_category_depth: "primary" }]);
+
+    await secondary.check();
+    assert.equal(writes().length, 1, "choosing a category depth must await an explicit save");
+    await save.click();
+    await until(() => backend.preferences.get(OWNER)?.category_depth === "secondary", "secondary category save");
+    await saved();
+    assert.deepEqual(writes().at(-1).body, { p_mode: "iphone", p_category_depth: "secondary" });
+    const preferenceReadCount = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_beta_get_preferences")).length;
+    const readsBeforeReload = preferenceReadCount();
+    await page.reload();
+    await secondary.waitFor();
+    assert(preferenceReadCount() > readsBeforeReload);
+    assert(await iphone.isChecked());
+    assert(await secondary.isChecked());
+    assert(await save.isDisabled());
+    await noOverflow(page, "393px iPhone recording preferences");
+    assert.equal(backend.configs.get(OWNER).mode, "auto");
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(backend.routeErrors, []);
+    passed("iPhone confirmation and both category depths save explicitly, persist after reload and preserve the existing ledger and legacy intake");
+
+    const editor = page.locator(".sms-rule-editor");
+    const autoRecord = editor.getByRole("checkbox", { name: "iPhone 确认时，这家直接入账", exact: true });
+    const saveRule = editor.getByRole("button", { name: "保存商户规则", exact: true });
+    const editRule = editor.getByRole("button", { name: "编辑规则", exact: true });
+    const ruleWrites = () => backend.requests.filter(request => request.path.endsWith("moneytrail_sms_beta_set_rule"));
+    await editor.locator("summary").click();
+    await editor.getByLabel("具体商户", { exact: true }).fill("巷口咖啡");
+    await editor.getByRole("combobox", { name: /^分类/ }).selectOption("食品酒水");
+    await editor.getByLabel("二级分类（可选）", { exact: true }).selectOption("堂食聚餐");
+    await editor.getByRole("checkbox", { name: "以后这家都这样分类", exact: true }).check();
+    assert.equal(await autoRecord.isChecked(), false, "remembering a category must not opt in to automatic posting");
+    await saveRule.click();
+    await editRule.waitFor();
+    const rule = { p_merchant: "巷口咖啡", p_category: "食品酒水", p_subcategory: "堂食聚餐", p_auto_record: false };
+    assert.deepEqual(ruleWrites().map(request => request.body), [rule]);
+    await editRule.click();
+    await autoRecord.check();
+    assert.equal(ruleWrites().length, 1);
+    await saveRule.click();
+    await editor.getByText("iPhone 直接入账", { exact: true }).waitFor();
+    assert.deepEqual(ruleWrites().at(-1).body, { ...rule, p_auto_record: true });
+
+    await page.reload();
+    await editor.locator("summary").click();
+    await editor.getByRole("button", { name: "读取个人规则", exact: true }).click();
+    await editor.getByText("iPhone 直接入账", { exact: true }).waitFor();
+    await editRule.click();
+    assert(await autoRecord.isChecked());
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.length, 1);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(backend.routeErrors, []);
+    passed("remembered merchant category and optional iPhone automatic posting each save explicitly and reload from the account");
   } finally { await context.close(); }
 }
 async function entryWorkflow(browser) {
@@ -698,6 +809,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
     for (const width of [320, 393, 1440]) await incomeWorkflow(browser, width);
     if (process.env.MONEYTRAIL_SMS_SMOKE_SUITE !== "income") {
       await receiptReviewWorkflow(browser);
+      await iphonePreferencesWorkflow(browser);
       await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);
     }
     process.stdout.write(`\n${checks} SMS browser checks passed using intercepted service fixtures. Live SMS forwarding and iOS execution still require phone verification.\n`);
