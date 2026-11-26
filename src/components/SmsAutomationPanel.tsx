@@ -10,7 +10,7 @@ import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, Ey
 import { CATEGORIES, formatMoney, isValidLocalDateTime, parseAmount } from "../lib/ledger";
 import { readCloudConfig } from "../lib/cloudConfig";
 import type { CloudStore } from "../lib/cloudStore";
-import { SmsSetupError, confirmSms, dismissSms, fetchSmsConfig, fetchSmsInbox, fetchSmsPreferences, revokeSmsToken, rotateSmsToken, setSmsMode, setSmsPreferences, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsPreferences } from "../lib/smsClient";
+import { SmsSetupError, confirmSms, dismissSms, fetchPendingSmsInbox, fetchSmsConfig, fetchSmsInbox, fetchSmsPreferences, revokeSmsToken, rotateSmsToken, setSmsMode, setSmsPreferences, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsPreferences } from "../lib/smsClient";
 import type { MerchantRule } from "../lib/merchantClassification";
 import type { SmsBankCode } from "../lib/smsBanks";
 import { canOfferMerchantMemory } from "./merchantMemory";
@@ -24,8 +24,9 @@ interface SmsAutomationPanelProps {
   onBack: () => void;
   store: CloudStore;
   onRulesChanged?: () => void;
+  pendingOnly?: boolean;
 }
-type Result = { owner: string; key: string; config: SmsConfig; inbox: SmsInbox; preferences: SmsPreferences | null; preferencesError: string | null };
+type Result = { owner: string; key: string; config: SmsConfig | null; inbox: SmsInbox; preferences: SmsPreferences | null; preferencesError: string | null };
 type Failure = { owner: string; key: string; setup: boolean; message: string };
 const PAGE_SIZE = 10;
 const dateTime = new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" });
@@ -134,7 +135,7 @@ function SmsRecordingOptions({ preferences, iphoneAvailable, disabled, onChange 
   </>;
 }
 
-export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store, onRulesChanged }: SmsAutomationPanelProps) {
+export default function SmsAutomationPanel({ client, userId, projectUrl, onBack, store, onRulesChanged, pendingOnly = false }: SmsAutomationPanelProps) {
   const syncState = useSyncExternalStore(store.subscribeState, store.getState);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -146,11 +147,12 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const [notice, setNotice] = useState("");
   const [secret, setSecret] = useState<{ owner: string; value: string } | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const pendingHeading = useRef<HTMLHeadingElement>(null);
   const tokenDialog = useRef<HTMLDialogElement>(null);
   const actionController = useRef<AbortController | null>(null);
   const ownerRef = useRef(userId);
   ownerRef.current = userId;
-  const key = `${page}|${revision}`;
+  const key = `${pendingOnly ? "pending" : "all"}|${page}|${revision}`;
   const current = result?.owner === userId && result.key === key ? result : null;
   const currentFailure = failure?.owner === userId && failure.key === key ? failure : null;
   const config = current?.config;
@@ -177,6 +179,11 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   const endpoint = `${projectUrl.replace(/\/$/, "")}/rest/v1/rpc/moneytrail_receive_sms`;
 
   useEffect(() => {
+    if (!pendingOnly) return;
+    window.scrollTo({ top: 0, behavior: "instant" });
+    pendingHeading.current?.focus({ preventScroll: true });
+  }, [pendingOnly]);
+  useEffect(() => {
     let active = true;
     const controller = new AbortController();
     const timeout = setTimeout(() => {
@@ -184,24 +191,38 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       if (active) setFailure({ owner: userId, key, setup: false, message: "读取超时，请检查网络后重试。" });
     }, 20_000);
     setFailure(null);
-    const preferencesRequest = fetchSmsPreferences(client, userId, controller.signal).then(
-      preferences => ({ preferences, preferencesError: null }),
-      () => ({ preferences: null, preferencesError: "暂时无法读取记录方式。请刷新收件箱后重试。" }),
-    );
-    void Promise.all([
-      fetchSmsConfig(client, userId, controller.signal),
-      fetchSmsInbox(client, userId, { page, pageSize: PAGE_SIZE }, controller.signal),
-      preferencesRequest,
-    ]).then(([nextConfig, nextInbox, preferenceResult]) => {
+    const pagination = { page, pageSize: PAGE_SIZE };
+    async function load() {
+      if (pendingOnly) {
+        const nextInbox = await fetchPendingSmsInbox(client, userId, pagination, controller.signal);
+        if (!active || controller.signal.aborted) return;
+        const lastPage = Math.max(1, Math.ceil(nextInbox.total / nextInbox.page_size));
+        if (page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setResult({ owner: userId, key, config: null, inbox: nextInbox, preferences: null, preferencesError: null });
+        return;
+      }
+      const preferencesRequest = fetchSmsPreferences(client, userId, controller.signal).then(
+        preferences => ({ preferences, preferencesError: null }),
+        () => ({ preferences: null, preferencesError: "暂时无法读取记录方式。请刷新收件箱后重试。" }),
+      );
+      const [nextConfig, nextInbox, preferenceResult] = await Promise.all([
+        fetchSmsConfig(client, userId, controller.signal),
+        fetchSmsInbox(client, userId, pagination, controller.signal),
+        preferencesRequest,
+      ]);
       if (!active || controller.signal.aborted) return;
       setResult({ owner: userId, key, config: nextConfig, inbox: nextInbox, ...preferenceResult });
       setPreferences(preferenceResult.preferences ?? { ...defaultPreferences, mode: nextConfig.mode });
-    }).catch((error: unknown) => {
+    }
+    void load().catch((error: unknown) => {
       if (!active || controller.signal.aborted) return;
-      setFailure({ owner: userId, key, setup: error instanceof SmsSetupError, message: error instanceof Error ? error.message : "暂时无法读取短信接入状态。" });
+      setFailure({ owner: userId, key, setup: error instanceof SmsSetupError, message: error instanceof Error ? error.message : pendingOnly ? "暂时无法读取待确认短信。" : "暂时无法读取短信接入状态。" });
     }).finally(() => clearTimeout(timeout));
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
-  }, [client, userId, key, page]);
+  }, [client, userId, key, page, pendingOnly]);
   useEffect(() => {
     return () => { actionController.current?.abort(); actionController.current = null; setBusy(false); };
   }, [userId]);
@@ -277,15 +298,32 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
   }
   async function dismiss(id: string) { await run(async signal => { await dismissSms(client, userId, id, signal); return "已忽略这条短信，原文已移除。"; }); }
 
+  const inboxSection = inbox && <section className="sms-inbox" aria-labelledby={pendingOnly ? "sms-pending-title" : "sms-inbox-title"}>
+    <div className="sms-section-heading">
+      <div>
+        {!pendingOnly && <><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2></>}
+        <p>{pendingOnly ? `共 ${inbox.total} 条待确认短信` : `${inbox.total} 条接收记录`}</p>
+      </div>
+      <button className="button secondary small" disabled={busy} onClick={pendingOnly ? refresh : () => void refreshInbox()} aria-label={pendingOnly ? "刷新待确认短信" : "刷新收件箱"}><RefreshCw size={15} />刷新</button>
+    </div>
+    {(pendingOnly ? inbox.total > 0 : (config?.pending_count ?? 0) > 0) && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
+    {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty">
+      <MessageSquare size={30} />
+      {pendingOnly ? <h2>没有待确认的短信</h2> : <>
+        <h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>收入与群收款先待确认 · 相同短信 24 小时内去重</span>
+      </>}
+    </div>}
+    {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}
+  </section>;
 
   return <main className="sms-shell">
-    <div className="sms-content">
-      <header className="sms-topbar"><span className="sms-brand"><span className="brand-mark" aria-hidden="true"><MessageSquare size={21} /></span><span><strong>Moneytrail</strong><small>PRIVATE CAPTURE</small></span></span><button className="button ghost" onClick={() => { clearSecret(); onBack(); }}><ArrowLeft size={16} />返回账本</button></header>
-      <section className="sms-intro"><div><p className="sms-eyebrow">MONEYTRAIL / SMS AUTOMATION</p><h1>短信自动记账</h1><p>让银行短信，成为账本的起点。</p></div><span className="sms-privacy-tag"><LockKeyhole size={15} />仅进入当前账户</span></section>
+    <div className={pendingOnly ? "sms-content sms-pending-content" : "sms-content"}>
+      <header className="sms-topbar"><span className="sms-brand"><span className="brand-mark" aria-hidden="true"><MessageSquare size={21} /></span><span><strong>Moneytrail</strong><small>PRIVATE CAPTURE</small></span></span><button className="button ghost" onClick={() => { clearSecret(); onBack(); }}><ArrowLeft size={16} />{pendingOnly ? "返回总览" : "返回账本"}</button></header>
+      {pendingOnly ? <section className="sms-intro"><h1 id="sms-pending-title" ref={pendingHeading} tabIndex={-1}>待确认短信</h1></section> : <section className="sms-intro"><div><p className="sms-eyebrow">MONEYTRAIL / SMS AUTOMATION</p><h1>短信自动记账</h1><p>让银行短信，成为账本的起点。</p></div><span className="sms-privacy-tag"><LockKeyhole size={15} />仅进入当前账户</span></section>}
 
       <div className="sms-notice" role="status" aria-live="polite">{notice}</div>
       {canRefreshLedger && syncState.phase !== "saved" && syncState.phase !== "syncing" && <div className="sms-sync-hint" role="status"><p>首页账目尚未刷新。{syncState.message}</p><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()}><RefreshCw size={15} />重试账本同步</button></div>}
-      {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>正在读取接入状态</h2><p>正在连接当前账户的短信收件箱。</p></section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{currentFailure.setup && <p>请联系应用维护者完成短信接入配置，已有账本仍可使用。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />重新检查</button></section> : config && inbox && <>
+      {loading ? <section className="sms-state" role="status"><RefreshCw className="auth-spinning" size={24} /><h2>{pendingOnly ? "正在读取待确认短信" : "正在读取接入状态"}</h2>{!pendingOnly && <p>正在连接当前账户的短信收件箱。</p>}</section> : currentFailure ? <section className="sms-state"><ShieldCheck size={28} /><h2>{pendingOnly ? "暂时无法读取待确认短信" : currentFailure.setup ? "短信接入尚未开通" : "暂时无法读取短信接入"}</h2><p role="alert">{currentFailure.message}</p>{!pendingOnly && currentFailure.setup && <p>请联系应用维护者完成短信接入配置，已有账本仍可使用。</p>}<button className="button secondary" onClick={refresh}><RefreshCw size={16} />{pendingOnly ? "重试" : "重新检查"}</button></section> : pendingOnly ? inboxSection : config && inbox && <>
         <section className="sms-overview" aria-label="短信接入概览"><article><span>接入状态</span><strong className={config.enabled ? "sms-enabled" : undefined}>{config.enabled ? "已启用" : "未启用"}</strong><small>{config.enabled ? "等待手机自动化发送短信" : "启用后，仍需配置一次 iPhone"}</small></article><article><span>最近接收</span><strong className="sms-receipt-time">{receivedTime(config.last_received_at)}</strong><small>收到新短信后，可在此核对接入是否成功</small></article><article><span>待确认</span><strong>{config.pending_count}<em>笔</em></strong><small>确认前，不计入账本</small></article></section>
         <SmsActivitySummary client={client} userId={userId} refreshKey={revision} />
         <details className="sms-guide"><summary>未收到或未识别时，怎么核对与补录？</summary><div>
@@ -325,17 +363,12 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
             </div></details>}
           </section>
 
-          <section className="sms-inbox" aria-labelledby="sms-inbox-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">YOUR MESSAGE INBOX</p><h2 id="sms-inbox-title">短信收件箱</h2><p>{inbox.total} 条接收记录</p></div><button className="button secondary small" disabled={busy} onClick={() => void refreshInbox()} aria-label="刷新收件箱"><RefreshCw size={15} />刷新</button></div>
-
-            {config.pending_count > 0 && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
-            {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty"><MessageSquare size={30} /><h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>收入与群收款先待确认 · 相同短信 24 小时内去重</span></div>}
-            {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}
-          </section>
+          {inboxSection}
         </div>
       </>}
-      <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。入账后移除原文，脱敏凭据长期保留在账本中；历史记录可能没有凭据。忽略不会新增账目或凭据。</p></footer>
+      {!pendingOnly && <footer className="sms-footer"><ShieldCheck size={14} /><p>账本与收件箱按账户隔离。入账后移除原文，脱敏凭据长期保留在账本中；历史记录可能没有凭据。忽略不会新增账目或凭据。</p></footer>}
     </div>
-    <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title">
+    {!pendingOnly && <dialog className="sms-token-dialog" ref={tokenDialog} onCancel={clearSecret} onClose={clearSecret} aria-labelledby="sms-token-title">
       <div className="sms-token-heading"><KeyRound size={25} /><button className="icon-button" aria-label="关闭令牌窗口" onClick={clearSecret}><X size={18} /></button></div>
       <p className="sms-eyebrow">YOUR PRIVATE INGESTION KEY</p>
       <h2 id="sms-token-title">接入令牌，仅显示这一次</h2>
@@ -351,6 +384,6 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       </>}
       <p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p>
       <button className="button primary sms-token-done" onClick={clearSecret}><Check size={16} />我已保存</button>
-    </dialog>
+    </dialog>}
   </main>;
 }

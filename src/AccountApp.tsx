@@ -9,7 +9,7 @@ import { planLegacyMigration } from "./lib/accountMigration";
 import { clearAccountCache } from "./lib/accountCache";
 import { clearStoredData, exportBackup, loadData, readStoredRaw } from "./lib/storage";
 import { AdminAccessError, AdminSetupError, fetchAdminAccess } from "./lib/adminClient";
-import { fetchSmsCategoryRules } from "./lib/smsClient";
+import { fetchSmsCategoryRules, fetchSmsConfig, type SmsConfig } from "./lib/smsClient";
 import type { MerchantRule } from "./lib/merchantClassification";
 import { clearScreenshotIntake, getScreenshotIntake } from "./lib/screenshotIntake";
 import SmsReviewReminder from "./components/SmsReviewReminder";
@@ -19,12 +19,16 @@ import { clearLocalBackupMetadata } from "./lib/backupMetadata";
 
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const SmsAutomationPanel = lazy(() => import("./components/SmsAutomationPanel"));
-type AccountView = "ledger" | "admin" | "sms";
+type AccountView = "ledger" | "admin" | "sms" | "sms-pending";
 type AdminAccessState = { key: string; status: "loading" | "allowed" | "denied" | "unavailable" | "error"; message?: string };
 
 function readAccountView(): AccountView {
   const view = new URLSearchParams(location.search).get("view");
-  return view === "admin" || view === "sms" ? view : "ledger";
+  return view === "admin" || isSmsView(view) ? view : "ledger";
+}
+
+function isSmsView(view: string | null): view is "sms" | "sms-pending" {
+  return view === "sms" || view === "sms-pending";
 }
 
 function useAdminAccess(client: SupabaseClient, session: Session, view: AccountView) {
@@ -80,7 +84,7 @@ function useMerchantRules(client: SupabaseClient, session: Session, state: Cloud
     else if (wasDirty.current && state.phase === "saved") { wasDirty.current = false; retry(); }
   }, [state.dirty, state.phase, retry]);
   useEffect(() => {
-    if (previousView.current === "sms" && view === "ledger") retry();
+    if (isSmsView(previousView.current) && view === "ledger") retry();
     previousView.current = view;
   }, [view, retry]);
   useEffect(() => {
@@ -88,6 +92,37 @@ function useMerchantRules(client: SupabaseClient, session: Session, state: Cloud
     return () => window.removeEventListener("focus", retry);
   }, [retry]);
   return { rules: result.owner === owner ? result.rules : [], loading: result.owner !== owner, error: result.owner === owner ? result.error : undefined, retry };
+}
+
+function useSmsOverview(client: SupabaseClient, userId: string, active: boolean) {
+  const [overview, setOverview] = useState<Pick<SmsConfig, "enabled" | "pending_count"> | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    let request: AbortController | null = null;
+    function refresh() {
+      if (document.visibilityState === "hidden" || (request && !request.signal.aborted)) return;
+      const controller = new AbortController();
+      request = controller;
+      const timeout = setTimeout(() => controller.abort(), 20_000);
+      void fetchSmsConfig(client, userId, controller.signal).then(({ enabled, pending_count }) => {
+        if (!controller.signal.aborted) setOverview({ enabled, pending_count });
+      }).catch(() => {
+        // Keep the last count when a refresh fails. The inbox shows its own retry controls.
+      }).finally(() => {
+        clearTimeout(timeout);
+        if (request === controller) request = null;
+      });
+    }
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      request?.abort();
+    };
+  }, [active, client, userId]);
+  return overview;
 }
 
 function download(text: string, filename: string) {
@@ -206,6 +241,8 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   const state = useSyncExternalStore(store.subscribeState, store.getState);
   const adminAccess = useAdminAccess(client, session, view);
   const merchantRules = useMerchantRules(client, session, state, view);
+  const smsOverview = useSmsOverview(client, session.user.id, view === "ledger");
+  const hasPendingSmsEntry = smsOverview !== null && (smsOverview.enabled || smsOverview.pending_count > 0);
   const dialog = useRef<HTMLDialogElement>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -303,12 +340,14 @@ function CloudLedger({ client, projectUrl, session, store, view, onView }: { cli
   </>;
   const panel = <section className="setting-card account-panel"><div className="setting-heading"><Cloud size={23} /><h2>账户与云端同步</h2></div><p className="account-email">{accountName}</p><SyncBadge state={state} /><p>{state.message}</p><button className="button secondary" onClick={() => dialog.current?.showModal()}>管理账户与同步</button></section>;
   const ledger = state.ready || state.recoveryError
-    ? <App key={bookEpoch} store={store} cloudMode cloudProjectUrl={projectUrl} syncNotice={syncNotice} merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} />
+    ? <App key={bookEpoch} store={store} cloudMode cloudProjectUrl={projectUrl} syncNotice={syncNotice} merchantRules={merchantRules.rules} merchantRulesLoading={merchantRules.loading} merchantRulesNotice={merchantRules.error && <div className="notice warning" role="status"><span>个人商户规则暂时无法读取，识别结果请重新核对。{merchantRules.error}</span><button className="button secondary small" onClick={merchantRules.retry}>重试个人规则</button></div>} accountControls={controls} accountPanel={panel} onSmsAutomation={() => onView("sms")} pendingSmsCount={smsOverview?.pending_count} onPendingSms={hasPendingSmsEntry ? () => onView("sms-pending") : undefined} />
     : <main className="account-loading"><RefreshCw className={state.phase === "syncing" ? "auth-spinning" : ""} /><h1>正在读取你的账户账本</h1><p>{state.message}</p><p>首次读取需要联网。连接失败时不会创建空账本覆盖已有记录。</p><div className="account-actions"><button className="button secondary" disabled={state.phase === "syncing"} onClick={() => { void store.retry(); }}>重新连接</button><button className="button ghost" onClick={() => location.reload()}>重新打开应用</button>{controls}</div></main>;
   return <>
     {leaving ? <main className="account-empty"><LogOut /><h1>正在退出账户</h1><p role="status">{notice || "正在移除本机账户副本并结束登录。"}</p>{!busy && <button className="button secondary" onClick={() => void signOut()}>重试退出</button>}</main> : <>
       <div hidden={view !== "ledger"}>{ledger}</div>
-      {view === "sms" && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开短信自动记账</h1></main>}><SmsAutomationPanel client={client} userId={session.user.id} projectUrl={projectUrl} store={store} onRulesChanged={merchantRules.retry} onBack={() => onView("ledger")} /></Suspense>}
+      {isSmsView(view) && <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>{view === "sms-pending" ? "正在打开待确认短信" : "正在打开短信自动记账"}</h1></main>}>
+        <SmsAutomationPanel key={view} pendingOnly={view === "sms-pending"} client={client} userId={session.user.id} projectUrl={projectUrl} store={store} onRulesChanged={merchantRules.retry} onBack={() => onView("ledger")} />
+      </Suspense>}
       {view === "admin" && notice && <div className="account-panel" role="alert">{notice}</div>}
       {view === "admin" && (adminAccess.status === "allowed"
         ? <Suspense fallback={<main className="account-loading"><RefreshCw className="auth-spinning" /><h1>正在打开管理后台</h1></main>}><AdminPanel client={client} user={session.user} onBack={() => onView("ledger")} onSignOut={() => void signOut()} /></Suspense>

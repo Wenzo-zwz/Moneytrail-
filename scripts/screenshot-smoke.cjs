@@ -60,6 +60,10 @@ function backend(app) {
     if(url.pathname==='/rest/v1/moneytrail_ledgers')return respond([{user_id:id,data:clone(books.get(id)),revision:revisions.get(id),updated_at:'2026-11-16T01:10:00Z'}]);
     if(url.pathname==='/rest/v1/rpc/moneytrail_is_admin')return respond(false);
     if(url.pathname==='/rest/v1/rpc/moneytrail_sms_category_rules')return respond({rules:[]});
+    if(url.pathname==='/rest/v1/rpc/moneytrail_sms_config'){
+      assert.deepEqual(body,{});
+      return respond({enabled:false,mode:'auto',created_at:null,last_received_at:null,pending_count:0});
+    }
     if(['/rest/v1/rpc/save_moneytrail_ledger','/rest/v1/rpc/save_moneytrail_ledger_with_rules'].includes(url.pathname)){
       assert.equal(body.p_expected_revision,revisions.get(id));
       revisions.set(id,revisions.get(id)+1);books.set(id,clone(body.p_data));accepted.push({id,data:clone(body.p_data)});

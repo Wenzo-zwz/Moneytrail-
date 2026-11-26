@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import ledgerMigration from "../../supabase/migrations/202610220001_ledger_accounts.sql?raw";
 import parserMigration from "../../supabase/migrations/202610220003_sms_parser.sql?raw";
 import smsMigration from "../../supabase/migrations/202610220004_sms_automation.sql?raw";
+import pendingInboxMigration from "../../supabase/migrations/20261126023239_sms_pending_inbox.sql?raw";
 import { emptyData } from "./storage";
 
 const ALICE = "11111111-1111-4111-8111-111111111111";
@@ -60,6 +61,7 @@ beforeAll(async () => {
   await db.exec(ledgerMigration);
   await db.exec(parserMigration);
   await db.exec(smsMigration);
+  await db.exec(pendingInboxMigration);
   const local = (await db.query<{ date: string; month: string }>(`select to_char(now() at time zone 'Asia/Shanghai','FMMM月FMDD日HH24:MI') as date,to_char(now() at time zone 'Asia/Shanghai','YYYY-MM') as month`)).rows[0];
   date = local.date; currentMonth = local.month;
 }, 30_000);
@@ -268,6 +270,44 @@ describe("PostgreSQL scoped SMS automation", () => {
     await expect(inbox(ALICE, 1, 51)).rejects.toMatchObject({ code: "22023" });
   });
 
+  it("paginates only the caller's pending SMS without changing the full inbox", async () => {
+    const pendingInbox = (user: string | null, ...args: (number | null)[]) => asUser(user, () => rpc<Inbox>("moneytrail_sms_pending_inbox", args));
+    const { token } = await rotate();
+    const recorded = await receive(token);
+    const older = await receive(token, message("转账财付通-群收款", "40.00"));
+    const firstNew = await receive(token, message("转账财付通-群收款", "41.00"));
+    const secondNew = await receive(token, message("转账财付通-群收款", "42.00"));
+    const dismissed = await receive(token, message("转账财付通-群收款", "43.00"));
+    await asUser(ALICE, () => rpc("moneytrail_sms_dismiss", [dismissed.id]));
+    const bob = await rotate(BOB, "review");
+    const bobReceipt = await receive(bob.token);
+    await db.query("update moneytrail_private.sms_inbox set received_at=now()-interval '2 minutes' where id=$1::uuid", [older.id]);
+    await db.query("update moneytrail_private.sms_inbox set received_at=now()-interval '1 minute' where id=any($1::uuid[])", [[firstNew.id, secondNew.id]]);
+
+    const full = await inbox();
+    expect(full.total).toBe(5);
+    expect(full.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: recorded.id, status: "recorded" }),
+      expect.objectContaining({ id: dismissed.id, status: "dismissed" }),
+    ]));
+    const pending = full.items.filter(item => item.status === "pending");
+    const newestIds = [firstNew.id, secondNew.id].sort();
+    expect(pending.map(item => item.id)).toEqual([...newestIds, older.id]);
+    expect(await pendingInbox(ALICE)).toEqual({ items: pending, total: 3, page: 1, page_size: 20 });
+    expect(await pendingInbox(ALICE, 1, 2)).toEqual({ items: pending.slice(0, 2), total: 3, page: 1, page_size: 2 });
+    expect(await pendingInbox(ALICE, 2, 2)).toEqual({ items: pending.slice(2), total: 3, page: 2, page_size: 2 });
+    expect(await pendingInbox(ALICE, 3, 2)).toEqual({ items: [], total: 3, page: 3, page_size: 2 });
+    expect(await pendingInbox(BOB)).toMatchObject({ items: [{ id: bobReceipt.id }], total: 1, page: 1, page_size: 20 });
+    await asUser(BOB, () => rpc("moneytrail_sms_dismiss", [bobReceipt.id]));
+    expect(await pendingInbox(BOB)).toEqual({ items: [], total: 0, page: 1, page_size: 20 });
+
+    for (const [page, pageSize] of [[0, 20], [1000001, 20], [1, 0], [1, 51], [null, 20], [1, null]]) {
+      await expect(pendingInbox(ALICE, page, pageSize)).rejects.toMatchObject({ code: "22023" });
+    }
+    await expect(pendingInbox(null)).rejects.toMatchObject({ code: "42501" });
+    await expect(pendingInbox(UNVERIFIED)).rejects.toMatchObject({ code: "42501" });
+  });
+
   it("routes plausible existing manual/CSV matches to review and allows an explicit confirmed repeat", async () => {
     const { token } = await rotate();
     const first = await receive(token);
@@ -328,7 +368,7 @@ describe("PostgreSQL scoped SMS automation", () => {
   });
 
   it("grants anonymous execution only to write-only ingress and revokes all PUBLIC execute defaults", async () => {
-    for (const [name, args] of [["moneytrail_sms_config", []], ["moneytrail_sms_rotate", ["auto"]], ["moneytrail_sms_set_mode", ["auto"]], ["moneytrail_sms_revoke", []], ["moneytrail_sms_inbox", [1, 20]], ["moneytrail_sms_confirm", [ALICE, draft]], ["moneytrail_sms_dismiss", [ALICE]]] as const) {
+    for (const [name, args] of [["moneytrail_sms_config", []], ["moneytrail_sms_rotate", ["auto"]], ["moneytrail_sms_set_mode", ["auto"]], ["moneytrail_sms_revoke", []], ["moneytrail_sms_inbox", [1, 20]], ["moneytrail_sms_pending_inbox", [1, 20]], ["moneytrail_sms_confirm", [ALICE, draft]], ["moneytrail_sms_dismiss", [ALICE]]] as const) {
       await expect(asUser(ALICE, () => rpc(name, [...args]), "anon")).rejects.toMatchObject({ code: "42501" });
     }
     const grants = await db.query<{ count: number }>(`select count(*)::integer as count from pg_proc as procedure, lateral aclexplode(coalesce(procedure.proacl,acldefault('f',procedure.proowner))) as permission

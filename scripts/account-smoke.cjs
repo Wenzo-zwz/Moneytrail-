@@ -76,6 +76,7 @@ function mockBackend() {
       if (!id || !ledgers.has(id)) return respond({ code: "42501", message: "Not authenticated" }, 403);
       if (url.pathname === "/rest/v1/rpc/moneytrail_is_admin") return respond(false);
       if (url.pathname === "/rest/v1/rpc/moneytrail_sms_category_rules") return respond({ rules: merchantRules.get(id) });
+      if (url.pathname === "/rest/v1/rpc/moneytrail_sms_config") return respond({ enabled: false, mode: "auto", created_at: null, last_received_at: null, pending_count: 0 });
       if (url.pathname === "/rest/v1/rpc/moneytrail_admin_overview") return respond({ code: "42501", message: "Administrator access required" }, 403);
       if (url.pathname === "/rest/v1/moneytrail_ledgers") {
         assert.equal(request.method(), "GET");
