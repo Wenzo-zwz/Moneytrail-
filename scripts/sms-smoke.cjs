@@ -177,9 +177,11 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
           if (action === "revoke") {
             configs.set(id, { ...configs.get(id), enabled: false, created_at: null }); return respond(config(id));
           }
-          if (action === "inbox") {
+          if (action === "inbox" || action === "pending_inbox") {
             assert.deepEqual(Object.keys(body).sort(), ["p_page", "p_page_size"]);
-            const page = Number(body.p_page); const pageSize = Number(body.p_page_size); const items = inboxes.get(id);
+            const page = Number(body.p_page);
+            const pageSize = Number(body.p_page_size);
+            const items = action === "pending_inbox" ? inboxes.get(id).filter(item => item.status === "pending") : inboxes.get(id);
             return respond({ items: clone(items.slice((page - 1) * pageSize, page * pageSize)), total: items.length, page, page_size: pageSize });
           }
           if (action === "preview_pending") {
@@ -276,6 +278,75 @@ async function openSms(page) {
   await dialog.getByRole("button", { name: "短信自动记账", exact: true }).click();
 }
 
+async function overviewPendingSmsWorkflow(browser) {
+  const backend = mockBackend();
+  const book = backend.ledgers.get(OWNER);
+  book.data.transactions[0] = { ...manual, category: "待分类", subcategory: "未细分" };
+  const processed = Array.from({ length: 12 }, (_, index) => {
+    const id = `37000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+    const draft = index === 0 ? {
+      kind: "expense", amountCents: 5800, date: "2026-09-30T19:29", merchant: "较新的已入账短信",
+      category: "食品酒水", subcategory: "堂食聚餐", source: "sms", note: "",
+    } : null;
+    const transactionId = draft ? `sms-${id}` : null;
+    if (draft) book.data.transactions.push({ ...draft, id: transactionId, sourceRef: transactionId });
+    return {
+      id, received_at: `2026-10-22T11:29:${59 - index}Z`, status: draft ? "recorded" : "dismissed", raw_text: null,
+      draft, warnings: [], reason: null, transaction_id: transactionId,
+    };
+  });
+  backend.inboxes.set(OWNER, [...processed, ...backend.inboxes.get(OWNER)]);
+  const { page, context, errors } = await fixture(browser, backend, { width: 393, sms: false });
+  try {
+    await login(page);
+    const goConfirm = page.getByRole("button", { name: "去确认", exact: true });
+    const fullInboxReads = () => backend.requests.filter(request => request.path.endsWith("/moneytrail_sms_inbox"));
+    const pendingInboxReads = () => backend.requests.filter(request => request.path.endsWith("/moneytrail_sms_pending_inbox"));
+    await page.getByText(/2\s*条短信待确认/).waitFor();
+    assert(await page.getByText("1 笔待分类", { exact: true }).isVisible());
+    assert(await page.getByRole("button", { name: "去整理", exact: true }).isVisible());
+    assert.equal(await page.locator(".hero-amount").innerText(), "¥58.00");
+    assert.equal(fullInboxReads().length + pendingInboxReads().length, 0, "the overview count must not fetch SMS contents");
+    await noOverflow(page, "393px overview with SMS pending and transaction classification cards");
+
+    await goConfirm.click();
+    await page.getByRole("heading", { name: "待确认短信", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("view"), "sms-pending");
+    const group = page.locator(".sms-message").filter({ has: page.getByRole("heading", { name: "财付通-群收款", exact: true }) });
+    await group.waitFor();
+    assert.equal(await page.locator(".sms-message.pending").count(), 2);
+    assert.equal(await page.locator(".sms-message.recorded, .sms-message.dismissed").count(), 0);
+    assert.equal(fullInboxReads().length, 0, "pending selection must not filter just the first page of full history");
+    assert.equal(pendingInboxReads()[0]?.id, OWNER);
+    assert.equal(await page.getByRole("heading", { name: "接收与记录", exact: true }).count(), 0);
+    await noOverflow(page, "393px focused SMS review");
+
+    await group.getByRole("button", { name: "核对并记录", exact: true }).click();
+    await group.getByRole("combobox", { name: /^分类/ }).selectOption("食品酒水");
+    await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    await until(() => backend.inboxes.get(OWNER).find(item => item.id === GROUP).status === "recorded", "pending SMS confirmation");
+    await page.getByText(/共\s*1\s*条待确认短信/).waitFor();
+    assert.equal(await group.count(), 0);
+    const recorded = backend.ledgers.get(OWNER).data.transactions.filter(transaction => transaction.sourceRef === `sms-${GROUP}`);
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].amountCents, 3090);
+    assert.equal(recorded[0].category, "食品酒水");
+
+    await page.getByRole("button", { name: "返回总览", exact: true }).click();
+    await page.getByText(/1\s*条短信待确认/).waitFor();
+    assert.equal(await page.locator(".hero-amount").innerText(), "¥88.90");
+    await openSms(page);
+    await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "较新的已入账短信", exact: true }).waitFor();
+    assert(fullInboxReads().length > 0);
+    assert.equal(await page.locator(".sms-message.dismissed").count(), 9);
+    assert.equal(await page.locator(".sms-message.pending").count(), 0);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(backend.routeErrors, []);
+    passed("overview pending count opens only pending SMS beyond newer history, confirmation updates the ledger and count, and full history remains accessible");
+  } finally { await context.close(); }
+}
+
 async function receiptReviewWorkflow(browser) {
   const backend = mockBackend({ missingSummary: true });
   const { page, context, errors } = await fixture(browser, backend, { width: 320, sms: false });
@@ -285,7 +356,7 @@ async function receiptReviewWorkflow(browser) {
     await login(page); await page.locator(".hero-amount").waitFor();
     const reminder = page.getByRole("status", { name: "每周短信核对提醒", exact: true });
     await reminder.waitFor();
-    assert.equal(backend.requests.filter(request => request.path.includes("moneytrail_sms_") && !request.path.endsWith("category_rules")).length, 0, "the reminder must not read an unopened inbox");
+    assert.equal(backend.requests.filter(request => request.path.includes("moneytrail_sms_") && !/\/(?:moneytrail_sms_config|moneytrail_sms_category_rules)$/.test(request.path)).length, 0, "the reminder must not read an unopened inbox");
     await noOverflow(page, "weekly SMS reminder at 320px");
     await reminder.getByRole("button", { name: "查看接收核对", exact: true }).click();
     const summary = page.getByRole("region", { name: "近7天已接收短信", exact: true });
@@ -315,7 +386,7 @@ async function ownerWorkflow(browser) {
   const backend = mockBackend(); const { page, context, errors } = await fixture(browser, backend, { sms: false });
   try {
     await login(page); await page.locator(".hero-amount").waitFor();
-    assert.equal(backend.requests.filter((request) => request.path.includes("moneytrail_sms_") && !request.path.endsWith("moneytrail_sms_category_rules")).length, 0, "personal ledger must not fetch sensitive SMS inbox before it is opened");
+    assert.equal(backend.requests.filter(request => request.path.includes("moneytrail_sms_") && !/\/(?:moneytrail_sms_config|moneytrail_sms_category_rules)$/.test(request.path)).length, 0, "personal ledger must not fetch sensitive SMS inbox before it is opened");
     await page.locator(".page-header").getByRole("button", { name: "短信自动记账", exact: true }).click();
     await page.getByRole("heading", { name: "短信自动记账", exact: true }).waitFor();
     await page.getByText("财付通-群收款", { exact: true }).first().waitFor();
@@ -808,6 +879,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
     for (const width of [320, 393, 1440]) await incomeWorkflow(browser, width);
     if (process.env.MONEYTRAIL_SMS_SMOKE_SUITE !== "income") {
+      await overviewPendingSmsWorkflow(browser);
       await receiptReviewWorkflow(browser);
       await iphonePreferencesWorkflow(browser);
       await automaticLedgerRefreshWorkflow(browser); await monthRolloverWorkflow(browser); await ledgerRefreshFailureWorkflow(browser); await ledgerRefreshFailureWorkflow(browser, true); await entryWorkflow(browser); await ownerWorkflow(browser); await missingMigrationWorkflow(browser); await accountSwitchWorkflow(browser); await mobileWorkflow(browser); await reprocessWorkflow(browser); await groupedBalanceReprocessWorkflow(browser); await missingReprocessWorkflow(browser); await reprocessLayoutWorkflow(browser);

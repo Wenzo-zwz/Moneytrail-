@@ -271,11 +271,22 @@ export async function revokeSmsToken(client: SupabaseClient, userId: string, sig
   return config;
 }
 
-export async function fetchSmsInbox(client: SupabaseClient, userId: string, options: SmsInboxOptions, signal?: AbortSignal): Promise<SmsInbox> {
+async function fetchInbox(client: SupabaseClient, userId: string, options: SmsInboxOptions, pendingOnly: boolean, signal?: AbortSignal): Promise<SmsInbox> {
   if (!options || !Number.isSafeInteger(options.page) || options.page < 1 || options.page > 1_000_000
     || !Number.isSafeInteger(options.pageSize) || options.pageSize < 1 || options.pageSize > 50) throw new Error("短信列表页码无效，请重新选择。");
   const safe = { page: options.page, pageSize: options.pageSize };
-  return readInbox(await rpc(client, userId, "moneytrail_sms_inbox", { p_page: safe.page, p_page_size: safe.pageSize }, signal), safe);
+  const endpoint = pendingOnly ? "moneytrail_sms_pending_inbox" : "moneytrail_sms_inbox";
+  const inbox = readInbox(await rpc(client, userId, endpoint, { p_page: safe.page, p_page_size: safe.pageSize }, signal), safe);
+  if (pendingOnly && inbox.items.some(item => item.status !== "pending")) return failFormat();
+  return inbox;
+}
+
+export function fetchSmsInbox(client: SupabaseClient, userId: string, options: SmsInboxOptions, signal?: AbortSignal): Promise<SmsInbox> {
+  return fetchInbox(client, userId, options, false, signal);
+}
+
+export function fetchPendingSmsInbox(client: SupabaseClient, userId: string, options: SmsInboxOptions, signal?: AbortSignal): Promise<SmsInbox> {
+  return fetchInbox(client, userId, options, true, signal);
 }
 
 export async function confirmSms(client: SupabaseClient, userId: string, id: string, draft: SmsDraft, signal?: AbortSignal, remember = false): Promise<{ status: "recorded"; transaction_id: string }> {

@@ -559,6 +559,8 @@ export default function App({
   accountControls,
   accountPanel,
   onSmsAutomation,
+  onPendingSms,
+  pendingSmsCount = 0,
   merchantRules = [],
   merchantRulesNotice,
   syncNotice,
@@ -570,6 +572,8 @@ export default function App({
   accountControls?: ReactNode;
   accountPanel?: ReactNode;
   onSmsAutomation?: () => void;
+  onPendingSms?: () => void;
+  pendingSmsCount?: number;
   merchantRules?: MerchantRule[];
   merchantRulesNotice?: ReactNode;
   syncNotice?: ReactNode;
@@ -1386,6 +1390,17 @@ export default function App({
                       </div>
                       <BarChart3 size={20} className="text-muted" />
                     </div>
+                    {onPendingSms && (
+                      <div className="category-pending">
+                        <div>
+                          <strong>{pendingSmsCount ? `${pendingSmsCount} 条短信待确认` : "暂无待确认短信"}</strong>
+                          <span>核对后计入账本</span>
+                        </div>
+                        <button className="button secondary small" type="button" onClick={onPendingSms}>
+                          去确认 <ArrowRight size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
                     {stats.uncategorizedCount > 0 && (
                       <div className="category-pending">
                         <div>
