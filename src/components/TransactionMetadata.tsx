@@ -9,6 +9,17 @@ export function categoryText(transaction: Pick<DraftTransaction, "category" | "s
   return `${transaction.category} · ${transaction.subcategory || "未细分"}${transaction.platform ? ` · ${transaction.platform}` : ""}`;
 }
 
+export function TransactionDateInput({ id, value, onChange, disabled }: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return <span className="transaction-date-control">
+    <input id={id} type="datetime-local" required value={value} onChange={event => onChange(event.target.value)} disabled={disabled} />
+  </span>;
+}
+
 type DetailFieldProps = {
   category: string;
   value?: string;

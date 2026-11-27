@@ -63,7 +63,7 @@ import {
 } from "./lib/storage";
 import type { LedgerSaveOptions, LedgerStore } from "./lib/cloudStore";
 import { localLedgerStore } from "./lib/ledgerStore";
-import { categoryText, DetailField, SmsEvidenceDisclosure } from "./components/TransactionMetadata";
+import { categoryText, DetailField, SmsEvidenceDisclosure, TransactionDateInput } from "./components/TransactionMetadata";
 import { canOfferMerchantMemory } from "./components/merchantMemory";
 import AppUpdateSettings from "./components/AppUpdateSettings";
 import QuickStartSettings from "./components/QuickStartSettings";
@@ -366,15 +366,7 @@ function TransactionEditor({
             </div>
             <div className="form-field full">
               <label htmlFor="tx-date">发生时间</label>
-              <div className="transaction-date-control">
-                <input
-                  id="tx-date"
-                  type="datetime-local"
-                  required
-                  value={draft.date}
-                  onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-                />
-              </div>
+              <TransactionDateInput id="tx-date" value={draft.date} onChange={date => setDraft({ ...draft, date })} />
             </div>
             <div className="form-field full transaction-editor-categories">
               <div className="form-field">
