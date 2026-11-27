@@ -29,9 +29,9 @@ export default function QuickStartSettings({ projectUrl, onSmsAutomation, onScre
       <article className="quick-start-method" aria-labelledby="quick-start-sms-title">
         <div className="quick-start-method-heading"><MessageSquare size={20} aria-hidden="true" /><h3 id="quick-start-sms-title">短信自动记账</h3></div>
         {onSmsAutomation ? <>
-          <p>连接 iPhone 短信自动化，接收新收到的银行收入与支出短信。工资等收入先待确认，核对后再入账。</p>
+          <p>连接 iPhone 短信自动化，接收新收到的银行收入与支出短信。</p>
           <div className="quick-start-support" aria-label="当前银行接入范围">
-            <p><strong>工商银行</strong><span>开启自动记录后，明确消费可自动入账；收入、群收款和不明确的记录仍需确认。</span></p>
+            <p><strong>工商银行</strong><span>明确消费和工资可按记录方式入账。转账到账、退款和用途不明的记录可在总览核对。</span></p>
             <p><strong>农行 · 中行 · 建行 · 招商银行</strong><span>新收入与支出收到后先待确认，核对后再入账；未知格式或遮罩金额需补填。</span></p>
             <p><strong>手机设置</strong><span>{bankSms ? "添加一条记账快捷指令，再设置一次收到银行短信时运行。" : BANK_ACTIVITY_TEMPLATE.url ? "安装收支新版，并设置短信自动化触发条件。" : "收支新版共享安装链接待发布。旧工行、农中建安装模板仅筛选支出。"}</span></p>
           </div>

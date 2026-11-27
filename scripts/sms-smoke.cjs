@@ -209,10 +209,23 @@ function mockBackend({ missingSms = false, ordinaryPending = false, missingRepro
             if (!item) return respond({ code: "42501", message: "Message unavailable" }, 403);
             if (action === "confirm") {
               assert.equal(item.status, "pending");
-              const transaction = { ...clone(body.p_draft), id: `sms-${item.id}`, source: "sms", sourceRef: `sms-${item.id}` };
-              const current = ledgers.get(id); const month = transaction.date.slice(0, 7);
+              const current = ledgers.get(id);
+              const draft = clone(body.p_draft);
+              if (draft.linkedTransactionId) {
+                const original = current.data.transactions.find(tx => tx.id === draft.linkedTransactionId);
+                assert.equal(draft.kind, "refund");
+                assert.equal(original?.kind, "expense");
+                draft.category = original.category;
+                for (const key of ["subcategory", "platform"]) {
+                  if (original[key] === undefined) delete draft[key];
+                  else draft[key] = original[key];
+                }
+              }
+              const transaction = { ...draft, id: `sms-${item.id}`, source: "sms", sourceRef: `sms-${item.id}` };
+              const month = transaction.date.slice(0, 7);
               ledgers.set(id, { data: { ...current.data, transactions: [...current.data.transactions, transaction], billCheckedMonths: current.data.billCheckedMonths.filter((checked) => checked !== month) }, revision: current.revision + 1, updated_at: "2026-10-22T11:35:00Z" });
-              item.status = "recorded"; item.raw_text = null; item.transaction_id = transaction.id; item.draft = clone(body.p_draft); item.reason = null;
+              delete draft.linkedTransactionId;
+              item.status = "recorded"; item.raw_text = null; item.transaction_id = transaction.id; item.draft = draft; item.reason = null;
               return respond({ status: "recorded", transaction_id: transaction.id });
             }
             item.status = "dismissed"; item.raw_text = null;
@@ -758,6 +771,10 @@ async function incomeWorkflow(browser, width) {
     await page.getByText("尚未识别交易时间", { exact: true }).waitFor();
     await salary.getByRole("button", { name: "核对并记录", exact: true }).click();
     assert.equal(await salary.getByRole("combobox", { name: /^交易类型/ }).inputValue(), "income");
+    const salaryCategory = salary.getByRole("combobox", { name: /^收入类别/ });
+    assert.deepEqual(await salaryCategory.locator("option").allTextContents(), ["工资", "亲友赠与", "交易收入", "其他收入"]);
+    assert.equal(await salaryCategory.inputValue(), "工资");
+    assert.equal(await salary.getByRole("combobox", { name: /^(分类|一级分类|二级分类)/ }).count(), 0, "income uses only the income category selector");
     assert.equal(await salary.locator(".sms-remember").count(), 0, "income must not teach an expense merchant rule");
     await noOverflow(page, `${width}px income candidate and confirmation form`);
     if (width === 320) await salary.screenshot({ path: path.join(ARTIFACTS, "income-candidate-320.png"), animations: "disabled" });
@@ -770,15 +787,20 @@ async function incomeWorkflow(browser, width) {
     await unknown.getByLabel("金额（元）", { exact: true }).fill("1000.00");
     await unknown.getByLabel("交易时间", { exact: true }).fill("2026-10-22T15:20");
     await unknown.getByLabel("商户或用途", { exact: true }).fill("人工核对的收入");
-    await unknown.getByRole("combobox", { name: /^分类/ }).selectOption("其他");
     await unknown.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     assert.equal(await unknownType.evaluate(element => element.validity.valueMissing), true);
     assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 0, "the type must be selected before confirmation can send a request");
     assert.equal(backend.ledgers.get(OWNER).data.transactions.length, original.transactions.length);
     await unknownType.selectOption("income");
+    const unknownIncomeCategory = unknown.getByRole("combobox", { name: /^收入类别/ });
+    assert.equal(await unknownIncomeCategory.inputValue(), "其他收入");
+    await unknownIncomeCategory.selectOption("交易收入");
     await unknown.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     await until(() => backend.ledgers.get(OWNER).data.transactions.length === original.transactions.length + 1, "explicitly typed manual income confirmation");
-    assert.equal(backend.ledgers.get(OWNER).data.transactions.at(-1).kind, "income");
+    const manualIncome = backend.ledgers.get(OWNER).data.transactions.at(-1);
+    assert.equal(manualIncome.kind, "income");
+    assert.equal(manualIncome.category, "其他");
+    assert.equal(manualIncome.subcategory, "交易收入");
     await page.locator(".sms-message.recorded").getByRole("heading", { name: "人工核对的收入", exact: true }).waitFor();
     await salary.getByRole("button", { name: "核对并记录", exact: true }).click();
     await salary.getByRole("button", { name: "确认并记入账本", exact: true }).click();
@@ -788,6 +810,8 @@ async function incomeWorkflow(browser, width) {
     assert.equal(book.budgetCents, original.budgetCents);
     assert.equal(book.transactions.at(-1).kind, "income");
     assert.equal(book.transactions.at(-1).amountCents, 1800000);
+    assert.equal(book.transactions.at(-1).category, "其他");
+    assert.equal(book.transactions.at(-1).subcategory, "工资");
     assert.equal(backend.requests.filter(request => request.path.endsWith("moneytrail_sms_confirm")).length, 2);
     assert.equal(backend.requests.filter(request => request.path.endsWith("save_moneytrail_ledger")).length, 0);
     await page.getByRole("button", { name: "返回账本", exact: true }).click();
@@ -804,6 +828,58 @@ async function incomeWorkflow(browser, width) {
     assert.equal(await page.locator(".hero-amount").innerText(), "¥0.00");
     assert.deepEqual(errors, []); assert.deepEqual(backend.routeErrors, []);
     passed(`${width}px income confirmation updates income only; unverified SMS requires an explicit type and transaction time`);
+  } finally { await context.close(); }
+}
+
+async function refundLinkWorkflow(browser) {
+  const backend = mockBackend({ incomePending: true });
+  const book = backend.ledgers.get(OWNER);
+  const original = {
+    ...manual, id: "refund-original", amountCents: 1800, date: "2026-10-20T09:00", merchant: "样例咖啡店",
+    category: "食品酒水", subcategory: "咖啡奶茶", platform: "美团",
+  };
+  const unrelated = {
+    ...original, id: "refund-unrelated", date: "2026-10-22T11:20", merchant: "等金额的其他店铺",
+    category: "居住与家用", subcategory: "日用品",
+  };
+  book.data.transactions.push(original, unrelated);
+  const refundItem = backend.inboxes.get(OWNER).find(item => item.draft?.kind === "refund");
+  Object.assign(refundItem.draft, { merchant: original.merchant, category: "其他" });
+  const { page, context, errors } = await fixture(browser, backend, { width: 393, sms: false });
+  try {
+    await login(page);
+    await page.getByRole("button", { name: "去确认", exact: true }).click();
+    const refund = page.locator(".sms-message").filter({ has: page.getByRole("heading", { name: original.merchant, exact: true }) });
+    await refund.getByRole("button", { name: "核对并记录", exact: true }).click();
+    assert.equal(await refund.getByRole("combobox", { name: /^交易类型/ }).inputValue(), "refund");
+    const originalExpense = refund.getByRole("combobox", { name: /^关联原消费/ });
+    assert.equal(await originalExpense.inputValue(), "", "a suggestion must not link a refund without user selection");
+    const suggestions = originalExpense.locator('optgroup[label="建议关联"] option');
+    await suggestions.first().waitFor({ state: "attached" });
+    assert.deepEqual(await suggestions.evaluateAll(options => options.map(option => option.value)), [original.id], "an unrelated purchase of exactly the same amount must not be recommended");
+    assert.equal(await originalExpense.locator('optgroup[label="其他支出"] option').filter({ hasText: unrelated.merchant }).count(), 1);
+    await noOverflow(page, "393px pending refund review");
+
+    await originalExpense.selectOption(original.id);
+    assert.equal(backend.ledgers.get(OWNER).data.transactions.some(tx => tx.sourceRef === `sms-${refundItem.id}`), false);
+    await refund.getByRole("button", { name: "确认并记入账本", exact: true }).click();
+    await page.getByText("已确认并记入云端账本。", { exact: true }).waitFor();
+    await refund.waitFor({ state: "hidden" });
+    const confirmations = backend.requests.filter(request => request.path.endsWith("/moneytrail_sms_confirm") && request.body?.p_id === refundItem.id);
+    assert.equal(confirmations.length, 1);
+    assert.equal(confirmations[0].body.p_draft.linkedTransactionId, original.id);
+    const saved = backend.ledgers.get(OWNER).data.transactions.filter(tx => tx.sourceRef === `sms-${refundItem.id}`);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].kind, "refund");
+    assert.equal(saved[0].amountCents, original.amountCents);
+    assert.equal(saved[0].linkedTransactionId, original.id);
+    assert.equal(saved[0].category, original.category);
+    assert.equal(saved[0].subcategory, original.subcategory);
+    assert.equal(saved[0].platform, original.platform);
+    assert.deepEqual(backend.ledgers.get(OWNER).data.transactions.find(tx => tx.id === original.id), original);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(backend.routeErrors, []);
+    passed("pending refunds suggest only matching merchants and link the selected expense once while inheriting its classification");
   } finally { await context.close(); }
 }
 
@@ -913,6 +989,7 @@ async function ledgerRefreshFailureWorkflow(browser, batch = false) {
     await ready(server, () => output);
     browser = await chromium.launch({ headless: true, ...(process.env.MONEYTRAIL_CHROMIUM_PATH ? { executablePath: process.env.MONEYTRAIL_CHROMIUM_PATH } : {}), args: ["--no-sandbox"] });
     for (const width of [320, 393, 1440]) await incomeWorkflow(browser, width);
+    await refundLinkWorkflow(browser);
     if (process.env.MONEYTRAIL_SMS_SMOKE_SUITE !== "income") {
       await overviewPendingSmsWorkflow(browser);
       await receiptReviewWorkflow(browser);

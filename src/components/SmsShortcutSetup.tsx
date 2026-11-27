@@ -31,9 +31,9 @@ export default function SmsShortcutSetup({ projectUrl, config, busy, onRefresh, 
 
   return <section className="sms-shortcut-setup" aria-label="iPhone 快捷指令安装">
     <h3 id="sms-shortcut-setup-title">在 iPhone 上接入</h3>
-    <p className="sms-shortcut-intro">{sms ? "添加记账指令后，设置一次短信触发。" : "选择银行，配置收入与支出短信转发。新收入全部先待确认，未知格式或遮罩金额需要补填；已发布的旧模板只筛选支出。"}</p>
+    <p className="sms-shortcut-intro">{sms ? "添加记账指令后，设置一次短信触发。" : "选择银行，配置收入与支出短信转发。待确认里可核对收入用途，未知格式或遮罩金额需要补填。"}</p>
     <label className="sms-shortcut-bank-picker"><span>要接入的银行</span><select aria-label="银行" value={bankCode} onChange={event => { const nextBank = event.target.value as SmsBankCode; setLocalBankCode(nextBank); onBankChange?.(nextBank); }}>{SMS_BANKS.map(item => <option key={item.code} value={item.code}>{item.name}{item.reviewOnly ? " · 接收后待确认" : sms ? " · 收支接入" : " · 工行版模板"}</option>)}</select></label>
-    <p className="sms-shortcut-bank-status" role="status">{bank.reviewOnly ? `${bank.name}：已登记接收，收到后先待确认；当前真实短信格式与手机转发仍需验证。` : sms ? "工商银行：明确消费按账户模式处理，收入先待确认。" : "工商银行：在自动记录模式下，明确消费可自动入账；共享安装链接为工行版模板。"}</p>
+    <p className="sms-shortcut-bank-status" role="status">{bank.reviewOnly ? `${bank.name}：已登记接收，收到后先待确认；当前真实短信格式与手机转发仍需验证。` : sms ? "工商银行：明确消费和工资按账户记录方式处理。" : "工商银行：在自动记录模式下，明确消费可自动入账；共享安装链接为工行版模板。"}</p>
     <p className="sms-shortcut-note">银行选择仅用于查看配置步骤，不会更换令牌或修改手机自动化。</p>
     <ol className="sms-shortcut-steps">
       <li>

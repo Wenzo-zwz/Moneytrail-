@@ -12,7 +12,7 @@ export default function BankActivityShortcutGuide({ projectUrl, bankCode, enable
   }
   return <section className="three-bank-guide" aria-label="收入与支出快捷指令">
     <h5>收入与支出快捷指令</h5>
-    <p>「{BANK_ACTIVITY_TEMPLATE.name}」用于工行、农行、中行、建行、招商银行的新收入与支出短信。收入全部先待确认，核对交易类型、金额与时间后才入账；遮罩金额需要补填，不会猜测。</p>
+    <p>「{BANK_ACTIVITY_TEMPLATE.name}」用于工行、农行、中行、建行、招商银行的新收入与支出短信。工行明确工资可按账户模式入账。待确认短信需核对交易类型、金额与时间，遮罩金额需要补填。</p>
     {enabled && installer ? <a className="button primary sms-shortcut-install" href={installer.url} target="_blank" rel="noopener noreferrer">安装收支快捷指令</a> : <button className="button secondary sms-shortcut-install" type="button" disabled>安装收支快捷指令</button>}
     {!compatible ? <p className="sms-shortcut-caution">收支模板固定连接生产服务，与当前部署不匹配。请使用当前项目的接收地址与公开密钥制作配套指令，勿把当前账户令牌填入生产模板。</p> : <>
       {!enabled && <p className="sms-shortcut-caution">请先启用个人接入并保存自己的令牌。</p>}

@@ -19,7 +19,7 @@ describe("quick start bank income guidance", () => {
   it("explains the new income route and the limits of old shared installers", () => {
     const markup = renderToStaticMarkup(createElement(QuickStartSettings, { ...handlers, onSmsAutomation: vi.fn() }));
     expect(markup).toContain("银行收入与支出短信");
-    expect(markup).toContain("工资等收入先待确认");
+    expect(markup).toContain("明确消费和工资可按记录方式入账");
     expect(markup).toContain("农行 · 中行 · 建行 · 招商银行");
     expect(markup).toContain("收支新版共享安装链接待发布");
     expect(markup).toContain("旧工行、农中建安装模板仅筛选支出");

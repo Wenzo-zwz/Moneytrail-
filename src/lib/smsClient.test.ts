@@ -28,6 +28,17 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
+it("keeps a refund's explicit link in the existing SMS RPC and rejects a link on income", async () => {
+  const linked = { ...draft(), kind: "refund", linkedTransactionId: "original-expense" } as const;
+  fetchMock.mockResolvedValueOnce(response({ status: "recorded", transaction_id: `sms-${inboxId}` }));
+  await confirmSms(client, alice, inboxId, linked);
+  expect(new URL(String(fetchMock.mock.calls[0][0])).pathname).toBe("/rest/v1/rpc/moneytrail_sms_confirm");
+  expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).p_draft.linkedTransactionId).toBe("original-expense");
+
+  await expect(confirmSms(client, alice, inboxId, { ...linked, kind: "income" })).rejects.toThrow("有效的短信金额");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 describe("iPhone SMS recording preferences", () => {
   const preferences = { mode: "iphone", category_depth: "secondary" } as const;
 
