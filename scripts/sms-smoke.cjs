@@ -322,6 +322,39 @@ async function overviewPendingSmsWorkflow(browser) {
     await noOverflow(page, "393px focused SMS review");
 
     await group.getByRole("button", { name: "核对并记录", exact: true }).click();
+    const dateField = group.getByLabel("交易时间", { exact: true });
+    const dateFrame = group.locator(".transaction-date-control");
+    const merchantField = group.getByLabel("商户或用途", { exact: true });
+    const reviewViewport = page.viewportSize();
+    assert(reviewViewport);
+    for (const width of [320, 390, 430]) {
+      await page.setViewportSize({ ...reviewViewport, width });
+      const [frame, nativeDate, merchant] = await Promise.all([
+        dateFrame.boundingBox(),
+        dateField.boundingBox(),
+        merchantField.boundingBox(),
+      ]);
+      assert(frame && nativeDate && merchant, `${width}px SMS date and merchant controls are visible`);
+      assert(
+        Math.abs(frame.x - merchant.x) <= 1 && Math.abs(frame.x + frame.width - merchant.x - merchant.width) <= 1,
+        `${width}px SMS date frame aligns with both merchant field edges`,
+      );
+      assert(
+        nativeDate.x >= frame.x - 1 && nativeDate.y >= frame.y - 1
+          && nativeDate.x + nativeDate.width <= frame.x + frame.width + 1
+          && nativeDate.y + nativeDate.height <= frame.y + frame.height + 1,
+        `${width}px native date input stays inside its frame`,
+      );
+      const innerBox = await dateField.evaluate(input => {
+        const style = getComputedStyle(input);
+        return [style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth];
+      });
+      assert.deepEqual(innerBox, ["0px", "0px", "0px", "0px"], `${width}px native date input has no horizontal padding or border`);
+      await noOverflow(page, `${width}px expanded SMS review form`);
+    }
+    await page.setViewportSize(reviewViewport);
+    const editedDate = "2026-10-22T19:26";
+    await dateField.fill(editedDate);
     await group.getByRole("combobox", { name: /^分类/ }).selectOption("食品酒水");
     await group.getByRole("button", { name: "确认并记入账本", exact: true }).click();
     await until(() => backend.inboxes.get(OWNER).find(item => item.id === GROUP).status === "recorded", "pending SMS confirmation");
@@ -331,6 +364,8 @@ async function overviewPendingSmsWorkflow(browser) {
     assert.equal(recorded.length, 1);
     assert.equal(recorded[0].amountCents, 3090);
     assert.equal(recorded[0].category, "食品酒水");
+    assert.equal(recorded[0].date, editedDate);
+    passed("SMS review date control aligns at 320px, 390px and 430px and saves the edited date");
 
     await page.getByRole("button", { name: "返回总览", exact: true }).click();
     await page.getByText(/1\s*条短信待确认/).waitFor();

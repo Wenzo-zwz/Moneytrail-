@@ -3,7 +3,7 @@ import SmsShortcutSetup from "./SmsShortcutSetup";
 import SmsActivitySummary from "./SmsActivitySummary";
 import { getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
 import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
-import { categoryText, DetailField } from "./TransactionMetadata";
+import { categoryText, DetailField, TransactionDateInput } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, LockKeyhole, MessageSquare, RefreshCw, ShieldCheck, Smartphone, X } from "lucide-react";
@@ -81,7 +81,7 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
       {editing && <form className="sms-review-form" id={`sms-form-${item.id}`} onSubmit={submit}>
         <label>交易类型<select required value={kind} onChange={event => setKind(event.target.value as SmsDraft["kind"] | "")} disabled={busy}>{!item.draft && <option value="" disabled>请选择交易类型</option>}{kinds.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>金额（元）<input type="text" inputMode="decimal" required autoComplete="off" maxLength={20} value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label>
-        <label>交易时间<input type="datetime-local" required value={date} onChange={event => setDate(event.target.value)} disabled={busy} /></label>
+        <label>交易时间<TransactionDateInput value={date} onChange={setDate} disabled={busy} /></label>
         <label>商户或用途<input type="text" required autoComplete="off" maxLength={200} value={merchant} onChange={event => setMerchant(event.target.value)} disabled={busy} /></label>
         <label>分类<select value={category} onChange={event => { setExplicitChoice(true); setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
         <DetailField category={category} value={subcategory} onChange={value => { setExplicitChoice(true); setSubcategory(value); }} disabled={busy} />

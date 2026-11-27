@@ -348,7 +348,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: .65; 
 .form-field input[type=checkbox] { width: 19px; height: 19px; min-height: 19px; padding: 0; margin: 0 7px 0 0; vertical-align: middle; }
 /* iOS can add date input padding outside its declared width (WebKit 301648). */
 .transaction-date-control { display: flex; align-items: center; padding-block: 0; }
-.transaction-editor .transaction-date-control > input {
+.transaction-date-control > input[type="datetime-local"] {
   display: block;
   min-height: 44px;
   max-width: 100%;
