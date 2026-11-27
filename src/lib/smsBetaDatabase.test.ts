@@ -280,6 +280,8 @@ it("hides serialized receipt hashes and shared helper from API roles", async () 
   const privileges = (await db.query<{ allowed: boolean }>(`
     select has_table_privilege(role, 'moneytrail_private.sms_beta_reviews', 'SELECT')
       or has_function_privilege(role, 'moneytrail_private.sms_receive(text,text,boolean)', 'EXECUTE')
+      or has_function_privilege(role, 'moneytrail_private.sms_beta_builtin_detail(text,text)', 'EXECUTE')
+      or has_function_privilege(role, 'moneytrail_private.sms_normalize_transaction(jsonb)', 'EXECUTE')
       as allowed from (values ('anon'), ('authenticated')) as roles(role)
   `)).rows;
   expect(privileges).toEqual([{ allowed: false }, { allowed: false }]);
@@ -315,6 +317,25 @@ it("recommends an existing merchant rule and records only a valid explicit secon
   expect(await confirmV2(result.review_token, "食品酒水", "堂食聚餐")).toMatchObject({ status: "recorded", id: result.id });
   expect(await prepareV2(token, raw)).toMatchObject({ status: "duplicate", id: result.id });
   expect((await ledger()).data.transactions).toMatchObject([{ category: "食品酒水", subcategory: "堂食聚餐" }]);
+});
+
+it("records 食品采购 as a built-in 食品酒水 detail without a merchant rule", async () => {
+  const token = await rotate();
+  await setPreferences("iphone", "secondary");
+  const result = await prepareV2(token, await sms());
+  expect(result).toMatchObject({ status: "pending", suggested_subcategory: "" });
+  expect(await confirmV2(result.review_token, "交通出行", "食品采购")).toEqual(invalid);
+  expect(await ledger()).toBeUndefined();
+
+  expect(await confirmV2(result.review_token, "食品酒水", "食品采购")).toMatchObject({ status: "recorded" });
+  expect((await ledger()).data.transactions).toMatchObject([{ category: "食品酒水", subcategory: "食品采购" }]);
+});
+
+it("normalizes a legacy 食品采购 rule and reserves the detail for 食品酒水", async () => {
+  await expect(setBetaRule("清泉咖啡", "交通出行", "食品采购", true)).rejects.toMatchObject({ code: "22023" });
+  expect(await rpc("moneytrail_sms_set_merchant_rule", ["清泉咖啡", "本地生活", "食品采购"], owner)).toEqual({
+    rules: [{ merchant: "清泉咖啡", category: "食品酒水", subcategory: "食品采购" }],
+  });
 });
 
 it("allows explicitly recording only the first level even when a detail was suggested", async () => {
