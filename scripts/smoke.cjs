@@ -602,7 +602,7 @@ async function mobileTransactionEditorWorkflow(browser) {
     await category.selectOption("食品酒水");
     assert.equal(await subcategory.isEnabled(), true);
     assert.deepEqual(await subcategory.locator("option").allTextContents(), [
-      "未细分", "买菜食材", "堂食聚餐", "外卖", "咖啡奶茶", "零食饮料", "酒水", "烟酒副食", "自定义…",
+      "未细分", "买菜食材", "食品采购", "堂食聚餐", "外卖", "咖啡奶茶", "零食饮料", "酒水", "烟酒副食", "自定义…",
     ]);
     for (const [width, height] of [[430, 932], [390, 844], [320, 740]]) {
       await page.setViewportSize({ width, height });
@@ -621,18 +621,18 @@ async function mobileTransactionEditorWorkflow(browser) {
       assert(dateBox.x >= dateFrame.x && dateBox.x + dateBox.width <= dateFrame.x + dateFrame.width + 0.5, `${width}px: the native input stays inside its frame`);
       await noOverflow(page, `${width}px transaction editor`);
     }
-    await subcategory.selectOption("外卖");
+    await subcategory.selectOption("食品采购");
     assert.equal(await custom.count(), 0);
     await save.click();
     await editor.waitFor({ state: "detached" });
     let saved = (await data(page)).transactions[0];
     assert.equal(saved.category, "食品酒水");
-    assert.equal(saved.subcategory, "外卖");
+    assert.equal(saved.subcategory, "食品采购");
     assert.equal(saved.date, initial.date);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await edit.click();
-    assert.equal(await subcategory.inputValue(), "外卖");
+    assert.equal(await subcategory.inputValue(), "食品采购");
     await subcategory.selectOption({ label: "自定义…" });
     await custom.fill("值班夜宵");
     await save.click();
