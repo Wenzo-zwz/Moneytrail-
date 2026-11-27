@@ -63,7 +63,8 @@ import {
 } from "./lib/storage";
 import type { LedgerSaveOptions, LedgerStore } from "./lib/cloudStore";
 import { localLedgerStore } from "./lib/ledgerStore";
-import { categoryText, DetailField, SmsEvidenceDisclosure, TransactionDateInput } from "./components/TransactionMetadata";
+import { categoryText, DetailField, IncomeCategoryField, RefundOriginalField, SmsEvidenceDisclosure, TransactionDateInput } from "./components/TransactionMetadata";
+import { incomeCategoryLabel } from "./lib/incomeCategories";
 import { canOfferMerchantMemory } from "./components/merchantMemory";
 import AppUpdateSettings from "./components/AppUpdateSettings";
 import QuickStartSettings from "./components/QuickStartSettings";
@@ -274,7 +275,7 @@ function TransactionEditor({
   const automaticMerchant = useRef<string | null>(null);
   const canRemember = canLearn && canOfferMerchantMemory(memoryOriginal, draft, explicitChoice, isNew);
   function withPersonalCategory(next: DraftTransaction) {
-    if (!isNew || explicitChoice) return next;
+    if (!isNew || explicitChoice || next.kind === "income") return next;
     const match = next.kind === "expense" ? classifyMerchant(next.merchant, merchantRules) : null;
     if (match?.reason === "个人商户规则") return { ...next, category: match.category, subcategory: match.subcategory || "未细分" };
     return automaticMerchant.current ? { ...next, category: initial.category, subcategory: initial.subcategory } : next;
@@ -283,6 +284,19 @@ function TransactionEditor({
     const classified = withPersonalCategory(next);
     automaticMerchant.current = isNew && !explicitChoice && next.kind === "expense" && classifyMerchant(next.merchant, merchantRules).reason === "个人商户规则" ? merchantKey(next.merchant) : null;
     setDraft(classified);
+  }
+  function changeKind(kind: TransactionKind) {
+    if (kind === draft.kind) return;
+    const next = { ...draft, kind };
+    if (kind === "income") {
+      next.category = "其他";
+      next.subcategory = incomeCategoryLabel();
+    } else if (draft.kind === "income") {
+      next.category = "待分类";
+      delete next.subcategory;
+    }
+    if (kind !== "refund") delete next.linkedTransactionId;
+    applyPersonalCategory(next);
   }
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -297,7 +311,7 @@ function TransactionEditor({
       amountCents: cents,
       merchant: draft.merchant.trim(),
       note: draft.note.trim(),
-      ...(classified.subcategory ? { subcategory: classified.subcategory.trim() || "未细分" } : {}),
+      ...(classified.kind !== "income" && classified.subcategory ? { subcategory: classified.subcategory.trim() || "未细分" } : {}),
     });
     if (next.kind !== "refund") delete next.linkedTransactionId;
     if (!validateTransaction({ ...next, id: "validation" })) {
@@ -319,12 +333,7 @@ function TransactionEditor({
               <select
                 id="tx-kind"
                 value={draft.kind}
-                onChange={(e) =>
-                  applyPersonalCategory({
-                    ...draft,
-                    kind: e.target.value as TransactionKind,
-                  })
-                }
+                onChange={(e) => changeKind(e.target.value as TransactionKind)}
               >
                 {Object.entries(KIND_NAMES).map(([k, v]) => (
                   <option key={k} value={k}>
@@ -368,7 +377,10 @@ function TransactionEditor({
               <label htmlFor="tx-date">发生时间</label>
               <TransactionDateInput id="tx-date" value={draft.date} onChange={date => setDraft({ ...draft, date })} />
             </div>
-            <div className="form-field full transaction-editor-categories">
+            {draft.kind === "income" ? <IncomeCategoryField full value={draft.subcategory} onChange={subcategory => {
+              automaticMerchant.current = null;
+              setDraft({ ...draft, category: "其他", subcategory });
+            }} /> : <div className="form-field full transaction-editor-categories">
               <div className="form-field">
                 <label htmlFor="tx-category">一级分类</label>
                 <select
@@ -395,39 +407,22 @@ function TransactionEditor({
                   setDraft({ ...draft, subcategory });
                 }}
               />
-            </div>
-            {draft.platform && <div className="form-field"><label>消费平台</label><p className="help-text">{draft.platform}</p></div>}
+            </div>}
+            {draft.kind !== "income" && draft.platform && <div className="form-field"><label>消费平台</label><p className="help-text">{draft.platform}</p></div>}
             {draft.kind === "refund" && (
-              <div className="form-field full">
-                <label htmlFor="tx-linked">关联原消费（可选）</label>
-                <select
-                  id="tx-linked"
-                  value={draft.linkedTransactionId ?? ""}
-                  onChange={(e) => {
-                    const original = transactions.find(
-                      (t) => t.id === e.target.value,
-                    );
-                    setDraft({
-                      ...draft,
-                      linkedTransactionId: e.target.value || undefined,
-                      category: original?.category ?? draft.category,
-                      subcategory: original ? original.subcategory : draft.subcategory,
-                      platform: original ? original.platform : draft.platform,
-                    });
-                  }}
-                >
-                  <option value="">暂不关联</option>
-                  {transactions
-                    .filter((t) => t.kind === "expense")
-                    .sort((a, b) => b.date.localeCompare(a.date))
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.date.slice(0, 10)} · {t.merchant} ·{" "}
-                        {formatMoney(t.amountCents)}
-                      </option>
-                    ))}
-                </select>
-              </div>
+              <RefundOriginalField full value={draft.linkedTransactionId}
+                other={transactions.filter(t => t.kind === "expense").sort((a, b) => b.date.localeCompare(a.date))}
+                onChange={id => {
+                  const original = transactions.find(t => t.id === id && t.kind === "expense");
+                  setDraft({
+                    ...draft,
+                    linkedTransactionId: original?.id,
+                    category: original?.category ?? draft.category,
+                    subcategory: original ? original.subcategory : draft.subcategory,
+                    platform: original ? original.platform : draft.platform,
+                  });
+                }}
+              />
             )}
             <div className="form-field full">
               <label htmlFor="tx-note">备注（可选）</label>
@@ -641,7 +636,7 @@ export default function App({
       (category === "全部" || t.category === category) &&
       (kindFilter === "全部" || t.kind === kindFilter
         || (kindFilter === "spending" && (t.kind === "expense" || t.kind === "refund"))) &&
-      `${t.merchant} ${t.note} ${t.category} ${t.subcategory || "未细分"} ${t.platform || ""}`
+      `${t.merchant} ${t.note} ${t.kind === "income" ? incomeCategoryLabel(t.subcategory) : `${t.category} ${t.subcategory || "未细分"} ${t.platform || ""}`}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );

@@ -62,7 +62,7 @@ describe("iPhone shortcut setup guidance", () => {
     expect(markup).toContain("建设银行");
     expect(markup).toContain("招商银行");
     expect(markup).toContain("工行版模板");
-    expect(markup).toContain("新收入全部先待确认");
+    expect(markup).toContain("待确认里可核对收入用途");
     expect(markup).toContain("银行选择仅用于查看配置步骤");
   });
 

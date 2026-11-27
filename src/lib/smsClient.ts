@@ -24,7 +24,7 @@ export type SmsDraft = {
   category: string;
   source: "sms";
   note: string;
-} & Pick<DraftTransaction, "subcategory" | "platform" | "smsEvidence">;
+} & Pick<DraftTransaction, "subcategory" | "platform" | "smsEvidence" | "linkedTransactionId">;
 export type SmsInboxItem = {
   id: string;
   received_at: string;
@@ -103,11 +103,15 @@ function text(value: unknown, max: number, nonempty = false): string {
 }
 
 function readDraft(value: unknown): SmsDraft {
-  const draft = record(value, DRAFT_KEYS, ["subcategory", "platform", "smsEvidence"]);
+  const draft = record(value, DRAFT_KEYS, ["subcategory", "platform", "smsEvidence", "linkedTransactionId"]);
   if (typeof draft.kind !== "string" || !KINDS.includes(draft.kind)
     || !Number.isSafeInteger(draft.amountCents) || (draft.amountCents as number) <= 0 || (draft.amountCents as number) > 1_000_000_000_000
     || !isValidLocalDateTime(draft.date) || !validReadCategory(draft.category) || draft.source !== "sms") return failFormat();
-  const metadata: Pick<SmsDraft, "subcategory" | "platform" | "smsEvidence"> = {};
+  const metadata: Pick<SmsDraft, "subcategory" | "platform" | "smsEvidence" | "linkedTransactionId"> = {};
+  if (Object.hasOwn(draft, "linkedTransactionId")) {
+    if (draft.kind !== "refund") return failFormat();
+    metadata.linkedTransactionId = text(draft.linkedTransactionId, 128, true);
+  }
   if (Object.hasOwn(draft, "subcategory")) metadata.subcategory = text(draft.subcategory, 40, true);
   if (Object.hasOwn(draft, "platform")) {
     if (!["美团", "京东", "淘宝", "天猫", "拼多多", "滴滴"].includes(draft.platform as string)) return failFormat();

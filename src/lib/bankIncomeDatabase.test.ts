@@ -21,6 +21,13 @@ async function candidate(message: string | null) {
   return (await db.query<{ r: boolean }>('select moneytrail_private.sms_income_candidate($1) r', [message])).rows[0].r;
 }
 async function receive(token: string, message: string) { return rpc('moneytrail_receive_sms', [token, message]); }
+async function recentCredit(purpose: string, minutesAgo = 0) {
+  const { stamp } = (await db.query<{ stamp: string }>(`select to_char(
+    (clock_timestamp() at time zone 'Asia/Shanghai') - $1::integer * interval '1 minute',
+    'YYYY年MM月DD日HH24:MI'
+  ) stamp`, [minutesAgo])).rows[0];
+  return income.replace('11月10日14:50', stamp).replace('2026年10月工资', purpose);
+}
 async function rows(table: string) { return (await db.query(`select row_to_json(t)::text value from ${table} t order by row_to_json(t)::text`)).rows; }
 async function definitions() {
   return (await db.query(`select n.nspname,p.proname,pg_get_functiondef(p.oid) definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace
@@ -51,7 +58,7 @@ it('extracts the independent salary amount and transaction date, preserving the 
   expect(result).toMatchObject({ requires_review: true, error: null, draft: {
     kind: 'income', amountCents: 1812345, date: '2026-11-10T14:50', merchant: '2026年10月工资', category: '其他', subcategory: '工资', source: 'sms', note: '',
   } });
-  expect(result.warnings.join('')).toContain('本人确认');
+  expect(result.warnings.join('')).toContain('请核对此笔资金流入');
   expect(result.draft.smsEvidence.text).toContain('2026年10月工资');
   expect(result.draft.smsEvidence.text).not.toMatch(/0000|1xxx/);
   expect(result.draft.smsEvidence.receivedAt).toBe('2026-11-10T07:00:00.000000Z');
@@ -81,7 +88,7 @@ it.each(['0', '-18123.45', '18123.456', '18,12.45', '1,81,234.50', '100000000000
 });
 
 it.each([
-  ['工资退款', 'refund'], ['工资冲正', 'refund'], ['工资退回', 'refund'],
+  ['工资退款', 'refund'], ['微信支付-清泉咖啡退款', 'refund'],
   ['本人账户互转', 'transfer'], ['本人账户转入', 'transfer'], ['同名账户转账', 'transfer'],
   ['理财赎回', 'transfer'], ['贷款到账', 'transfer'], ['借款', 'transfer'],
 ])('keeps %s distinct from earned income', async (purpose, kind) => {
@@ -89,6 +96,14 @@ it.each([
   expect(result).toMatchObject({ requires_review: true, error: null, draft: { kind, amountCents: 1812345, merchant: purpose, category: '待分类' } });
   expect(result.draft).not.toHaveProperty('subcategory');
   expect(result.warnings.join('')).toMatch(/退款|资金周转/);
+});
+
+it.each(['工资冲正', '工资退回', '商户退款申请', '退款请求', '退款已受理', '退款冲正', '退款明日到账'])('keeps ambiguous credit purpose %s pending without preselecting refund', async purpose => {
+  const raw = await recentCredit(purpose);
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  expect(await receive(token, raw)).toMatchObject({ status: 'pending' });
+  expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ raw_text: raw, draft: null, reason: expect.stringContaining('退款状态或用途不明确') });
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
 });
 
 it.each(['转账', '汇款', '工资转账', '不明转入工资', '工资存入', '工资汇入', '资金往来', '未知用途'])('requires manual type selection for ambiguous inflows: %s', async purpose => {
@@ -151,7 +166,7 @@ it.each([
   income, income.replace('【工商银行】', '【中国工商银行】'), income.replace('工商银行收入', '中国工商银行收入'),
 ])('keeps ICBC own-name body repetitions distinct from a conflicting bank claim: %s', async raw => {
   expect(await candidate(raw)).toBe(true);
-  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  const { token } = await rpc('moneytrail_sms_rotate', ['review']);
   expect(await receive(token, raw)).toMatchObject({ status: 'pending' });
   if (!raw.includes('中国工商银行收入')) expect((await parse(raw)).draft).toMatchObject({ kind: 'income', amountCents: 1812345 });
   expect(await rows('public.moneytrail_ledgers')).toEqual([]);
@@ -173,21 +188,85 @@ it.each([
   expect(await rows('public.moneytrail_ledgers')).toEqual([]);
 });
 
-it.each(['auto', 'review'])('keeps salary pending through receive, preview, apply and reprocess in %s mode', async mode => {
+it.each([['auto', 8 * 24 * 60], ['auto', -15], ['review', 0]] as const)('keeps salary pending through receive, preview, apply and reprocess in %s mode with a %i-minute offset', async (mode, minutesAgo) => {
+  const raw = await recentCredit('工资', minutesAgo);
   const { token } = await rpc('moneytrail_sms_rotate', [mode]);
-  const receipt = await receive(token, income);
+  const receipt = await receive(token, raw);
   expect(receipt.status).toBe('pending');
-  expect(await receive(token, income)).toEqual({ accepted: true, status: 'duplicate', id: receipt.id });
+  expect(await receive(token, raw)).toEqual({ accepted: true, status: 'duplicate', id: receipt.id });
   const preview = await rpc('moneytrail_sms_preview_pending');
   expect(preview).toMatchObject({ pending_count: 1, recordable_count: 0, items: [{ id: receipt.id, eligible: false, draft: { kind: 'income' } }] });
   await expect(rpc('moneytrail_sms_apply_pending', [[{ id: receipt.id, draft: preview.items[0].draft }]])).rejects.toMatchObject({ code: 'PT409' });
   if (mode === 'auto') expect(await rpc('moneytrail_sms_reprocess_pending')).toEqual({ recorded_count: 0, pending_count: 1 });
-  expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ raw_text: income, status: 'pending', transaction_id: null });
+  expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ raw_text: raw, status: 'pending', transaction_id: null });
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+});
+
+it.each(['工资', '代发工资', '2026年10月工资', '清泉科技有限公司2026年10月代发工资'])('automatically records only a verified current ICBC salary: %s', async purpose => {
+  const raw = await recentCredit(purpose);
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  const receipt = await receive(token, raw);
+  expect(receipt).toMatchObject({ accepted: true, status: 'recorded' });
+  expect(await receive(token, raw)).toEqual({ accepted: true, status: 'duplicate', id: receipt.id });
+  const saved = (await db.query<{ data: any }>('select data from public.moneytrail_ledgers where user_id=$1', [A])).rows[0].data;
+  expect(saved.transactions).toMatchObject([{ id: `sms-${receipt.id}`, kind: 'income', category: '其他', subcategory: '工资', amountCents: 1812345, merchant: purpose,
+    smsEvidence: { classificationReason: '工行明确工资到账：自动记账' } }]);
+  expect(saved.transactions[0].smsEvidence.text).not.toMatch(/0000|1xxx/);
+  expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ status: 'recorded', raw_text: null, transaction_id: `sms-${receipt.id}`, warnings: [] });
+});
+
+it('keeps plausible salary duplicates pending even with different raw messages', async () => {
+  const raw = await recentCredit('工资');
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  expect(await receive(token, raw)).toMatchObject({ status: 'recorded' });
+  const another = raw.replace('1xxx', '2xxx');
+  expect(await receive(token, another)).toMatchObject({ status: 'pending' });
+  const pending = (await rpc('moneytrail_sms_inbox')).items.find((item: { status: string }) => item.status === 'pending');
+  expect(pending).toMatchObject({ raw_text: another, warnings: expect.arrayContaining([expect.stringContaining('可能重复')]) });
+  const saved = (await db.query<{ data: any }>('select data from public.moneytrail_ledgers where user_id=$1', [A])).rows[0].data;
+  expect(saved.transactions).toHaveLength(1);
+});
+
+it.each(['review', 'auto', 'iphone'])('honors the %s V2 preference for a clear salary', async mode => {
+  const { token } = await rpc('moneytrail_sms_rotate', ['review']);
+  await rpc('moneytrail_sms_beta_set_preferences', [mode, 'secondary']);
+  const raw = await recentCredit('代发工资');
+  const receipt = await rpc('moneytrail_sms_beta_prepare_v2', [token, raw]);
+  expect(receipt).toMatchObject({ accepted: true, review_token: '', category_depth: 'secondary' });
+  if (mode === 'review') {
+    expect(receipt.status).toBe('pending');
+    expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+  } else {
+    expect(receipt).toMatchObject({ status: 'recorded', amount: '18123.45', category: '收入', subcategory: '工资' });
+    const saved = (await db.query<{ data: any }>('select data from public.moneytrail_ledgers where user_id=$1', [A])).rows[0].data;
+    expect(saved.transactions).toMatchObject([{ id: `sms-${receipt.id}`, kind: 'income', category: '其他', subcategory: '工资' }]);
+  }
+  expect((await rpc('moneytrail_sms_config')).mode).toBe(mode === 'auto' ? 'auto' : 'review');
+});
+
+it('keeps the original beta salary route review-only, including for accounts opting into phone classification', async () => {
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  await rpc('moneytrail_sms_beta_set_preferences', ['iphone', 'primary']);
+  const receipt = await rpc('moneytrail_sms_beta_prepare', [token, await recentCredit('工资')]);
+  expect(receipt).toEqual({ accepted: true, status: 'pending', review_token: '', id: expect.any(String) });
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+});
+
+it.each(['工资转账', '工资冲正', '本月薪资', '工资补贴', '年终奖金', '清泉科技有限公司测试工资'])('does not auto-record non-exact salary purpose %s', async purpose => {
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  expect(await receive(token, await recentCredit(purpose))).toMatchObject({ status: 'pending' });
+  expect(await rows('public.moneytrail_ledgers')).toEqual([]);
+});
+
+it.each(['退款失败', '预计退款', '退款处理中'])('does not treat an incomplete refund notice as a bank credit: %s', async purpose => {
+  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  await expect(receive(token, await recentCredit(purpose))).rejects.toMatchObject({ code: '22023' });
+  expect((await rpc('moneytrail_sms_inbox')).total).toBe(0);
   expect(await rows('public.moneytrail_ledgers')).toEqual([]);
 });
 
 it('requires the owner to confirm income, never learns an expense rule, and preserves locked raw evidence', async () => {
-  const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
+  const { token } = await rpc('moneytrail_sms_rotate', ['review']);
   const receipt = await receive(token, income);
   const draft = (await rpc('moneytrail_sms_inbox')).items[0].draft;
   await user(B);
@@ -219,9 +298,12 @@ it('lets the owner complete a masked amount manually without deriving it from th
   expect((await rpc('moneytrail_sms_inbox')).items[0]).toMatchObject({ raw_text: null, status: 'recorded' });
 });
 
-it.each(['工资退款', '本人账户互转'])('also holds reclassified %s for manual confirmation in automatic mode', async purpose => {
+it.each([['消费退款', 'refund'], ['消费财付通-清泉咖啡退款', 'refund'], ['支付宝-清泉咖啡退款', 'refund'], ['本人账户互转', 'transfer']])('holds a recent credited %s for manual confirmation in automatic mode', async (purpose, kind) => {
   const { token } = await rpc('moneytrail_sms_rotate', ['auto']);
-  expect(await receive(token, income.replace('2026年10月工资', purpose))).toMatchObject({ status: 'pending' });
+  expect(await receive(token, await recentCredit(purpose))).toMatchObject({ status: 'pending' });
+  const { draft: candidateDraft } = (await rpc('moneytrail_sms_inbox')).items[0];
+  expect(candidateDraft).toMatchObject({ kind, amountCents: 1812345, category: '待分类' });
+  expect(candidateDraft).not.toHaveProperty('linkedTransactionId');
   expect((await rpc('moneytrail_sms_preview_pending')).recordable_count).toBe(0);
   expect(await rpc('moneytrail_sms_reprocess_pending')).toEqual({ recorded_count: 0, pending_count: 1 });
   expect(await rows('public.moneytrail_ledgers')).toEqual([]);

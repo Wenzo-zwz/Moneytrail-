@@ -3,13 +3,15 @@ import SmsShortcutSetup from "./SmsShortcutSetup";
 import SmsActivitySummary from "./SmsActivitySummary";
 import { getCompatibleBankActivityTemplate, getCompatibleSmsShortcutTemplate } from "../lib/bankOnboarding";
 import { getReleasedBankSmsV4 } from "../lib/bankRulesV4";
-import { categoryText, DetailField, TransactionDateInput } from "./TransactionMetadata";
+import { categoryText, DetailField, IncomeCategoryField, RefundOriginalField, TransactionDateInput } from "./TransactionMetadata";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, LockKeyhole, MessageSquare, RefreshCw, ShieldCheck, Smartphone, X } from "lucide-react";
-import { CATEGORIES, formatMoney, isValidLocalDateTime, parseAmount } from "../lib/ledger";
+import { CATEGORIES, formatMoney, isValidLocalDateTime, parseAmount, type Transaction } from "../lib/ledger";
 import { readCloudConfig } from "../lib/cloudConfig";
 import type { CloudStore } from "../lib/cloudStore";
+import { incomeCategoryLabel } from "../lib/incomeCategories";
+import { refundCandidates } from "../lib/refundCandidates";
 import { SmsSetupError, confirmSms, dismissSms, fetchPendingSmsInbox, fetchSmsConfig, fetchSmsInbox, fetchSmsPreferences, revokeSmsToken, rotateSmsToken, setSmsMode, setSmsPreferences, type SmsConfig, type SmsDraft, type SmsInbox, type SmsInboxItem, type SmsPreferences } from "../lib/smsClient";
 import type { MerchantRule } from "../lib/merchantClassification";
 import type { SmsBankCode } from "../lib/smsBanks";
@@ -43,14 +45,17 @@ function receivedTime(value: string | null) {
   return Number.isFinite(date.getTime()) ? `${dateTime.format(date)}（北京时间）` : "—";
 }
 
-function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: SmsInboxItem; busy: boolean; canConfirm: boolean; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
+function InboxCard({ item, store, busy, canConfirm, onConfirm, onDismiss }: { item: SmsInboxItem; store: CloudStore; busy: boolean; canConfirm: boolean; onConfirm: (id: string, draft: SmsDraft, remember: boolean) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<SmsDraft["kind"] | "">(item.draft?.kind ?? "");
   const [amount, setAmount] = useState(item.draft ? (item.draft.amountCents / 100).toFixed(2) : "");
   const [date, setDate] = useState(item.draft?.date ?? "");
   const [merchant, setMerchant] = useState(item.draft?.merchant ?? "");
-  const [category, setCategory] = useState(item.draft?.category ?? "待分类");
-  const [subcategory, setSubcategory] = useState(item.draft?.subcategory);
+  const [category, setCategory] = useState(item.draft?.kind === "income" ? "待分类" : item.draft?.category ?? "待分类");
+  const [subcategory, setSubcategory] = useState(item.draft?.kind === "income" ? undefined : item.draft?.subcategory);
+  const [incomeCategory, setIncomeCategory] = useState(incomeCategoryLabel(item.draft?.kind === "income" ? item.draft.subcategory : undefined));
+  const [linkedTransactionId, setLinkedTransactionId] = useState("");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [note, setNote] = useState(item.draft?.note ?? "");
   const [error, setError] = useState("");
   const [explicitChoice, setExplicitChoice] = useState(false);
@@ -60,14 +65,41 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
   const kindLabel = kinds.find(option => option.value === item.draft?.kind)?.label ?? "交易类型待核对";
   const amountPrefix = item.draft?.kind === "expense" ? "−" : item.draft?.kind === "income" || item.draft?.kind === "refund" ? "+" : "";
   const amountClass = item.draft?.kind === "income" || item.draft?.kind === "refund" ? "text-success" : item.draft?.kind === "transfer" ? "text-muted" : undefined;
+  const editingRefund = editing && kind === "refund";
+  useEffect(() => {
+    if (!editingRefund) return;
+    function updateTransactions() { setTransactions(store.loadData().data.transactions); }
+    updateTransactions();
+    return store.subscribe(updateTransactions);
+  }, [editingRefund, store]);
+  const originals = editingRefund ? refundCandidates(transactions, { date, merchant, amountCents: parseAmount(amount) ?? 0 }) : null;
+  const original = linkedTransactionId && originals
+    ? originals.suggested.find(transaction => transaction.id === linkedTransactionId) ?? originals.other.find(transaction => transaction.id === linkedTransactionId)
+    : undefined;
+  function changeKind(next: SmsDraft["kind"] | "") {
+    setKind(next);
+    setLinkedTransactionId("");
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !canConfirm) return;
     if (!kind) { setError("请选择交易类型。"); return; }
     const cents = parseAmount(amount);
     if (!cents || !isValidLocalDateTime(date) || !merchant.trim() || merchant.length > 200) { setError("请填写有效的金额、时间和商户。"); return; }
+    if (linkedTransactionId && !original) { setError("所选原消费已不可关联，请重新选择或暂不关联。"); return; }
     setError("");
-    await onConfirm(item.id, { ...item.draft, kind, amountCents: cents, date, merchant: merchant.trim(), category, ...(subcategory ? { subcategory: subcategory.trim() || "未细分" } : {}), source: "sms", note }, canRemember && remember);
+    const chosenCategory = kind === "income" ? "其他" : original?.category ?? category;
+    const chosenDetail = kind === "income" ? incomeCategory : original ? original.subcategory : subcategory?.trim();
+    const next: SmsDraft = { ...item.draft, kind, amountCents: cents, date, merchant: merchant.trim(), category: chosenCategory, source: "sms", note };
+    if (chosenDetail) next.subcategory = chosenDetail;
+    else delete next.subcategory;
+    delete next.linkedTransactionId;
+    if (original) {
+      next.linkedTransactionId = original.id;
+      if (original.platform) next.platform = original.platform;
+      else delete next.platform;
+    }
+    await onConfirm(item.id, next, canRemember && remember);
   }
   return <article className={`sms-message ${item.status}`}>
     <div className="sms-message-heading"><span className={`sms-status ${item.status}`}>{pending ? "待确认" : item.status === "recorded" ? "已入账" : "已忽略"}</span><time dateTime={item.received_at}>{receivedTime(item.received_at)}</time></div>
@@ -79,12 +111,16 @@ function InboxCard({ item, busy, canConfirm, onConfirm, onDismiss }: { item: Sms
       {item.raw_text && <details className="sms-original"><summary>查看短信原文<ChevronDown size={14} /></summary><p>{item.raw_text}</p></details>}
       <button className="sms-edit-toggle" type="button" aria-expanded={editing} aria-controls={`sms-form-${item.id}`} onClick={() => setEditing(value => !value)}>{editing ? "收起核对" : "核对并记录"}<ChevronDown size={16} className={editing ? "expanded" : undefined} /></button>
       {editing && <form className="sms-review-form" id={`sms-form-${item.id}`} onSubmit={submit}>
-        <label>交易类型<select required value={kind} onChange={event => setKind(event.target.value as SmsDraft["kind"] | "")} disabled={busy}>{!item.draft && <option value="" disabled>请选择交易类型</option>}{kinds.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>交易类型<select required value={kind} onChange={event => changeKind(event.target.value as SmsDraft["kind"] | "")} disabled={busy}>{!item.draft && <option value="" disabled>请选择交易类型</option>}{kinds.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>金额（元）<input type="text" inputMode="decimal" required autoComplete="off" maxLength={20} value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label>
         <label>交易时间<TransactionDateInput value={date} onChange={setDate} disabled={busy} /></label>
         <label>商户或用途<input type="text" required autoComplete="off" maxLength={200} value={merchant} onChange={event => setMerchant(event.target.value)} disabled={busy} /></label>
-        <label>分类<select value={category} onChange={event => { setExplicitChoice(true); setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
-        <DetailField category={category} value={subcategory} onChange={value => { setExplicitChoice(true); setSubcategory(value); }} disabled={busy} />
+        {originals && <RefundOriginalField full value={linkedTransactionId} onChange={setLinkedTransactionId} suggested={originals.suggested} other={originals.other} disabled={busy} />}
+        {kind === "income" ? <IncomeCategoryField value={incomeCategory} onChange={setIncomeCategory} disabled={busy} /> : <>
+          <label>分类<select value={original?.category ?? category} onChange={event => { setExplicitChoice(true); setCategory(event.target.value); setSubcategory("未细分"); }} disabled={busy || Boolean(original)}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+          <DetailField key={original?.id ?? ""} category={original?.category ?? category} value={original ? original.subcategory : subcategory} onChange={value => { setExplicitChoice(true); setSubcategory(value); }} disabled={busy || Boolean(original)} />
+        </>}
+        {original?.platform && <p className="sms-form-hint">消费平台 {original.platform}</p>}
         {canRemember && <label className="sms-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy} />以后这家都这样分类</label>}
         <label>备注<input type="text" autoComplete="off" maxLength={2000} value={note} onChange={event => setNote(event.target.value)} disabled={busy} /></label>
         {kind === "transfer" && <p className="sms-form-hint">转账会保留记录，不计入消费支出。</p>}
@@ -110,11 +146,11 @@ function SmsRecordingOptions({ preferences, iphoneAvailable, disabled, onChange 
       <legend>收到短信后</legend>
       <label className={mode === "auto" ? "selected" : undefined}>
         <input type="radio" name="sms-mode" value="auto" checked={mode === "auto"} onChange={() => changeMode("auto")} />
-        <span><strong>自动记录明确消费</strong><small>明确消费和已识别的本人资金周转可入账；不明用途继续核对</small></span>
+        <span><strong>自动记录明确消费</strong><small>工行明确消费、明确工资和已识别的本人资金周转可自动入账</small></span>
       </label>
       {iphoneAvailable && <label className={mode === "iphone" ? "selected" : undefined}>
         <input type="radio" name="sms-mode" value="iphone" checked={mode === "iphone"} onChange={() => changeMode("iphone")} />
-        <span><strong>在 iPhone 确认</strong><small>用支持分类确认的快捷指令，在 iPhone 上为符合条件的工行支出选分类</small></span>
+        <span><strong>在 iPhone 确认</strong><small>符合条件的工行支出在 iPhone 上选分类，明确工资自动入账</small></span>
       </label>}
       <label className={mode === "review" ? "selected" : undefined}>
         <input type="radio" name="sms-mode" value="review" checked={mode === "review"} onChange={() => changeMode("review")} />
@@ -307,10 +343,10 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
       <button className="button secondary small" disabled={busy} onClick={pendingOnly ? refresh : () => void refreshInbox()} aria-label={pendingOnly ? "刷新待确认短信" : "刷新收件箱"}><RefreshCw size={15} />刷新</button>
     </div>
     {(pendingOnly ? inbox.total > 0 : (config?.pending_count ?? 0) > 0) && !canConfirm && <p className="sms-sync-hint" role="status">当前账本尚未完成同步。请先返回账本同步或处理冲突，再确认短信，避免覆盖本机修改。</p>}
-    {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty">
+    {inbox.items.length ? <div className="sms-messages">{inbox.items.map(item => <InboxCard key={`${userId}:${item.id}:${item.status}`} item={item} store={store} busy={busy} canConfirm={canConfirm} onConfirm={confirm} onDismiss={dismiss} />)}</div> : <div className="sms-inbox-empty">
       <MessageSquare size={30} />
       {pendingOnly ? <h2>没有待确认的短信</h2> : <>
-        <h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>收入与群收款先待确认 · 相同短信 24 小时内去重</span>
+        <h3>等待第一条银行交易短信</h3><p>完成 iPhone 自动化后，新收到的符合条件的银行收支短信会出现在这里。</p><span>退款与群收款先待确认 · 相同短信 24 小时内去重</span>
       </>}
     </div>}
     {inbox.total > PAGE_SIZE && <div className="sms-pagination"><button className="button ghost small" disabled={busy || page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft size={15} />上一页</button><span>{inbox.page} / {Math.max(1, Math.ceil(inbox.total / inbox.page_size))}</span><button className="button ghost small" disabled={busy || inbox.page * inbox.page_size >= inbox.total} onClick={() => setPage(value => value + 1)}>下一页<ChevronRight size={15} /></button></div>}
@@ -334,7 +370,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
         </div></details>
         <SmsClassificationTools key={userId} client={client} userId={userId} store={store} busy={busy} canWrite={canConfirm} iphoneAvailable={Boolean(storedPreferences)} run={action => run(action, false)} onServerWrite={refresh} onRulesChanged={onRulesChanged} />
         <div className={`sms-main-grid${config.enabled && config.pending_count > 0 ? " has-pending" : ""}`}>
-          <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">工行明确消费按下方方式处理。五家银行的收入候选、农中建招支出均先待确认。</p>
+          <section className="sms-setup-card" aria-labelledby="sms-setup-title"><div className="sms-section-heading"><div><p className="sms-eyebrow">CAPTURE SETTINGS</p><h2 id="sms-setup-title">接收与记录</h2></div><Smartphone size={23} /></div><p className="sms-section-description">工行明确消费按下方方式处理。自动记录和 iPhone 确认模式下，工行明确工资自动入账。退款、其余收入及农中建招支出先待确认。</p>
             <SmsRecordingOptions preferences={preferences} iphoneAvailable={Boolean(storedPreferences)} disabled={busy || settingsUnavailable} onChange={setPreferences} />
             {current?.preferencesError && <p className="sms-group-rule" role="alert">{current.preferencesError}</p>}
             <p className="sms-group-rule"><ShieldCheck size={15} />“财付通-群收款”始终待确认，由你判断是消费还是转账。</p>
@@ -379,7 +415,7 @@ export default function SmsAutomationPanel({ client, userId, projectUrl, onBack,
         <button className="button ghost" onClick={() => setRevealed(value => !value)}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}{revealed ? "隐藏令牌" : "显示令牌"}</button>
       </div>
       {iphoneMode ? <p>保存后按「在 iPhone 上接入」的步骤签名并安装分类确认快捷指令。{categoryShortcutCompatible && <> <a className="button secondary small" href={categoryShortcutDownload} download={categoryShortcutFile}>下载未签名快捷指令</a></>}</p> : <>
-        {selectedTemplate && <p>复制后，<a className="button secondary small" href={selectedTemplate.url} target="_blank" rel="noopener noreferrer">{selectedActivityTemplate ? "打开收支模板安装页" : "打开支出模板安装页"}</a>，安装「{selectedTemplate.name}」并在导入问题中粘贴自己的令牌。{selectedActivityTemplate ? "此模板支持五家银行收支，收入先待确认。" : "此旧版仅接收支出，收入请使用下方的收入与支出快捷指令。"}</p>}
+        {selectedTemplate && <p>复制后，<a className="button secondary small" href={selectedTemplate.url} target="_blank" rel="noopener noreferrer">{selectedActivityTemplate ? "打开收支模板安装页" : "打开支出模板安装页"}</a>，安装「{selectedTemplate.name}」并在导入问题中粘贴自己的令牌。{selectedActivityTemplate ? "此模板支持五家银行收支，工行明确工资按记录方式处理。" : "此旧版仅接收支出，收入请使用下方的收入与支出快捷指令。"}</p>}
         {!selectedActivityTemplate && <p>收支新版的匹配规则和制作步骤在下方接入指引中；已有有效令牌可直接沿用。</p>}
       </>}
       <p className="sms-token-warning">令牌持有者可向你的收件箱提交短信。请勿发到聊天、公开仓库或分享链接中。</p>

@@ -1,12 +1,56 @@
 import { useId, useState } from "react";
-import type { DraftTransaction, SmsEvidence } from "../lib/ledger";
-
+import { formatMoney, type DraftTransaction, type SmsEvidence, type Transaction } from "../lib/ledger";
 import { EXPENSE_DETAILS } from "../lib/expenseCategories";
+import { INCOME_CATEGORIES, incomeCategoryLabel, type IncomeCategory } from "../lib/incomeCategories";
 
 const CUSTOM_DETAIL = "__custom__";
 
-export function categoryText(transaction: Pick<DraftTransaction, "category" | "subcategory" | "platform">) {
+export function categoryText(transaction: Pick<DraftTransaction, "category" | "subcategory" | "platform"> & Partial<Pick<DraftTransaction, "kind">>) {
+  if (transaction.kind === "income") return incomeCategoryLabel(transaction.subcategory);
   return `${transaction.category} · ${transaction.subcategory || "未细分"}${transaction.platform ? ` · ${transaction.platform}` : ""}`;
+}
+
+export function IncomeCategoryField({ value, onChange, disabled, full }: {
+  value?: string;
+  onChange: (value: IncomeCategory) => void;
+  disabled?: boolean;
+  full?: boolean;
+}) {
+  const id = useId();
+  return <div className={full ? "form-field full" : "form-field"}>
+    <label htmlFor={id}>收入类别</label>
+    <select id={id} value={incomeCategoryLabel(value)} onChange={event => onChange(incomeCategoryLabel(event.target.value))} disabled={disabled}>
+      {INCOME_CATEGORIES.map(category => <option key={category}>{category}</option>)}
+    </select>
+  </div>;
+}
+
+export function RefundOriginalField({ value, onChange, suggested, other, disabled, full }: {
+  value?: string;
+  onChange: (value: string) => void;
+  suggested?: Transaction[];
+  other: Transaction[];
+  disabled?: boolean;
+  full?: boolean;
+}) {
+  const id = useId();
+  const missing = Boolean(value && !suggested?.some(transaction => transaction.id === value) && !other.some(transaction => transaction.id === value));
+  function option(transaction: Transaction) {
+    return <option key={transaction.id} value={transaction.id}>
+      {transaction.date.replace("T", " ")} · {transaction.merchant} · {formatMoney(transaction.amountCents)}
+    </option>;
+  }
+  return <div className={full ? "form-field full" : "form-field"}>
+    <label htmlFor={id}>关联原消费（可选）</label>
+    <select id={id} value={value ?? ""} onChange={event => onChange(event.target.value)} disabled={disabled}>
+      <option value="">暂不关联</option>
+      {missing && <option value={value} disabled>所选原消费已不可关联</option>}
+      {suggested ? <>
+        {suggested.length > 0 && <optgroup label="建议关联">{suggested.map(option)}</optgroup>}
+        {other.length > 0 && <optgroup label="其他支出">{other.map(option)}</optgroup>}
+      </> : other.map(option)}
+    </select>
+  </div>;
 }
 
 export function TransactionDateInput({ id, value, onChange, disabled }: {
